@@ -41,8 +41,8 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 
 ### C. Never built in V2 or V3
 
-13. Formula functions (BQ-02/03): all except `SUM`, `AVERAGE`, `COUNT`, `MIN`, `MAX` (V2 also had `IF`). Includes SUMIF/SUMIFS, COUNTIF/COUNTIFS, AVERAGEIF/AVERAGEIFS, IFS/AND/OR/NOT/IFERROR, text, date, financial (PMT/FV/PV/NPV/IRR), info (ISBLANK etc., CELL), and lookups (XLOOKUP, VLOOKUP, HLOOKUP, INDEX, MATCH, OFFSET, INDIRECT, CHOOSE, FILTER, SORT, UNIQUE).
-14. Nested formulas / real formula parser (arguments are currently split on commas).
+13. ~~Formula functions (BQ-02/03): all except `SUM`, `AVERAGE`, `COUNT`, `MIN`, `MAX` (V2 also had `IF`). Includes SUMIF/SUMIFS, COUNTIF/COUNTIFS, AVERAGEIF/AVERAGEIFS, IFS/AND/OR/NOT/IFERROR, text, date, financial (PMT/FV/PV/NPV/IRR), info (ISBLANK etc., CELL), and lookups (XLOOKUP, VLOOKUP, HLOOKUP, INDEX, MATCH, OFFSET, INDIRECT, CHOOSE, FILTER, SORT, UNIQUE).~~ **Done — see Build Log 4.**
+14. ~~Nested formulas / real formula parser (arguments are currently split on commas).~~ **Done — see Build Log 4.**
 15. Conditional formatting: Top/Bottom rules, above/below average, 3-color heatmap, custom formula rules, entire-row toggle, preset palettes, plain-English rule summaries (BQ-05/06).
 16. Formula Wizard: category/keyword search, per-function argument fields with descriptions (BQ-07).
 17. Smart guessing for `IF` (5+ signatures), `XLOOKUP`/`VLOOKUP`, and `PMT` headers (BQ-08.2).
@@ -96,4 +96,18 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **Freeze layout rebuilt** from the real measured cell positions instead of guessed sizes. Fixed: frozen row/column were see-through (scrolled text showed through), row numbers piled up at the top while scrolling, and a divider line now marks the freeze edge. Keyboard navigation no longer scrolls the active cell underneath the frozen area.
 - [x] Changing the freeze no longer rebuilds the grid, so cell formatting (bold, colors, fonts) is no longer lost when you freeze or unfreeze. (Switching sheets / Time Travel still drops formatting — separate known issue.)
 - Note: new sheets still start frozen at 1 row + 1 column (unchanged); say the word if the default should be "nothing frozen".
+
+### Build Log 4 — Item 13: function library (+ no frozen panes by default)
+
+- [x] **New sheets (and the first sheet) now start with nothing frozen.** Freeze Panes… and Unfreeze work as before.
+- [x] **Math & aggregation:** SUM, AVERAGE, COUNT, COUNTA, MIN, MAX, MEDIAN, PRODUCT, ABS, SUBTOTAL (1–6, 9 and 101–106, 109), ROUND, ROUNDUP, ROUNDDOWN.
+- [x] **Conditional:** SUMIF, SUMIFS, COUNTIF, COUNTIFS, AVERAGEIF, AVERAGEIFS. Criteria can be numbers, text, comparisons (`">25"`, `"<>apple"`) and wildcards (`"ap*"`, `"?????"`).
+- [x] **Logic & errors:** IF, IFS, AND, OR, NOT, IFERROR.
+- [x] **Text:** CONCAT, TEXTJOIN, LEFT, RIGHT, MID, LEN, TRIM, CLEAN, UPPER, LOWER, PROPER, SUBSTITUTE.
+- [x] **Dates:** TODAY, NOW, DATE, DATEDIF (Y, M, D, MD, YM, YD), YEAR, MONTH, DAY, EOMONTH. Dates are stored as serial numbers; cells whose formula is a date function (DATE, TODAY, NOW, EOMONTH) display as `YYYY-MM-DD`.
+- [x] **Financial:** PMT, FV, PV, NPV, IRR (money paid out is negative; checked against published spreadsheet reference values).
+- [x] **Information:** ISBLANK, ISNUMBER, ISTEXT, ISERROR, ISERR, CELL (`address`, `row`, `col`, `contents`, `type`).
+- [x] **Lookups & references:** VLOOKUP, HLOOKUP, XLOOKUP (exact, next smaller/larger, wildcard, search direction, if-not-found), INDEX, MATCH, OFFSET, INDIRECT, CHOOSE, FILTER, SORT, UNIQUE.
+- [x] **Engine additions needed for the above:** blocks of cells (ranges) are now real 2-D values; operators work on whole ranges (`=A1:A10>5`, `=A1:A3*2`); results that are several cells (FILTER, SORT, UNIQUE, a bare `=A1:A5`, XLOOKUP returning a row) **spill** into the cells below / beside the formula, show `#SPILL!` if something is in the way, and update/shrink as the data changes. Formulas that read spilled cells work. Wrong argument counts return `#VALUE!`. New error codes: `#N/A`, `#SPILL!`, `#CALC!`.
+- Known limits (not in the queue, say if you want any): the `&` text-join operator is not supported (use CONCAT); SUBTOTAL does not skip filtered-out rows (filtering is queue item 19); dates before 1 Mar 1900 are off by one day; arithmetic on dates (`=TODAY()+7`) shows a plain number until number formats (item 12) exist; a spill that feeds another spilling formula more than two levels deep may need one extra edit to settle.
 

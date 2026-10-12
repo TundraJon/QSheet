@@ -898,7 +898,7 @@
         const COLS = 52;
 
         let sheets = [
-            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 1, freezeCols: 1 }
+            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0 }
         ];
         let currentSheetIdx = 0;
         let data = sheets[0].data;
@@ -1614,11 +1614,13 @@
         function setCellContent(cellId, value) {
             let coord = parseCellCoord(cellId);
             if (!data[cellId]) data[cellId] = { style: {} };
+            delete data[cellId].spillOf; // typing over a spilled cell takes it over
             if (value.startsWith('=')) {
                 data[cellId].formula = value;
                 data[cellId].value = evaluateFormula(value, coord.r, coord.c);
             } else {
                 data[cellId].formula = '';
+                delete data[cellId].display;
                 data[cellId].value = isNaN(value) || value.trim() === '' ? value : Number(value);
             }
             recalculateAll();
@@ -1634,7 +1636,7 @@
         class FormulaError extends Error {
             constructor(code) { super(code); this.code = code; }
         }
-        const ERROR_CODES = ['#ERROR!', '#NAME?', '#DIV/0!', '#REF!', '#VALUE!', '#CIRC!', '#NUM!'];
+        const ERROR_CODES = ['#ERROR!', '#NAME?', '#DIV/0!', '#REF!', '#VALUE!', '#CIRC!', '#NUM!', '#N/A', '#SPILL!', '#CALC!'];
         const astCache = new Map();
         let calcState = null; // { done, busy } while a recalculation pass is running
 
@@ -1783,7 +1785,34 @@
             return ast;
         }
 
+        // A block of cells (from a range, or the result of FILTER / SORT / UNIQUE ...). Values are row-major.
+        class RangeVal {
+            constructor(rows, cols, values) { this.rows = rows; this.cols = cols; this.values = values; }
+            get(r, c) { return this.values[r * this.cols + c]; }
+            row(r) { return new RangeVal(1, this.cols, this.values.slice(r * this.cols, (r + 1) * this.cols)); }
+            col(c) {
+                const v = [];
+                for (let r = 0; r < this.rows; r++) v.push(this.get(r, c));
+                return new RangeVal(this.rows, 1, v);
+            }
+        }
+        const isRange = v => v instanceof RangeVal;
+        const isBlank = v => v === '' || v === undefined || v === null;
+        const unwrap = v => {
+            if (!isRange(v)) return v;
+            if (v.rows === 1 && v.cols === 1) return v.values[0];
+            throw new FormulaError('#VALUE!');
+        };
+        const shrink = rv => (rv.rows === 1 && rv.cols === 1) ? rv.values[0] : rv;
+        const asRange = v => isRange(v) ? v : new RangeVal(1, 1, [v]);
+        const allValues = args => {
+            const out = [];
+            args.forEach(a => { if (isRange(a)) { for (const x of a.values) out.push(x); } else out.push(a); });
+            return out;
+        };
+
         function toNumber(v) {
+            v = unwrap(v);
             if (typeof v === 'number') return v;
             if (typeof v === 'boolean') return v ? 1 : 0;
             if (v === '' || v === undefined || v === null) return 0;
@@ -1792,6 +1821,7 @@
         }
 
         function toBoolean(v) {
+            v = unwrap(v);
             if (typeof v === 'boolean') return v;
             if (typeof v === 'number') return v !== 0;
             if (v === '' || v === undefined || v === null) return false;
@@ -1803,14 +1833,21 @@
             throw new FormulaError('#VALUE!');
         }
 
+        function toText(v) {
+            v = unwrap(v);
+            if (v === undefined || v === null) return '';
+            if (v === true) return 'TRUE';
+            if (v === false) return 'FALSE';
+            return String(v);
+        }
+
         function compareValues(a, b, op) {
-            const blank = v => v === '' || v === undefined || v === null;
             let x = a, y = b;
-            if (typeof x === 'number' && blank(y)) y = 0;
-            else if (typeof y === 'number' && blank(x)) x = 0;
-            else if (blank(x) && blank(y)) { x = ''; y = ''; }
-            else if (blank(x)) x = '';
-            else if (blank(y)) y = '';
+            if (typeof x === 'number' && isBlank(y)) y = 0;
+            else if (typeof y === 'number' && isBlank(x)) x = 0;
+            else if (isBlank(x) && isBlank(y)) { x = ''; y = ''; }
+            else if (isBlank(x)) x = '';
+            else if (isBlank(y)) y = '';
             let cmp;
             if (typeof x === 'number' && typeof y === 'number') cmp = x - y;
             else if (typeof x === 'boolean' && typeof y === 'boolean') cmp = (x ? 1 : 0) - (y ? 1 : 0);
@@ -1831,6 +1868,38 @@
             throw new FormulaError('#ERROR!');
         }
 
+        function scalarBinary(op, a, b) {
+            switch (op) {
+                case '+': return toNumber(a) + toNumber(b);
+                case '-': return toNumber(a) - toNumber(b);
+                case '*': return toNumber(a) * toNumber(b);
+                case '/': {
+                    const d = toNumber(b);
+                    if (d === 0) throw new FormulaError('#DIV/0!');
+                    return toNumber(a) / d;
+                }
+                case '^': return Math.pow(toNumber(a), toNumber(b));
+                default: return compareValues(a, b, op);
+            }
+        }
+
+        // Operators work element-by-element when either side is a block of cells (e.g. A1:A10>5)
+        function binaryOp(op, a, b) {
+            if (!isRange(a) && !isRange(b)) return scalarBinary(op, a, b);
+            const A = asRange(a), B = asRange(b);
+            const rows = Math.max(A.rows, B.rows), cols = Math.max(A.cols, B.cols);
+            if ((A.rows !== rows && A.rows !== 1) || (B.rows !== rows && B.rows !== 1) ||
+                (A.cols !== cols && A.cols !== 1) || (B.cols !== cols && B.cols !== 1)) throw new FormulaError('#VALUE!');
+            const out = [];
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    out.push(scalarBinary(op, A.get(A.rows === 1 ? 0 : r, A.cols === 1 ? 0 : c), B.get(B.rows === 1 ? 0 : r, B.cols === 1 ? 0 : c)));
+                }
+            }
+            return shrink(new RangeVal(rows, cols, out));
+        }
+
+        // ----- Cell / range access -----
         function computeCell(id) {
             const cell = data[id];
             if (!cell || !cell.formula) return;
@@ -1839,10 +1908,68 @@
             calcState.busy.add(id);
             try {
                 const coord = parseCellCoord(id);
-                cell.value = evalFormulaCore(cell.formula, coord.r, coord.c);
+                const result = evalFormulaCore(cell.formula, coord.r, coord.c);
+                if (isRange(result)) {
+                    if (writeSpill(id, result)) cell.value = result.values[0];
+                    else { releaseSpill(id); cell.value = '#SPILL!'; }
+                } else {
+                    releaseSpill(id);
+                    cell.value = result;
+                }
+                const shown = dateDisplayFor(cell.formula, cell.value);
+                if (shown !== undefined) cell.display = shown; else delete cell.display;
             } finally {
                 calcState.busy.delete(id);
                 calcState.done.add(id);
+            }
+        }
+
+        // Results that are blocks of cells (FILTER, SORT, UNIQUE, =A1:A5 ...) "spill" into the cells below / beside the formula
+        function releaseSpill(anchorId) {
+            const cell = data[anchorId];
+            if (!cell || !cell.spillIds) return;
+            cell.spillIds.forEach(id => { if (data[id] && data[id].spillOf === anchorId) delete data[id]; });
+            delete cell.spillIds;
+        }
+
+        function writeSpill(anchorId, rv) {
+            const anchor = parseCellCoord(anchorId);
+            if (anchor.r + rv.rows > ROWS || anchor.c + rv.cols > COLS) return false;
+            const own = new Set(data[anchorId].spillIds || []);
+            for (let r = 0; r < rv.rows; r++) {
+                for (let c = 0; c < rv.cols; c++) {
+                    if (r === 0 && c === 0) continue;
+                    const id = getCellId(anchor.r + r, anchor.c + c);
+                    const cell = data[id];
+                    if (cell && !own.has(id) && (cell.formula || (cell.value !== '' && cell.value !== undefined))) return false;
+                }
+            }
+            releaseSpill(anchorId);
+            const ids = [];
+            for (let r = 0; r < rv.rows; r++) {
+                for (let c = 0; c < rv.cols; c++) {
+                    if (r === 0 && c === 0) continue;
+                    const id = getCellId(anchor.r + r, anchor.c + c);
+                    const v = rv.get(r, c);
+                    data[id] = { style: {}, value: isBlank(v) ? '' : v, formula: '', spillOf: anchorId };
+                    ids.push(id);
+                }
+            }
+            data[anchorId].spillIds = ids;
+            calcState.spilled = true;
+            return true;
+        }
+
+        function clearSpills() {
+            for (const id in data) {
+                const cell = data[id];
+                if (cell.spillOf) {
+                    delete data[id];
+                    const inp = document.getElementById(`input-${id}`);
+                    if (inp && document.activeElement !== inp) inp.value = '';
+                } else if (cell.spillIds) {
+                    delete cell.spillIds;
+                }
             }
         }
 
@@ -1855,25 +1982,38 @@
             return val;
         }
 
-        function rangeValues(n) {
-            const a = parseCellCoord(n.a), b = parseCellCoord(n.b);
-            const minR = Math.min(a.r, b.r), maxR = Math.max(a.r, b.r);
-            const minC = Math.min(a.c, b.c), maxC = Math.max(a.c, b.c);
-            if (minR < 0 || maxR >= ROWS || minC < 0 || maxC >= COLS) throw new FormulaError('#REF!');
+        function rangeFromBounds(minR, minC, maxR, maxC) {
+            if (minR < 0 || maxR >= ROWS || minC < 0 || maxC >= COLS || minR > maxR || minC > maxC) throw new FormulaError('#REF!');
             const values = [];
             for (let r = minR; r <= maxR; r++) {
                 for (let c = minC; c <= maxC; c++) {
                     values.push(refValue(getCellId(r, c)));
                 }
             }
-            return values;
+            return new RangeVal(maxR - minR + 1, maxC - minC + 1, values);
         }
 
+        function rangeValues(n) {
+            const a = parseCellCoord(n.a), b = parseCellCoord(n.b);
+            return rangeFromBounds(Math.min(a.r, b.r), Math.min(a.c, b.c), Math.max(a.r, b.r), Math.max(a.c, b.c));
+        }
+
+        // Bounds of a reference node (A1 or A1:B5), for functions that need the cells themselves (OFFSET, CELL, ISBLANK)
+        function nodeBounds(node) {
+            if (node.t === 'ref') { const c = parseCellCoord(node.v); return { minR: c.r, minC: c.c, maxR: c.r, maxC: c.c }; }
+            if (node.t === 'range') {
+                const a = parseCellCoord(node.a), b = parseCellCoord(node.b);
+                return { minR: Math.min(a.r, b.r), minC: Math.min(a.c, b.c), maxR: Math.max(a.r, b.r), maxC: Math.max(a.c, b.c) };
+            }
+            return null;
+        }
+
+        // ----- Shared helpers for the function library -----
         function collectNumbers(args) {
             const out = [];
             args.forEach(a => {
-                if (Array.isArray(a)) {
-                    a.forEach(v => { if (typeof v === 'number' && !isNaN(v)) out.push(v); });
+                if (isRange(a)) {
+                    a.values.forEach(v => { if (typeof v === 'number' && !isNaN(v)) out.push(v); });
                 } else if (a !== '') {
                     out.push(toNumber(a));
                 }
@@ -1881,9 +2021,222 @@
             return out;
         }
 
-        // Function registry. fn receives evaluated args (ranges arrive as flat arrays).
-        // { lazy: true } functions receive the unevaluated argument nodes plus an evaluator.
+        function roundTo(x, digits, mode) {
+            digits = Math.trunc(digits);
+            const f = Math.pow(10, digits);
+            const sign = x < 0 ? -1 : 1;
+            let v = Number((Math.abs(x) * f).toPrecision(15));
+            v = mode === 'half' ? Math.floor(v + 0.5) : (mode === 'up' ? Math.ceil(v) : Math.floor(v));
+            return sign * v / f;
+        }
+
+        function wildcardRegex(pattern) {
+            const esc = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+            return new RegExp('^' + esc + '$', 'i');
+        }
+
+        function isNumeric(v) {
+            return typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)));
+        }
+
+        // Builds a test for SUMIF / COUNTIF style criteria: 5, ">5", "<=3", "<>x", "app*", "=" ...
+        function criteriaMatcher(crit) {
+            crit = unwrap(crit);
+            let op = '=', operand = crit;
+            if (typeof crit === 'string') {
+                const m = /^(<=|>=|<>|<|>|=)?([\s\S]*)$/.exec(crit);
+                op = m[1] || '=';
+                operand = m[2];
+            }
+            const test = cmp => op === '=' ? cmp === 0 : op === '<>' ? cmp !== 0 : op === '<' ? cmp < 0 : op === '>' ? cmp > 0 : op === '<=' ? cmp <= 0 : cmp >= 0;
+            if (typeof operand === 'boolean') return v => typeof v === 'boolean' && test((v ? 1 : 0) - (operand ? 1 : 0));
+            if (isNumeric(operand)) {
+                const n = Number(operand);
+                return v => {
+                    if (typeof v === 'boolean' || isBlank(v) || !isNumeric(v)) return op === '<>';
+                    return test(Number(v) - n);
+                };
+            }
+            const text = String(operand);
+            if (text === '') return v => { const blank = isBlank(v); return op === '<>' ? !blank : (op === '=' ? blank : false); };
+            if (op === '=' || op === '<>') {
+                const re = wildcardRegex(text);
+                return v => { const hit = !isBlank(v) && re.test(String(v)); return op === '=' ? hit : !hit; };
+            }
+            const lower = text.toLowerCase();
+            return v => {
+                if (typeof v !== 'string' || v === '') return false;
+                const a = v.toLowerCase();
+                return test(a < lower ? -1 : (a > lower ? 1 : 0));
+            };
+        }
+
+        // Pairs of (range, criteria) -> indexes of the positions where every criterion matches
+        function matchingIndexes(pairs) {
+            const n = pairs[0].vals.length;
+            pairs.forEach(p => { if (p.vals.length !== n) throw new FormulaError('#VALUE!'); });
+            const idx = [];
+            for (let i = 0; i < n; i++) {
+                if (pairs.every(p => p.test(p.vals[i]))) idx.push(i);
+            }
+            return idx;
+        }
+
+        function criteriaPairs(args, start) {
+            if ((args.length - start) % 2 !== 0 || args.length - start < 2) throw new FormulaError('#VALUE!');
+            const pairs = [];
+            for (let i = start; i < args.length; i += 2) {
+                pairs.push({ vals: asRange(args[i]).values, test: criteriaMatcher(args[i + 1]) });
+            }
+            return pairs;
+        }
+
+        const sameKind = (a, b) => (typeof a === 'number' && typeof b === 'number') ||
+            (typeof a === 'string' && typeof b === 'string') || (typeof a === 'boolean' && typeof b === 'boolean');
+
+        // Exact match position in a list of values (wildcards allowed when looking up text); -1 if none
+        function findExact(lookup, vals, fromEnd) {
+            const useWild = typeof lookup === 'string' && /[*?]/.test(lookup);
+            const re = useWild ? wildcardRegex(lookup) : null;
+            const hit = v => useWild ? (typeof v === 'string' && re.test(v)) : (!isBlank(v) && !isBlank(lookup) && sameKind(v, lookup) && compareValues(v, lookup, '='));
+            if (fromEnd) { for (let i = vals.length - 1; i >= 0; i--) if (hit(vals[i])) return i; }
+            else { for (let i = 0; i < vals.length; i++) if (hit(vals[i])) return i; }
+            return -1;
+        }
+
+        // dir 1: largest value <= lookup (ascending data). dir -1: smallest value >= lookup (descending data)
+        function findApprox(lookup, vals, dir) {
+            let best = -1;
+            for (let i = 0; i < vals.length; i++) {
+                const v = vals[i];
+                if (isBlank(v) || !sameKind(v, lookup)) continue;
+                if (dir === 1 ? compareValues(v, lookup, '<=') : compareValues(v, lookup, '>=')) {
+                    if (best === -1 || (dir === 1 ? compareValues(v, vals[best], '>=') : compareValues(v, vals[best], '<='))) best = i;
+                }
+            }
+            return best;
+        }
+
+        function sortCompare(a, b) {
+            const rank = v => isBlank(v) ? 3 : (typeof v === 'number' ? 0 : (typeof v === 'string' ? 1 : 2));
+            const ra = rank(a), rb = rank(b);
+            if (ra !== rb) return ra - rb;
+            if (ra === 0) return a - b;
+            if (ra === 1) return a.toLowerCase() < b.toLowerCase() ? -1 : (a.toLowerCase() > b.toLowerCase() ? 1 : 0);
+            if (ra === 2) return (a ? 1 : 0) - (b ? 1 : 0);
+            return 0;
+        }
+
+        // ----- Dates (serial numbers: days since 1899-12-30, like a spreadsheet) -----
+        function serialFromYMD(y, m, d) {
+            if (y >= 0 && y < 1900) y += 1900;
+            const dt = new Date(0);
+            dt.setUTCFullYear(y, m - 1, d);
+            return Math.floor(dt.getTime() / 86400000) + 25569;
+        }
+        function ymdFromSerial(s) {
+            const d = new Date(Math.floor(s - 25569) * 86400000);
+            return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+        }
+        function toSerial(v) {
+            v = unwrap(v);
+            if (typeof v === 'number') return Math.floor(v);
+            if (typeof v === 'string' && v.trim() !== '') {
+                if (!isNaN(Number(v))) return Math.floor(Number(v));
+                const t = Date.parse(v.trim());
+                if (!isNaN(t)) {
+                    const d = new Date(t);
+                    return serialFromYMD(d.getFullYear(), d.getMonth() + 1, d.getDate());
+                }
+            }
+            throw new FormulaError('#VALUE!');
+        }
+        const daysInMonth = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+        function formatSerial(s, kind) {
+            const { y, m, d } = ymdFromSerial(s);
+            const pad = n => String(n).padStart(2, '0');
+            let out = `${y}-${pad(m)}-${pad(d)}`;
+            if (kind === 'datetime') {
+                const mins = Math.round((s - Math.floor(s)) * 1440);
+                out += ` ${pad(Math.floor(mins / 60) % 24)}:${pad(mins % 60)}`;
+            }
+            return out;
+        }
+        // Cells whose formula is a date function show as a date (the stored value stays the serial number)
+        const DATE_RESULT_FUNCS = { TODAY: 'date', DATE: 'date', EOMONTH: 'date', NOW: 'datetime' };
+        function dateDisplayFor(formula, value) {
+            if (typeof value !== 'number') return undefined;
+            try {
+                const ast = parseFormula(formula.substring(1).trim());
+                if (ast.t === 'call' && DATE_RESULT_FUNCS[ast.name]) return formatSerial(value, DATE_RESULT_FUNCS[ast.name]);
+            } catch (e) {}
+            return undefined;
+        }
+
+        function datedif(s, e, unit) {
+            if (s > e) throw new FormulaError('#NUM!');
+            const a = ymdFromSerial(s), b = ymdFromSerial(e);
+            // Whole months between the dates (a month is not complete until the day-of-month is reached)
+            let months = (b.y - a.y) * 12 + (b.m - a.m);
+            if (b.d < a.d) months--;
+            switch (unit) {
+                case 'Y': return Math.floor(months / 12);
+                case 'M': return months;
+                case 'D': return e - s;
+                case 'YM': return months % 12;
+                case 'MD': {
+                    // Days left after the whole months (the start day is clamped to the end of shorter months)
+                    const total = a.y * 12 + (a.m - 1) + months;
+                    const ny = Math.floor(total / 12), nm = total % 12 + 1;
+                    return e - serialFromYMD(ny, nm, Math.min(a.d, daysInMonth(ny, nm)));
+                }
+                case 'YD': {
+                    let cand = serialFromYMD(b.y, a.m, a.d);
+                    if (cand > e) cand = serialFromYMD(b.y - 1, a.m, a.d);
+                    return e - cand;
+                }
+            }
+            throw new FormulaError('#NUM!');
+        }
+
+        // ----- Finance -----
+        function fvCalc(rate, nper, pmt, pv, type) {
+            if (rate === 0) return -(pv + pmt * nper);
+            const g = Math.pow(1 + rate, nper);
+            return -(pv * g + pmt * (1 + rate * type) * (g - 1) / rate);
+        }
+        function npvCalc(rate, values) {
+            return values.reduce((acc, v, i) => acc + v / Math.pow(1 + rate, i + 1), 0);
+        }
+        function irrCalc(values, guess) {
+            if (!values.some(v => v > 0) || !values.some(v => v < 0)) throw new FormulaError('#NUM!');
+            const f = r => values.reduce((acc, v, i) => acc + v / Math.pow(1 + r, i), 0);
+            const df = r => values.reduce((acc, v, i) => acc - i * v / Math.pow(1 + r, i + 1), 0);
+            let r = guess;
+            for (let i = 0; i < 100; i++) {
+                const fr = f(r), d = df(r);
+                if (!isFinite(fr) || !isFinite(d) || d === 0) break;
+                const nr = r - fr / d;
+                if (nr <= -1) break;
+                if (Math.abs(nr - r) < 1e-10) return nr;
+                r = nr;
+            }
+            let lo = -0.9999, hi = 10;
+            let flo = f(lo), fhi = f(hi);
+            if (flo * fhi > 0) throw new FormulaError('#NUM!');
+            for (let i = 0; i < 200; i++) {
+                const mid = (lo + hi) / 2, fm = f(mid);
+                if (Math.abs(fm) < 1e-9) return mid;
+                if (flo * fm < 0) { hi = mid; fhi = fm; } else { lo = mid; flo = fm; }
+            }
+            return (lo + hi) / 2;
+        }
+
+        // ----- Function registry -----
+        // fn(args, curR, curC): args are already evaluated (ranges arrive as RangeVal).
+        // { lazy: true } functions get (nodes, evaluate, curR, curC) so they can skip or catch errors in arguments.
         const FUNCTIONS = {
+            // Core math & aggregation (BQ-02.1)
             SUM: { fn: args => collectNumbers(args).reduce((a, b) => a + b, 0) },
             AVERAGE: {
                 fn: args => {
@@ -1896,14 +2249,86 @@
                 fn: args => {
                     let n = 0;
                     args.forEach(a => {
-                        if (Array.isArray(a)) a.forEach(v => { if (typeof v === 'number' && !isNaN(v)) n++; });
+                        if (isRange(a)) a.values.forEach(v => { if (typeof v === 'number' && !isNaN(v)) n++; });
                         else if (typeof a === 'number' && !isNaN(a)) n++;
                     });
                     return n;
                 }
             },
+            COUNTA: { fn: args => allValues(args).filter(v => !isBlank(v)).length },
             MIN: { fn: args => { const n = collectNumbers(args); return n.length ? Math.min(...n) : 0; } },
             MAX: { fn: args => { const n = collectNumbers(args); return n.length ? Math.max(...n) : 0; } },
+            MEDIAN: {
+                fn: args => {
+                    const n = collectNumbers(args).sort((a, b) => a - b);
+                    if (!n.length) throw new FormulaError('#NUM!');
+                    const mid = Math.floor(n.length / 2);
+                    return n.length % 2 ? n[mid] : (n[mid - 1] + n[mid]) / 2;
+                }
+            },
+            PRODUCT: { fn: args => { const n = collectNumbers(args); return n.length ? n.reduce((a, b) => a * b, 1) : 0; } },
+            ABS: { fn: args => Math.abs(toNumber(args[0])) },
+            ROUND: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'half') },
+            ROUNDUP: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'up') },
+            ROUNDDOWN: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'down') },
+            SUBTOTAL: {
+                fn: args => {
+                    if (args.length < 2) throw new FormulaError('#VALUE!');
+                    const code = toNumber(args[0]) % 100;
+                    const rest = args.slice(1);
+                    const run = { 1: 'AVERAGE', 2: 'COUNT', 3: 'COUNTA', 4: 'MAX', 5: 'MIN', 6: 'PRODUCT', 9: 'SUM' }[code];
+                    if (!run) throw new FormulaError('#VALUE!');
+                    return FUNCTIONS[run].fn(rest);
+                }
+            },
+
+            // Conditional calculations (BQ-02.2)
+            SUMIF: {
+                fn: args => {
+                    if (args.length < 2) throw new FormulaError('#VALUE!');
+                    const rng = asRange(args[0]).values;
+                    const sumVals = args.length > 2 ? asRange(args[2]).values : rng;
+                    const idx = matchingIndexes([{ vals: rng, test: criteriaMatcher(args[1]) }]);
+                    return idx.reduce((acc, i) => acc + (typeof sumVals[i] === 'number' ? sumVals[i] : 0), 0);
+                }
+            },
+            SUMIFS: {
+                fn: args => {
+                    const sumVals = asRange(args[0]).values;
+                    const pairs = criteriaPairs(args, 1);
+                    pairs.push({ vals: sumVals, test: () => true });
+                    return matchingIndexes(pairs).reduce((acc, i) => acc + (typeof sumVals[i] === 'number' ? sumVals[i] : 0), 0);
+                }
+            },
+            COUNTIF: {
+                fn: args => {
+                    if (args.length !== 2) throw new FormulaError('#VALUE!');
+                    return matchingIndexes([{ vals: asRange(args[0]).values, test: criteriaMatcher(args[1]) }]).length;
+                }
+            },
+            COUNTIFS: { fn: args => matchingIndexes(criteriaPairs(args, 0)).length },
+            AVERAGEIF: {
+                fn: args => {
+                    if (args.length < 2) throw new FormulaError('#VALUE!');
+                    const rng = asRange(args[0]).values;
+                    const avgVals = args.length > 2 ? asRange(args[2]).values : rng;
+                    const nums = matchingIndexes([{ vals: rng, test: criteriaMatcher(args[1]) }]).map(i => avgVals[i]).filter(v => typeof v === 'number');
+                    if (!nums.length) throw new FormulaError('#DIV/0!');
+                    return nums.reduce((a, b) => a + b, 0) / nums.length;
+                }
+            },
+            AVERAGEIFS: {
+                fn: args => {
+                    const avgVals = asRange(args[0]).values;
+                    const pairs = criteriaPairs(args, 1);
+                    pairs.push({ vals: avgVals, test: () => true });
+                    const nums = matchingIndexes(pairs).map(i => avgVals[i]).filter(v => typeof v === 'number');
+                    if (!nums.length) throw new FormulaError('#DIV/0!');
+                    return nums.reduce((a, b) => a + b, 0) / nums.length;
+                }
+            },
+
+            // Logic & error control (BQ-02.3)
             IF: {
                 lazy: true,
                 fn: (nodes, ev) => {
@@ -1911,7 +2336,437 @@
                     if (toBoolean(ev(nodes[0]))) return ev(nodes[1]);
                     return nodes.length === 3 ? ev(nodes[2]) : false;
                 }
+            },
+            IFS: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length < 2 || nodes.length % 2 !== 0) throw new FormulaError('#VALUE!');
+                    for (let i = 0; i < nodes.length; i += 2) {
+                        if (toBoolean(ev(nodes[i]))) return ev(nodes[i + 1]);
+                    }
+                    throw new FormulaError('#N/A');
+                }
+            },
+            AND: {
+                fn: args => {
+                    const vals = allValues(args).filter(v => typeof v === 'boolean' || typeof v === 'number');
+                    if (!vals.length) throw new FormulaError('#VALUE!');
+                    return vals.every(v => toBoolean(v));
+                }
+            },
+            OR: {
+                fn: args => {
+                    const vals = allValues(args).filter(v => typeof v === 'boolean' || typeof v === 'number');
+                    if (!vals.length) throw new FormulaError('#VALUE!');
+                    return vals.some(v => toBoolean(v));
+                }
+            },
+            NOT: { fn: args => !toBoolean(args[0]) },
+            IFERROR: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length !== 2) throw new FormulaError('#VALUE!');
+                    try { return ev(nodes[0]); } catch (err) {
+                        if (err instanceof FormulaError) return ev(nodes[1]);
+                        throw err;
+                    }
+                }
+            },
+
+            // Text & string processing (BQ-02.4)
+            CONCAT: { fn: args => allValues(args).map(toText).join('') },
+            TEXTJOIN: {
+                fn: args => {
+                    if (args.length < 3) throw new FormulaError('#VALUE!');
+                    const delim = toText(args[0]);
+                    const ignoreEmpty = toBoolean(args[1]);
+                    let parts = allValues(args.slice(2)).map(toText);
+                    if (ignoreEmpty) parts = parts.filter(p => p !== '');
+                    return parts.join(delim);
+                }
+            },
+            LEFT: {
+                fn: args => {
+                    const n = args.length > 1 ? toNumber(args[1]) : 1;
+                    if (n < 0) throw new FormulaError('#VALUE!');
+                    return toText(args[0]).slice(0, Math.floor(n));
+                }
+            },
+            RIGHT: {
+                fn: args => {
+                    const n = args.length > 1 ? toNumber(args[1]) : 1;
+                    if (n < 0) throw new FormulaError('#VALUE!');
+                    const t = toText(args[0]);
+                    return Math.floor(n) === 0 ? '' : t.slice(-Math.floor(n));
+                }
+            },
+            MID: {
+                fn: args => {
+                    if (args.length !== 3) throw new FormulaError('#VALUE!');
+                    const start = Math.floor(toNumber(args[1])), len = Math.floor(toNumber(args[2]));
+                    if (start < 1 || len < 0) throw new FormulaError('#VALUE!');
+                    return toText(args[0]).substr(start - 1, len);
+                }
+            },
+            LEN: { fn: args => toText(args[0]).length },
+            TRIM: { fn: args => toText(args[0]).replace(/ +/g, ' ').replace(/^ | $/g, '') },
+            CLEAN: { fn: args => toText(args[0]).replace(/[\x00-\x1F]/g, '') },
+            UPPER: { fn: args => toText(args[0]).toUpperCase() },
+            LOWER: { fn: args => toText(args[0]).toLowerCase() },
+            PROPER: {
+                fn: args => toText(args[0]).toLowerCase().replace(/(^|[^A-Za-zÀ-ɏ])([A-Za-zÀ-ɏ])/g, (m, p, c) => p + c.toUpperCase())
+            },
+            SUBSTITUTE: {
+                fn: args => {
+                    if (args.length < 3) throw new FormulaError('#VALUE!');
+                    const text = toText(args[0]), oldT = toText(args[1]), newT = toText(args[2]);
+                    if (oldT === '') return text;
+                    if (args.length > 3) {
+                        const inst = Math.floor(toNumber(args[3]));
+                        if (inst < 1) throw new FormulaError('#VALUE!');
+                        let pos = -1;
+                        for (let i = 0; i < inst; i++) {
+                            pos = text.indexOf(oldT, pos + 1);
+                            if (pos === -1) return text;
+                        }
+                        return text.slice(0, pos) + newT + text.slice(pos + oldT.length);
+                    }
+                    return text.split(oldT).join(newT);
+                }
+            },
+
+            // Date & time math (BQ-02.5)
+            TODAY: {
+                fn: () => { const d = new Date(); return serialFromYMD(d.getFullYear(), d.getMonth() + 1, d.getDate()); }
+            },
+            NOW: {
+                fn: () => {
+                    const d = new Date();
+                    return serialFromYMD(d.getFullYear(), d.getMonth() + 1, d.getDate()) + (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86400;
+                }
+            },
+            DATE: {
+                fn: args => {
+                    if (args.length !== 3) throw new FormulaError('#VALUE!');
+                    return serialFromYMD(Math.floor(toNumber(args[0])), Math.floor(toNumber(args[1])), Math.floor(toNumber(args[2])));
+                }
+            },
+            YEAR: { fn: args => ymdFromSerial(toSerial(args[0])).y },
+            MONTH: { fn: args => ymdFromSerial(toSerial(args[0])).m },
+            DAY: { fn: args => ymdFromSerial(toSerial(args[0])).d },
+            EOMONTH: {
+                fn: args => {
+                    if (args.length !== 2) throw new FormulaError('#VALUE!');
+                    const { y, m } = ymdFromSerial(toSerial(args[0]));
+                    const total = (y * 12 + (m - 1)) + Math.trunc(toNumber(args[1]));
+                    const ny = Math.floor(total / 12), nm = (total % 12 + 12) % 12 + 1;
+                    return serialFromYMD(ny, nm, daysInMonth(ny, nm));
+                }
+            },
+            DATEDIF: {
+                fn: args => {
+                    if (args.length !== 3) throw new FormulaError('#VALUE!');
+                    return datedif(toSerial(args[0]), toSerial(args[1]), toText(args[2]).toUpperCase());
+                }
+            },
+
+            // Financial core (BQ-02.6): money you pay out is negative, like a spreadsheet
+            PMT: {
+                fn: args => {
+                    if (args.length < 3) throw new FormulaError('#VALUE!');
+                    const rate = toNumber(args[0]), nper = toNumber(args[1]), pv = toNumber(args[2]);
+                    const fv = args.length > 3 ? toNumber(args[3]) : 0, type = args.length > 4 && toNumber(args[4]) ? 1 : 0;
+                    if (nper === 0) throw new FormulaError('#NUM!');
+                    if (rate === 0) return -(pv + fv) / nper;
+                    const g = Math.pow(1 + rate, nper);
+                    return -(pv * g + fv) * rate / ((1 + rate * type) * (g - 1));
+                }
+            },
+            FV: {
+                fn: args => {
+                    if (args.length < 3) throw new FormulaError('#VALUE!');
+                    return fvCalc(toNumber(args[0]), toNumber(args[1]), toNumber(args[2]), args.length > 3 ? toNumber(args[3]) : 0, args.length > 4 && toNumber(args[4]) ? 1 : 0);
+                }
+            },
+            PV: {
+                fn: args => {
+                    if (args.length < 3) throw new FormulaError('#VALUE!');
+                    const rate = toNumber(args[0]), nper = toNumber(args[1]), pmt = toNumber(args[2]);
+                    const fv = args.length > 3 ? toNumber(args[3]) : 0, type = args.length > 4 && toNumber(args[4]) ? 1 : 0;
+                    if (rate === 0) return -(fv + pmt * nper);
+                    const g = Math.pow(1 + rate, nper);
+                    return -(fv + pmt * (1 + rate * type) * (g - 1) / rate) / g;
+                }
+            },
+            NPV: {
+                fn: args => {
+                    if (args.length < 2) throw new FormulaError('#VALUE!');
+                    return npvCalc(toNumber(args[0]), collectNumbers(args.slice(1)));
+                }
+            },
+            IRR: {
+                fn: args => {
+                    if (!args.length) throw new FormulaError('#VALUE!');
+                    return irrCalc(collectNumbers([args[0]]), args.length > 1 ? toNumber(args[1]) : 0.1);
+                }
+            },
+
+            // Information & inspection (BQ-02.7)
+            ISBLANK: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length !== 1) throw new FormulaError('#VALUE!');
+                    if (nodes[0].t === 'ref') return cellRaw(nodes[0].v) === '';
+                    try { return isBlank(unwrap(ev(nodes[0]))); } catch (err) { return false; }
+                }
+            },
+            ISNUMBER: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length !== 1) throw new FormulaError('#VALUE!');
+                    try { return typeof unwrap(ev(nodes[0])) === 'number'; } catch (err) { return false; }
+                }
+            },
+            ISTEXT: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length !== 1) throw new FormulaError('#VALUE!');
+                    try { const v = unwrap(ev(nodes[0])); return typeof v === 'string' && v !== ''; } catch (err) { return false; }
+                }
+            },
+            ISERROR: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length !== 1) throw new FormulaError('#VALUE!');
+                    try { ev(nodes[0]); return false; } catch (err) { return err instanceof FormulaError; }
+                }
+            },
+            ISERR: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length !== 1) throw new FormulaError('#VALUE!');
+                    try { ev(nodes[0]); return false; } catch (err) { return err instanceof FormulaError && err.code !== '#N/A'; }
+                }
+            },
+            CELL: {
+                lazy: true,
+                fn: (nodes, ev, curR, curC) => {
+                    if (!nodes.length || nodes.length > 2) throw new FormulaError('#VALUE!');
+                    const info = toText(ev(nodes[0])).toLowerCase();
+                    let r = curR, c = curC;
+                    if (nodes.length === 2) {
+                        const b = nodeBounds(nodes[1]);
+                        if (!b) throw new FormulaError('#VALUE!');
+                        r = b.minR; c = b.minC;
+                    }
+                    const id = getCellId(r, c);
+                    switch (info) {
+                        case 'address': return `$${columnToLetter(c)}$${r + 1}`;
+                        case 'row': return r + 1;
+                        case 'col': return c + 1;
+                        case 'contents': return refValue(id);
+                        case 'type': {
+                            const v = getCellValue(id);
+                            return isBlank(v) ? 'b' : (typeof v === 'string' ? 'l' : 'v');
+                        }
+                    }
+                    throw new FormulaError('#VALUE!');
+                }
+            },
+
+            // Lookups, references & data retrieval (BQ-03)
+            VLOOKUP: {
+                fn: args => {
+                    if (args.length < 3) throw new FormulaError('#VALUE!');
+                    const key = unwrap(args[0]), table = asRange(args[1]);
+                    const colIdx = Math.floor(toNumber(args[2]));
+                    const approx = args.length > 3 ? toBoolean(args[3]) : true;
+                    if (colIdx < 1 || colIdx > table.cols) throw new FormulaError('#REF!');
+                    const first = table.col(0).values;
+                    const i = approx ? findApprox(key, first, 1) : findExact(key, first, false);
+                    if (i < 0) throw new FormulaError('#N/A');
+                    return table.get(i, colIdx - 1);
+                }
+            },
+            HLOOKUP: {
+                fn: args => {
+                    if (args.length < 3) throw new FormulaError('#VALUE!');
+                    const key = unwrap(args[0]), table = asRange(args[1]);
+                    const rowIdx = Math.floor(toNumber(args[2]));
+                    const approx = args.length > 3 ? toBoolean(args[3]) : true;
+                    if (rowIdx < 1 || rowIdx > table.rows) throw new FormulaError('#REF!');
+                    const first = table.row(0).values;
+                    const i = approx ? findApprox(key, first, 1) : findExact(key, first, false);
+                    if (i < 0) throw new FormulaError('#N/A');
+                    return table.get(rowIdx - 1, i);
+                }
+            },
+            XLOOKUP: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length < 3 || nodes.length > 6) throw new FormulaError('#VALUE!');
+                    const key = unwrap(ev(nodes[0]));
+                    const lookup = asRange(ev(nodes[1])), ret = asRange(ev(nodes[2]));
+                    const matchMode = nodes.length > 4 ? toNumber(ev(nodes[4])) : 0;
+                    const searchMode = nodes.length > 5 ? toNumber(ev(nodes[5])) : 1;
+                    if (lookup.rows !== 1 && lookup.cols !== 1) throw new FormulaError('#VALUE!');
+                    const vals = lookup.values;
+                    let i = findExact(key, vals, searchMode < 0);
+                    if (i < 0 && matchMode === -1) i = findApprox(key, vals, 1);
+                    else if (i < 0 && matchMode === 1) i = findApprox(key, vals, -1);
+                    if (i < 0) {
+                        if (nodes.length > 3) return ev(nodes[3]);
+                        throw new FormulaError('#N/A');
+                    }
+                    if (lookup.cols === 1) {
+                        if (ret.rows !== lookup.rows) throw new FormulaError('#VALUE!');
+                        return shrink(ret.row(i));
+                    }
+                    if (ret.cols !== lookup.cols) throw new FormulaError('#VALUE!');
+                    return shrink(ret.col(i));
+                }
+            },
+            INDEX: {
+                fn: args => {
+                    if (args.length < 2) throw new FormulaError('#VALUE!');
+                    const arr = asRange(args[0]);
+                    let r = Math.floor(toNumber(args[1])), c;
+                    if (args.length > 2) c = Math.floor(toNumber(args[2]));
+                    else if (arr.cols === 1) c = 1;
+                    else if (arr.rows === 1) { c = r; r = 1; }
+                    else c = 0;
+                    if (r < 0 || c < 0 || r > arr.rows || c > arr.cols) throw new FormulaError('#REF!');
+                    if (r > 0 && c > 0) return arr.get(r - 1, c - 1);
+                    if (r > 0) return shrink(arr.row(r - 1));
+                    if (c > 0) return shrink(arr.col(c - 1));
+                    return shrink(arr);
+                }
+            },
+            MATCH: {
+                fn: args => {
+                    if (args.length < 2) throw new FormulaError('#VALUE!');
+                    const key = unwrap(args[0]), arr = asRange(args[1]);
+                    if (arr.rows !== 1 && arr.cols !== 1) throw new FormulaError('#N/A');
+                    const type = args.length > 2 ? toNumber(args[2]) : 1;
+                    const i = type === 0 ? findExact(key, arr.values, false) : findApprox(key, arr.values, type > 0 ? 1 : -1);
+                    if (i < 0) throw new FormulaError('#N/A');
+                    return i + 1;
+                }
+            },
+            OFFSET: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length < 3 || nodes.length > 5) throw new FormulaError('#VALUE!');
+                    const base = nodeBounds(nodes[0]);
+                    if (!base) throw new FormulaError('#VALUE!');
+                    const dr = Math.trunc(toNumber(ev(nodes[1]))), dc = Math.trunc(toNumber(ev(nodes[2])));
+                    const h = nodes.length > 3 ? Math.trunc(toNumber(ev(nodes[3]))) : base.maxR - base.minR + 1;
+                    const w = nodes.length > 4 ? Math.trunc(toNumber(ev(nodes[4]))) : base.maxC - base.minC + 1;
+                    if (h < 1 || w < 1) throw new FormulaError('#REF!');
+                    return shrink(rangeFromBounds(base.minR + dr, base.minC + dc, base.minR + dr + h - 1, base.minC + dc + w - 1));
+                }
+            },
+            INDIRECT: {
+                fn: args => {
+                    const ref = toText(args[0]).trim().toUpperCase().replace(/\$/g, '');
+                    const m = /^([A-Z]{1,3})(\d+)(?::([A-Z]{1,3})(\d+))?$/.exec(ref);
+                    if (!m) throw new FormulaError('#REF!');
+                    const a = parseCellCoord(m[1] + m[2]), b = m[3] ? parseCellCoord(m[3] + m[4]) : a;
+                    return shrink(rangeFromBounds(Math.min(a.r, b.r), Math.min(a.c, b.c), Math.max(a.r, b.r), Math.max(a.c, b.c)));
+                }
+            },
+            CHOOSE: {
+                fn: args => {
+                    if (args.length < 2) throw new FormulaError('#VALUE!');
+                    const i = Math.floor(toNumber(args[0]));
+                    if (i < 1 || i >= args.length) throw new FormulaError('#VALUE!');
+                    return args[i];
+                }
+            },
+            FILTER: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length < 2 || nodes.length > 3) throw new FormulaError('#VALUE!');
+                    const arr = asRange(ev(nodes[0])), inc = asRange(ev(nodes[1]));
+                    let keep, byRow;
+                    if (inc.cols === 1 && inc.rows === arr.rows) { keep = inc.values.map(toBoolean); byRow = true; }
+                    else if (inc.rows === 1 && inc.cols === arr.cols) { keep = inc.values.map(toBoolean); byRow = false; }
+                    else throw new FormulaError('#VALUE!');
+                    const picks = [];
+                    keep.forEach((k, i) => { if (k) picks.push(i); });
+                    if (!picks.length) {
+                        if (nodes.length > 2) return ev(nodes[2]);
+                        throw new FormulaError('#CALC!');
+                    }
+                    const out = [];
+                    if (byRow) {
+                        picks.forEach(r => { for (let c = 0; c < arr.cols; c++) out.push(arr.get(r, c)); });
+                        return shrink(new RangeVal(picks.length, arr.cols, out));
+                    }
+                    for (let r = 0; r < arr.rows; r++) picks.forEach(c => out.push(arr.get(r, c)));
+                    return shrink(new RangeVal(arr.rows, picks.length, out));
+                }
+            },
+            SORT: {
+                fn: args => {
+                    if (!args.length) throw new FormulaError('#VALUE!');
+                    const arr = asRange(args[0]);
+                    const idx = args.length > 1 ? Math.floor(toNumber(args[1])) : 1;
+                    const order = args.length > 2 ? toNumber(args[2]) : 1;
+                    const byCol = args.length > 3 ? toBoolean(args[3]) : false;
+                    if (order !== 1 && order !== -1) throw new FormulaError('#VALUE!');
+                    const lines = [];
+                    const count = byCol ? arr.cols : arr.rows;
+                    const keyLen = byCol ? arr.rows : arr.cols;
+                    if (idx < 1 || idx > keyLen) throw new FormulaError('#VALUE!');
+                    for (let i = 0; i < count; i++) lines.push(byCol ? arr.col(i).values : arr.row(i).values);
+                    lines.sort((a, b) => order * sortCompare(a[idx - 1], b[idx - 1]));
+                    if (byCol) {
+                        const out = [];
+                        for (let r = 0; r < arr.rows; r++) lines.forEach(line => out.push(line[r]));
+                        return shrink(new RangeVal(arr.rows, arr.cols, out));
+                    }
+                    return shrink(new RangeVal(arr.rows, arr.cols, [].concat(...lines)));
+                }
+            },
+            UNIQUE: {
+                fn: args => {
+                    if (!args.length) throw new FormulaError('#VALUE!');
+                    const arr = asRange(args[0]);
+                    const byCol = args.length > 1 ? toBoolean(args[1]) : false;
+                    const once = args.length > 2 ? toBoolean(args[2]) : false;
+                    const count = byCol ? arr.cols : arr.rows;
+                    const lines = [];
+                    for (let i = 0; i < count; i++) lines.push(byCol ? arr.col(i).values : arr.row(i).values);
+                    const keyOf = line => JSON.stringify(line.map(v => typeof v === 'string' ? v.toLowerCase() : v));
+                    const seen = new Map();
+                    lines.forEach(line => { const k = keyOf(line); seen.set(k, (seen.get(k) || 0) + 1); });
+                    const done = new Set();
+                    const kept = [];
+                    lines.forEach(line => {
+                        const k = keyOf(line);
+                        if (done.has(k)) return;
+                        done.add(k);
+                        if (!once || seen.get(k) === 1) kept.push(line);
+                    });
+                    if (!kept.length) throw new FormulaError('#CALC!');
+                    if (byCol) {
+                        const out = [];
+                        for (let r = 0; r < arr.rows; r++) kept.forEach(line => out.push(line[r]));
+                        return shrink(new RangeVal(arr.rows, kept.length, out));
+                    }
+                    return shrink(new RangeVal(kept.length, arr.cols, [].concat(...kept)));
+                }
             }
+        };
+
+        // [min, max] argument counts for functions that would otherwise silently accept nothing
+        const ARG_LIMITS = {
+            SUM: [1, Infinity], AVERAGE: [1, Infinity], COUNT: [1, Infinity], COUNTA: [1, Infinity], MIN: [1, Infinity], MAX: [1, Infinity],
+            MEDIAN: [1, Infinity], PRODUCT: [1, Infinity], CONCAT: [1, Infinity],
+            ABS: [1, 1], ROUND: [1, 2], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], NOT: [1, 1],
+            LEFT: [1, 2], RIGHT: [1, 2], LEN: [1, 1], TRIM: [1, 1], CLEAN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], PROPER: [1, 1],
+            YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], TODAY: [0, 0], NOW: [0, 0], INDIRECT: [1, 1]
         };
 
         function evalNode(n, curR, curC) {
@@ -1923,46 +2778,43 @@
                 case 'ref':
                     return refValue(n.v);
                 case 'range':
-                    throw new FormulaError('#VALUE!');
+                    return shrink(rangeValues(n));
                 case 'unary': {
-                    const v = toNumber(evalNode(n.e, curR, curC));
-                    return n.op === '-' ? -v : v;
+                    const v = evalNode(n.e, curR, curC);
+                    const neg = x => n.op === '-' ? -toNumber(x) : toNumber(x);
+                    if (isRange(v)) return new RangeVal(v.rows, v.cols, v.values.map(neg));
+                    return neg(v);
                 }
-                case 'bin': {
-                    const a = evalNode(n.l, curR, curC);
-                    const b = evalNode(n.r, curR, curC);
-                    switch (n.op) {
-                        case '+': return toNumber(a) + toNumber(b);
-                        case '-': return toNumber(a) - toNumber(b);
-                        case '*': return toNumber(a) * toNumber(b);
-                        case '/': {
-                            const d = toNumber(b);
-                            if (d === 0) throw new FormulaError('#DIV/0!');
-                            return toNumber(a) / d;
-                        }
-                        case '^': return Math.pow(toNumber(a), toNumber(b));
-                        default: return compareValues(a, b, n.op);
-                    }
-                }
+                case 'bin':
+                    return binaryOp(n.op, evalNode(n.l, curR, curC), evalNode(n.r, curR, curC));
                 case 'call': {
                     const def = FUNCTIONS[n.name];
                     if (!def) throw new FormulaError('#NAME?');
-                    if (def.lazy) return def.fn(n.args, node => evalNode(node, curR, curC));
+                    if (def.lazy) return def.fn(n.args, node => evalNode(node, curR, curC), curR, curC);
+                    const lim = ARG_LIMITS[n.name];
+                    if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!');
                     const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : evalNode(a, curR, curC));
-                    return def.fn(args);
+                    return def.fn(args, curR, curC);
                 }
             }
             throw new FormulaError('#ERROR!');
         }
 
-        function normalizeResult(result) {
-            if (Array.isArray(result)) return '#VALUE!';
+        function normalizeScalar(result) {
             if (result === undefined || result === null) return '';
             if (typeof result === 'number') {
                 if (!isFinite(result)) return '#NUM!';
                 return Number.isInteger(result) ? result : Number(result.toPrecision(15));
             }
             return result;
+        }
+
+        function normalizeResult(result) {
+            if (isRange(result)) {
+                if (result.rows === 1 && result.cols === 1) return normalizeScalar(result.values[0]);
+                return new RangeVal(result.rows, result.cols, result.values.map(normalizeScalar));
+            }
+            return normalizeScalar(result);
         }
 
         function evalFormulaCore(formulaStr, curR, curC) {
@@ -1977,11 +2829,13 @@
             }
         }
 
+        // Evaluates a formula to a single value (the top-left value if it produces a block of cells)
         function evaluateFormula(formulaStr, curR, curC) {
-            if (calcState) return evalFormulaCore(formulaStr, curR, curC);
-            calcState = { done: new Set(), busy: new Set() };
+            const finish = res => isRange(res) ? res.values[0] : res;
+            if (calcState) return finish(evalFormulaCore(formulaStr, curR, curC));
+            calcState = { done: new Set(), busy: new Set(), spilled: false };
             try {
-                return evalFormulaCore(formulaStr, curR, curC);
+                return finish(evalFormulaCore(formulaStr, curR, curC));
             } finally {
                 calcState = null;
             }
@@ -2011,18 +2865,26 @@
         }
 
         function recalculateAll() {
-            calcState = { done: new Set(), busy: new Set() };
-            try {
-                for (let cellId in data) {
-                    if (data[cellId].formula) computeCell(cellId);
+            clearSpills();
+            // Two passes when something spilled, so formulas that read spilled cells see them
+            for (let pass = 0; pass < 2; pass++) {
+                calcState = { done: new Set(), busy: new Set(), spilled: false };
+                let spilled = false;
+                try {
+                    for (let cellId in data) {
+                        if (data[cellId].formula) computeCell(cellId);
+                    }
+                } finally {
+                    spilled = calcState.spilled;
+                    calcState = null;
                 }
-            } finally {
-                calcState = null;
+                if (!spilled) break;
             }
             for (let cellId in data) {
                 const inputEl = document.getElementById(`input-${cellId}`);
                 if (inputEl && document.activeElement !== inputEl) {
-                    inputEl.value = displayValue(data[cellId].value);
+                    const cell = data[cellId];
+                    inputEl.value = displayValue(cell.display !== undefined ? cell.display : cell.value);
                 }
             }
         }
@@ -2125,7 +2987,7 @@
 
         function addNewSheet() {
             let name = `Sheet ${sheets.length + 1}`;
-            sheets.push({ name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 1, freezeCols: 1 });
+            sheets.push({ name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0 });
             switchSheet(sheets.length - 1);
         }
 
@@ -2523,7 +3385,7 @@
         function exportCSV() {
             let maxR = -1, maxC = -1;
             for (let id in data) {
-                if (cellRaw(id) !== '') {
+                if (!data[id].spillOf && cellRaw(id) !== '') {
                     const co = parseCellCoord(id);
                     maxR = Math.max(maxR, co.r);
                     maxC = Math.max(maxC, co.c);
@@ -2537,7 +3399,8 @@
             for (let r = 0; r <= maxR; r++) {
                 let row = [];
                 for (let c = 0; c <= maxC; c++) {
-                    row.push(`"${String(cellRaw(getCellId(r, c))).replace(/"/g, '""')}"`);
+                    const cid = getCellId(r, c);
+                    row.push(`"${String(data[cid] && data[cid].spillOf ? '' : cellRaw(cid)).replace(/"/g, '""')}"`);
                 }
                 csv += row.join(",") + "\n";
             }
