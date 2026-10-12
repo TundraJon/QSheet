@@ -13,8 +13,8 @@ Live at: https://tundrajon.github.io/QSheet/ (once GitHub Pages is enabled)
 
 Project just started. Build documents go in `docs/`.
 
-- [ ] Build documents added to `docs/`
-- [ ] Initial code added
+- [x] Build documents added to `docs/`
+- [x] Initial code added (`index.html`, built from the V3 shell)
 - [ ] GitHub Pages enabled
 
 ## Build Queue
@@ -23,20 +23,20 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 
 ### A. Regressions (in V2, lost in V3)
 
-1. CSV export/import and Clear Sheet missing (BQ-01.2).
-2. Bottom status bar with Count/Sum/Average missing; `updateStats()` no longer writes anything (BQ-01.1).
-3. `IF`, smart-IF guessing, and AutoSum removed.
-4. Merge/Unmerge removed (BQ-04.2).
-5. Official Table no longer styles headers or sorts; it only stores a rule (BQ-09.1/09.2).
-6. "In Progress" amber conditional rule removed (BQ-05/06).
-7. List-validation warning removed (BQ-09.3).
-8. Formula Wizard live preview removed (BQ-07).
+1. ~~CSV export/import and Clear Sheet missing (BQ-01.2).~~ **Done — see Build Log 1.**
+2. ~~Bottom status bar with Count/Sum/Average missing; `updateStats()` no longer writes anything (BQ-01.1).~~ **Done — see Build Log 1.**
+3. ~~`IF`, smart-IF guessing, and AutoSum removed.~~ **Done — see Build Log 1.**
+4. ~~Merge/Unmerge removed (BQ-04.2).~~ **Done — see Build Log 1.**
+5. ~~Official Table no longer styles headers or sorts; it only stores a rule (BQ-09.1/09.2).~~ **Done — see Build Log 1.**
+6. ~~"In Progress" amber conditional rule removed (BQ-05/06).~~ **Done — see Build Log 1.**
+7. ~~List-validation warning removed (BQ-09.3).~~ **Done — see Build Log 1.**
+8. ~~Formula Wizard live preview removed (BQ-07).~~ **Done — see Build Log 1.**
 
 ### B. Bugs in V3
 
-9. Cell-reference math is broken: `=A1+B1` returns `#ERROR!` (reference-replacing regex requires spaces around the reference).
+9. ~~Cell-reference math is broken: `=A1+B1` returns `#ERROR!` (reference-replacing regex requires spaces around the reference).~~ **Done — see Build Log 1.**
 10. Freeze Panes: offsets assume 80px columns but no widths are set; sticky `<tr>` rows are unreliable (BQ-10.2).
-11. Cell range selection is mouse-only (`onmousedown`/`onmouseover`); range select does not work by touch on Pixel 7. This blocks stats, Insights, and range formatting.
+11. ~~Cell range selection is mouse-only (`onmousedown`/`onmouseover`); range select does not work by touch on Pixel 7. This blocks stats, Insights, and range formatting.~~ **Done — see Build Log 1.**
 12. Number format dropdown does nothing (also true in V2) (BQ-04.3).
 
 ### C. Never built in V2 or V3
@@ -60,8 +60,22 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 
 ### E. Recommended approach (pending approval)
 
-26. Keep the V3 shell (ribbon tabs, multi-sheet bar, settings, cell dock, freeze modal) and rebuild on a proper formula engine and touch selection model, restoring section A items.
+26. ~~Keep the V3 shell (ribbon tabs, multi-sheet bar, settings, cell dock, freeze modal) and rebuild on a proper formula engine and touch selection model, restoring section A items.~~ **Done — see Build Log 1.**
 
 ## Build Log (completed)
 
-_Nothing built yet._
+### Build Log 1 — Item 26: engine + touch foundation on the V3 shell
+
+Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell dock, freeze modal all kept). Verified with an automated browser test run in a Pixel 7–sized emulated Chromium (70 checks passing); not yet tried on a physical phone.
+
+- [x] **Formula engine** (Queue 9, 13-base, 14-base): real tokenizer + parser + evaluator. Handles cell refs (any case, `$A$1`), ranges, `+ - * / ^`, unary minus, comparisons, parentheses, nested calls, error values (`#DIV/0!`, `#NAME?`, `#VALUE!`, `#REF!`, `#CIRC!`, `#ERROR!`), circular-reference detection, and dependency-ordered recalculation (formulas can reference formulas below/after them). Functions are a registry (`FUNCTIONS`) ready for the Queue 13 functions. Currently registered: SUM, AVERAGE, COUNT, MIN, MAX, IF. AVERAGE now ignores blank/text cells.
+- [x] **Touch selection** (Queue 11): tap selects, tap the selected cell again edits, long-press then drag selects a range (edge auto-scroll), plain drag scrolls. Cells no longer pop the keyboard on a tap. Header taps now actually select the column/row. Mouse: click, drag, double-click. Keyboard: arrows, Enter/F2, Tab, Esc, type-to-edit.
+- [x] **Restored (Queue 1):** CSV export/import (real CSV quoting; round-trips formulas and zeros) and Clear Sheet, under the Data tab.
+- [x] **Restored (Queue 2):** bottom status bar with live Count / Sum / Average.
+- [x] **Restored (Queue 3):** IF (and the smart `=IF` guess) and AutoSum (Home tab).
+- [x] **Restored (Queue 4):** Merge / Unmerge (Home tab); merges are stored per sheet and survive grid rebuilds.
+- [x] **Restored (Queue 5):** Official Table header styling and sorting (tap a table column header). Sorting moves only the table's columns; formulas in sorted rows become plain values (a toast says so).
+- [x] **Restored (Queue 6):** "In Progress" amber conditional rule, plus the Entire-row toggle (it existed in V2 and was lost in V3).
+- [x] **Restored (Queue 7):** list-validation warning; validation now runs when a cell is committed instead of on every keystroke.
+- [x] **Restored (Queue 8):** Formula Wizard live preview.
+- Small shell tweaks needed for the above: page height uses `100dvh`; cell dock and toast moved up to clear the new status bar.
