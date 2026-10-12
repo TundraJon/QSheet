@@ -551,6 +551,49 @@
             flex-direction: column;
             gap: 6px;
         }
+
+        /* Fixed column width: about 4-5 columns visible on a Pixel 7 (the frozen-column offsets in buildGridDOM assume 80px) */
+        :root { --col-width: 80px; }
+        table.spreadsheet th:not(.row-header):not(.corner-header) {
+            width: var(--col-width);
+            min-width: var(--col-width);
+            max-width: var(--col-width);
+        }
+
+        /* Phone layout: Insights / Time Travel slide up from the bottom as a sheet instead of squeezing the grid */
+        @keyframes sheetUp {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: none; opacity: 1; }
+        }
+
+        @media (max-width: 700px) {
+            .sidebar {
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 70px;
+                width: 100%;
+                max-height: 42vh;
+                max-height: 42dvh;
+                border-left: none;
+                border-top: 1px solid var(--border-color);
+                border-radius: 14px 14px 0 0;
+                box-shadow: 0 -6px 20px rgba(0,0,0,0.15);
+                z-index: 60;
+                animation: sheetUp 0.2s ease;
+            }
+
+            .sidebar.hidden { display: none; }
+
+            .sidebar-header button {
+                min-width: 40px;
+                min-height: 40px;
+                font-size: 1.2rem;
+            }
+
+            body.sheet-open .cell-dock { display: none; }
+            body.sheet-open .grid-container { padding-bottom: 42vh; padding-bottom: 42dvh; }
+        }
     </style>
 </head>
 <body>
@@ -2458,7 +2501,7 @@
             const list = document.getElementById('timeline-list');
             if (!list) return;
             list.innerHTML = historyStack.map((h, i) => `
-                <div style="padding: 6px 10px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="restoreHistory(${i})">
+                <div style="padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="restoreHistory(${i})">
                     <span>${h.name}</span>
                     <span style="font-size: 0.75rem; color: #94a3b8;">#${i+1}</span>
                 </div>
@@ -2472,7 +2515,15 @@
         }
 
         function toggleSidebar(id) {
-            document.getElementById(id).classList.toggle('hidden');
+            const el = document.getElementById(id);
+            const opening = el.classList.contains('hidden');
+            // On a phone the sidebars are bottom sheets, so only one can be open at a time
+            if (opening && window.matchMedia('(max-width: 700px)').matches) {
+                document.querySelectorAll('.sidebar').forEach(s => { if (s !== el) s.classList.add('hidden'); });
+            }
+            el.classList.toggle('hidden');
+            document.body.classList.toggle('sheet-open', !!document.querySelector('.sidebar:not(.hidden)'));
+            if (opening && id === 'insights-sidebar') updateInsights();
         }
 
         function handleGridScroll() {

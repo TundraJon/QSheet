@@ -56,11 +56,15 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 
 23. Mobile-optimized touch targets, layouts, and modals across all UI (critical rule).
 24. Performance check for 200 rows x 52 cols (10,400 inputs; full-grid DOM queries on every selection and keystroke) (BQ-10.4).
-25. Sidebars (320px) take most of a phone screen; need a bottom-sheet or full-screen treatment.
+25. ~~Sidebars (320px) take most of a phone screen; need a bottom-sheet or full-screen treatment.~~ **Done — see Build Log 2.**
 
 ### E. Recommended approach (pending approval)
 
 26. ~~Keep the V3 shell (ribbon tabs, multi-sheet bar, settings, cell dock, freeze modal) and rebuild on a proper formula engine and touch selection model, restoring section A items.~~ **Done — see Build Log 1.**
+
+### F. Reported after Build Log 2
+
+27. Freeze Panes: reported "on with no way to clear." Freeze defaults to 1 row + 1 column on every sheet, and the only control is the modal under View / Insert → Freeze Panes… (set both numbers to 0 to clear), which is easy to miss and always opens showing 1 / 1 instead of the current setting. Diagnosis only, not built: needs a visible Unfreeze/Clear control and the modal should show current values (related to item 10).
 
 ## Build Log (completed)
 
@@ -79,3 +83,9 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **Restored (Queue 7):** list-validation warning; validation now runs when a cell is committed instead of on every keystroke.
 - [x] **Restored (Queue 8):** Formula Wizard live preview.
 - Small shell tweaks needed for the above: page height uses `100dvh`; cell dock and toast moved up to clear the new status bar.
+
+### Build Log 2 — Item 25: sidebars as bottom sheets + column width
+
+- [x] **Column width:** every column is now a fixed 80px (it was ~230px, from the browser's default input width), so about 4–5 columns fit on a Pixel 7 instead of 1–2. Set in one place (`--col-width` in the CSS). 80px also matches the offsets the frozen-column code already assumed.
+- [x] **Insights / Time Travel (BQ-08.3 / 08.4):** on phone-width screens they slide up as a bottom sheet (full width, max ~42% of screen height, sitting above the sheet tabs and status bar) instead of a 320px side panel that squeezed the grid. Only one sheet is open at a time, the grid can still be scrolled so the last rows clear the sheet, the cell dock hides while a sheet is open, the close button is a 40px touch target, Time Travel entries are taller, and Insights refreshes when opened. Wider screens keep the side-panel layout.
+
