@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spreadsheet Studio - Mobile Pixel 7 Edition</title>
+    <!-- Google Fonts: Inter, Roboto Mono, Georgia, Courier New, plus 3 Handwriting Fonts (Caveat, Indie Flower, Shadows Into Light) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Indie+Flower&family=Inter:wght@400;500;600&family=Roboto+Mono:wght@400;500&family=Shadows+Into+Light&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --header-bg: #f1f5f9;
+            --border-color: #cbd5e1;
+            --selection-bg: rgba(37, 99, 235, 0.15);
+            --selection-border: #2563eb;
+            --accent-color: #2563eb;
+            --text-main: #1e293b;
+            --toolbar-bg: #ffffff;
+            --sidebar-bg: #ffffff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* Top Header / App Title */
+        header {
+            background: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            z-index: 40;
+            height: 48px;
+        }
+
+        .app-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        button, select {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            color: var(--text-main);
+            transition: all 0.15s ease;
+            min-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        button:hover, select:hover {
+            background: #f1f5f9;
+            border-color: #94a3b8;
+        }
+
+        button.primary {
+            background: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+            font-weight: 500;
+        }
+
+        button.primary:hover {
+            background: #1d4ed8;
+        }
+
+        /* Zero-Chrome Ribbon Overlay (Toggled on header or ribbon button tap) */
+        .ribbon-overlay {
+            background: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            z-index: 35;
+            transition: max-height 0.25s ease, opacity 0.2s ease;
+            max-height: 140px;
+            overflow: hidden;
+        }
+
+        .ribbon-overlay.collapsed {
+            max-height: 0;
+            border-bottom: none;
+            opacity: 0;
+        }
+
+        .ribbon-tabs {
+            display: flex;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 12px;
+            gap: 4px;
+        }
+
+        .ribbon-tab {
+            padding: 8px 16px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: #64748b;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            border-top: none; border-left: none; border-right: none; border-radius: 0;
+        }
+
+        .ribbon-tab.active {
+            color: var(--accent-color);
+            border-bottom-color: var(--accent-color);
+            background: #ffffff;
+            font-weight: 600;
+        }
+
+        .ribbon-content {
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            overflow-x: auto;
+            background: #ffffff;
+            min-height: 60px;
+        }
+
+        .ribbon-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-right: 1px solid var(--border-color);
+            padding-right: 12px;
+        }
+
+        .ribbon-group:last-child {
+            border-right: none;
+        }
+
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: 1px solid var(--border-color);
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            cursor: pointer;
+            padding: 0;
+            background: none;
+        }
+
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; border-radius: 5px; }
+
+        /* Formula Bar */
+        .formula-bar {
+            background: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            padding: 6px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 30;
+        }
+
+        .cell-indicator {
+            font-weight: 600;
+            font-size: 0.85rem;
+            min-width: 45px;
+            color: #475569;
+            text-align: center;
+        }
+
+        .formula-fx {
+            font-weight: bold;
+            color: #64748b;
+            font-style: italic;
+        }
+
+        #formula-input {
+            flex: 1;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.85rem;
+            outline: none;
+        }
+
+        #formula-input:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+
+        /* Workspace & Grid Layout */
+        .workspace {
+            flex: 1;
+            display: flex;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .grid-container {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            background: #ffffff;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        table.spreadsheet {
+            border-collapse: collapse;
+            table-layout: fixed;
+            width: max-content;
+        }
+
+        table.spreadsheet th, table.spreadsheet td {
+            border: 1px solid var(--border-color);
+            padding: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            height: 26px;
+            font-size: 0.85rem;
+        }
+
+        table.spreadsheet th {
+            background-color: var(--header-bg);
+            text-align: center;
+            font-weight: 600;
+            color: #475569;
+            user-select: none;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        table.spreadsheet th:hover {
+            background-color: #e2e8f0;
+        }
+
+        table.spreadsheet th.row-header {
+            left: 0;
+            z-index: 12;
+            width: 50px;
+            min-width: 50px;
+            position: sticky;
+            cursor: default;
+        }
+
+        table.spreadsheet tr:first-child th.corner-header {
+            left: 0;
+            z-index: 15;
+            position: sticky;
+            top: 0;
+            width: 50px;
+            min-width: 50px;
+        }
+
+        /* Official Table Header Styling */
+        table.spreadsheet th.table-header {
+            background-color: #1e293b !important;
+            color: #ffffff !important;
+            border-color: #0f172a !important;
+        }
+        table.spreadsheet th.table-header:hover {
+            background-color: #334155 !important;
+        }
+
+        .cell-input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            padding: 0 6px;
+            font-size: 0.85rem;
+            outline: none;
+            color: inherit;
+        }
+
+        .cell-input:focus {
+            background: #ffffff;
+        }
+
+        td.selected {
+            background-color: var(--selection-bg) !important;
+            box-shadow: inset 0 0 0 2px var(--selection-border);
+        }
+
+        td.active-cell {
+            background-color: #ffffff !important;
+            box-shadow: inset 0 0 0 2px var(--selection-border);
+        }
+
+        /* Bottom Sheet Tab Bar */
+        .sheet-tab-bar {
+            background: #f1f5f9;
+            border-top: 1px solid var(--border-color);
+            padding: 4px 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 30;
+            overflow-x: auto;
+            height: 38px;
+        }
+
+        .sheet-tab {
+            padding: 4px 12px;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            color: #475569;
+            white-space: nowrap;
+        }
+
+        .sheet-tab.active {
+            background: var(--accent-color);
+            color: #ffffff;
+            border-color: var(--accent-color);
+            font-weight: 600;
+        }
+
+        /* Cell Bottom Action Dock (Appears when cell is focused) */
+        .cell-dock {
+            position: fixed;
+            bottom: 46px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #0f172a;
+            color: #ffffff;
+            padding: 6px 12px;
+            border-radius: 20px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            z-index: 50;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .cell-dock.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-50%, 10px);
+        }
+
+        .cell-dock button {
+            background: rgba(255,255,255,0.15);
+            border: none;
+            color: #ffffff;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .cell-dock button:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        /* Sidebars & Modals */
+        .sidebar {
+            width: 320px;
+            background: var(--sidebar-bg);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            z-index: 45;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.04);
+        }
+
+        .sidebar.hidden { display: none; }
+
+        .sidebar-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            font-size: 0.9rem;
+            background: #f8fafc;
+        }
+
+        .sidebar-body {
+            padding: 16px;
+            overflow-y: auto;
+            flex: 1;
+            font-size: 0.85rem;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.45);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+
+        .modal-overlay.hidden { display: none; }
+
+        .modal {
+            background: #ffffff;
+            width: 440px;
+            max-width: 92%;
+            border-radius: 10px;
+            box-shadow: 0 15px 30px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8fafc;
+        }
+
+        .modal-body {
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 70vh;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+
+        .modal-footer {
+            padding: 12px 18px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            background: #f8fafc;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .form-group label {
+            font-weight: 500;
+            color: #475569;
+        }
+
+        .form-group input, .form-group select {
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #0f172a;
+            color: #ffffff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            z-index: 300;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            transition: opacity 0.3s ease;
+        }
+        .toast.hidden { opacity: 0; pointer-events: none; }
+
+        /* Status Bar */
+        .status-bar {
+            background: #f1f5f9;
+            border-top: 1px solid var(--border-color);
+            padding: 6px 16px;
+            font-size: 0.8rem;
+            color: #64748b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 30;
+            height: 32px;
+        }
+
+        .sparkline-box {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Top Header -->
+    <header>
+        <div class="app-title">Spreadsheet Studio</div>
+        <div class="header-actions">
+            <button class="primary" onclick="toggleRibbon()">Ribbon Menu</button>
+            <button onclick="toggleSidebar('insights-sidebar')">Insights</button>
+            <button onclick="toggleSidebar('timeline-sidebar')">Time Travel</button>
+            <button onclick="openSettingsModal()" title="Settings">⚙️</button>
+        </div>
+    </header>
+
+    <!-- Zero-Chrome Ribbon Overlay (Tabbed Navigation) -->
+    <div class="ribbon-overlay collapsed" id="ribbon-overlay">
+        <div class="ribbon-tabs">
+            <button class="ribbon-tab active" id="tab-home" onclick="switchRibbonTab('home')">Home</button>
+            <button class="ribbon-tab" id="tab-data" onclick="switchRibbonTab('data')">Data</button>
+            <button class="ribbon-tab" id="tab-view" onclick="switchRibbonTab('view')">View / Insert</button>
+        </div>
+        <div class="ribbon-content" id="ribbon-content-area">
+            <!-- Dynamically populated ribbon content -->
+        </div>
+    </div>
+
+    <!-- Formula Bar -->
+    <div class="formula-bar">
+        <div class="cell-indicator" id="current-cell-label">A1</div>
+        <div class="formula-fx"><i>fx</i></div>
+        <input type="text" id="formula-input" placeholder="Enter value, shorthand ('average sales in b2 to b50'), or formula..." onkeydown="handleFormulaInputKey(event)">
+    </div>
+
+    <!-- Workspace & Grid -->
+    <div class="workspace">
+        <div class="grid-container" id="grid-container" onscroll="handleGridScroll()">
+            <table class="spreadsheet" id="spreadsheet-table">
+                <thead id="spreadsheet-head"></thead>
+                <tbody id="spreadsheet-body"></tbody>
+            </table>
+        </div>
+
+        <!-- Instant Insights Sidebar -->
+        <div class="sidebar hidden" id="insights-sidebar">
+            <div class="sidebar-header">
+                <span>Instant Insights</span>
+                <button onclick="toggleSidebar('insights-sidebar')">&times;</button>
+            </div>
+            <div class="sidebar-body" id="insights-body">
+                <p style="color: #64748b;">Highlight a range of numbers on the grid to generate live insights instantly.</p>
+            </div>
+        </div>
+
+        <!-- Time Travel Undo History Sidebar -->
+        <div class="sidebar hidden" id="timeline-sidebar">
+            <div class="sidebar-header">
+                <span>Time Travel History</span>
+                <button onclick="toggleSidebar('timeline-sidebar')">&times;</button>
+            </div>
+            <div class="sidebar-body" id="timeline-body">
+                <p style="color: #64748b; margin-bottom: 10px;">Recent edits timeline (click to scrub history):</p>
+                <div id="timeline-list" style="display: flex; flex-direction: column; gap: 6px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Multi-Sheet Tab Bar -->
+    <div class="sheet-tab-bar" id="sheet-tab-bar">
+        <!-- Rendered dynamically -->
+        <button class="sheet-tab active" onclick="switchSheet(0)">Sheet 1</button>
+        <button class="sheet-tab" onclick="switchSheet(1)">Sheet 2</button>
+        <button class="sheet-tab" onclick="addNewSheet()">+ Add Sheet</button>
+    </div>
+
+    <!-- Cell Bottom Action Dock (Quick fx & validation pickers) -->
+    <div class="cell-dock hidden" id="cell-dock">
+        <span id="cell-dock-title" style="font-size: 0.75rem; font-weight: 600; color: #94a3b8;">CELL ACTIONS:</span>
+        <div id="cell-dock-buttons" style="display: flex; gap: 6px; align-items: center;"></div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast hidden" id="app-toast">Notification message</div>
+
+    <!-- Formula Wizard Modal -->
+    <div class="modal-overlay hidden" id="wizard-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Interactive Formula Wizard</span>
+                <button onclick="closeWizard()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Select Category</label>
+                    <select id="wizard-category" onchange="updateWizardFunctions()">
+                        <option value="math">Math & Aggregation</option>
+                        <option value="finance">Financial Core</option>
+                        <option value="lookup">Lookups & References</option>
+                        <option value="text">Text Processing</option>
+                        <option value="logic">Logic & Conditional</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Function</label>
+                    <select id="wizard-function" onchange="renderWizardArguments()"></select>
+                </div>
+                <div id="wizard-args-container" style="display: flex; flex-direction: column; gap: 10px;"></div>
+                <div class="form-group">
+                    <label>Live Preview Result</label>
+                    <div id="wizard-preview" style="padding: 8px; background: #f1f5f9; border-radius: 4px; font-weight: 600;">--</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeWizard()">Cancel</button>
+                <button class="primary" onclick="insertWizardFormula()">Insert Formula</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conditional Formatting Modal -->
+    <div class="modal-overlay hidden" id="cond-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Conditional Formatting Manager</span>
+                <button onclick="closeCondFormatting()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Target Range (e.g. A1:AZ50)</label>
+                    <input type="text" id="cond-range" value="A1:AZ50">
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="cond-entire-row">
+                    <label for="cond-entire-row" style="cursor: pointer;">Entire row highlighting</label>
+                </div>
+                <div class="form-group">
+                    <label>Rule Preset</label>
+                    <select id="cond-preset">
+                        <option value="less_than_red">Soft Alert: Less than 60 (Red)</option>
+                        <option value="status_in_progress">Warning Amber: Status equals "In Progress"</option>
+                        <option value="top_10_percent">Top 10% Highest Values (Green)</option>
+                        <option value="zebra">Zebra Striping (=MOD(ROW(),2)=0)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeCondFormatting()">Cancel</button>
+                <button class="primary" onclick="applyConditionalFormatting()">Apply Rule</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Validation Modal -->
+    <div class="modal-overlay hidden" id="val-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Data Validation & Drop-Downs</span>
+                <button onclick="closeDataValidation()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Target Range (e.g. B2:B100)</label>
+                    <input type="text" id="val-range" value="B2:B100">
+                </div>
+                <div class="form-group">
+                    <label>Rule Type</label>
+                    <select id="val-type">
+                        <option value="list">List Drop-Down Options (comma separated)</option>
+                        <option value="number">Whole Number Only</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>List Options (e.g. Pending, In Progress, Completed)</label>
+                    <input type="text" id="val-options" value="Pending, In Progress, Completed, Cancelled">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeDataValidation()">Cancel</button>
+                <button class="primary" onclick="applyDataValidation()">Apply Validation Rule</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Text to Columns Modal -->
+    <div class="modal-overlay hidden" id="ttc-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Text to Columns Wizard</span>
+                <button onclick="closeTextToColumns()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Source Column (e.g. A)</label>
+                    <input type="text" id="ttc-col" value="A">
+                </div>
+                <div class="form-group">
+                    <label>Delimiter</label>
+                    <select id="ttc-delimiter">
+                        <option value=",">Comma (,)</option>
+                        <option value=" ">Space ( )</option>
+                        <option value="-">Hyphen (-)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Target Destination Start Column (e.g. B)</label>
+                    <input type="text" id="ttc-dest" value="B">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeTextToColumns()">Cancel</button>
+                <button class="primary" onclick="executeTextToColumns()">Split Text</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Freeze Panes Modal -->
+    <div class="modal-overlay hidden" id="freeze-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Flexible Freeze Panes Configuration</span>
+                <button onclick="closeFreezeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Freeze Rows (Top N rows)</label>
+                    <input type="number" id="freeze-rows-input" min="0" max="50" value="1">
+                </div>
+                <div class="form-group">
+                    <label>Freeze Columns (Left N columns, e.g. 1 for Col A)</label>
+                    <input type="number" id="freeze-cols-input" min="0" max="10" value="1">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeFreezeModal()">Cancel</button>
+                <button class="primary" onclick="applyFreezePanes()">Apply Freeze Panes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay hidden" id="settings-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Settings & Cell Dock Preferences</span>
+                <button onclick="closeSettingsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="setting-quick-fx">Enable Quick fx Access on Cell Tap</label>
+                    <input type="checkbox" id="setting-quick-fx" checked style="width: 20px; height: 20px;">
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="setting-val-picker">Enable Data Validation Pickers on Cell Tap</label>
+                    <input type="checkbox" id="setting-val-picker" checked style="width: 20px; height: 20px;">
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="setting-remember-tab">Remember Last Used Ribbon Tab</label>
+                    <input type="checkbox" id="setting-remember-tab" checked style="width: 20px; height: 20px;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="primary" onclick="closeSettingsModal()">Save Preferences</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Grid Dimensions: 200 rows and A through AZ (52 columns)
+        const ROWS = 200;
+        const COLS = 52;
+
+        let sheets = [
+            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], freezeRows: 1, freezeCols: 1 }
+        ];
+        let currentSheetIdx = 0;
+        let data = sheets[0].data;
+        let conditionalRules = sheets[0].conditionalRules;
+        let validationRules = sheets[0].validationRules;
+        let tableObjects = sheets[0].tableObjects;
+        let freezeRows = sheets[0].freezeRows;
+        let freezeCols = sheets[0].freezeCols;
+
+        let activeCell = { row: 0, col: 0 };
+        let selectionRange = { startRow: 0, startCol: 0, endRow: 0, endCol: 0 };
+        let isMouseDown = false;
+        let historyStack = [];
+        let ribbonOpen = false;
+        let activeRibbonTab = 'home';
+        let lastRibbonTab = 'home';
+
+        function showToast(msg) {
+            const toast = document.getElementById('app-toast');
+            toast.innerText = msg;
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 3000);
+        }
+
+        function initGrid() {
+            renderRibbonContent('home');
+            renderSheetTabs();
+            buildGridDOM();
+            recordHistory("Initial blank sheet");
+            recalculateAll();
+        }
+
+        function buildGridDOM() {
+            const thead = document.getElementById('spreadsheet-head');
+            const tbody = document.getElementById('spreadsheet-body');
+
+            let headerRowHTML = '<tr><th class="corner-header"></th>';
+            for (let c = 0; c < COLS; c++) {
+                let colLet = columnToLetter(c);
+                let isFrozen = c < freezeCols;
+                let frozenStyle = isFrozen ? `position: sticky; left: ${c === 0 ? 50 : 50 + c * 80}px; z-index: 12; background: #f1f5f9;` : '';
+                headerRowHTML += `<th style="${frozenStyle}" onclick="handleHeaderTap(${c}, 'col')">${colLet}</th>`;
+            }
+            headerRowHTML += '</tr>';
+            thead.innerHTML = headerRowHTML;
+
+            let bodyHTML = '';
+            for (let r = 0; r < ROWS; r++) {
+                let isRowFrozen = r < freezeRows;
+                let rowStickyStyle = isRowFrozen ? `position: sticky; top: ${r === 0 ? 26 : 26 + r * 26}px; z-index: 9; background: #f1f5f9;` : '';
+                bodyHTML += `<tr style="${rowStickyStyle}">`;
+                bodyHTML += `<th class="row-header" style="${rowStickyStyle}" onclick="handleHeaderTap(${r}, 'row')">${r + 1}</th>`;
+                for (let c = 0; c < COLS; c++) {
+                    const cellId = columnToLetter(c) + (r + 1);
+                    let isColFrozen = c < freezeCols;
+                    let cellStickyStyle = '';
+                    if (isColFrozen && isRowFrozen) {
+                        cellStickyStyle = `position: sticky; left: ${c === 0 ? 50 : 50 + c * 80}px; top: ${r === 0 ? 26 : 26 + r * 26}px; z-index: 14; background: #ffffff;`;
+                    } else if (isColFrozen) {
+                        cellStickyStyle = `position: sticky; left: ${c === 0 ? 50 : 50 + c * 80}px; z-index: 8; background: #ffffff;`;
+                    } else if (isRowFrozen) {
+                        cellStickyStyle = `position: sticky; top: ${r === 0 ? 26 : 26 + r * 26}px; z-index: 8; background: #ffffff;`;
+                    }
+
+                    bodyHTML += `<td id="cell-${cellId}" style="${cellStickyStyle}" data-row="${r}" data-col="${c}" onmousedown="startSelection(event, ${r}, ${c})" onmouseover="updateSelection(event, ${r}, ${c})" onmouseup="endSelection()">`;
+                    bodyHTML += `<input type="text" class="cell-input" id="input-${cellId}" data-cell="${cellId}" onfocus="setActiveCell(${r}, ${c})" oninput="onCellInput('${cellId}', this.value)" onkeydown="handleCellKey(event, ${r}, ${c})">`;
+                    bodyHTML += `</td>`;
+                }
+                bodyHTML += `</tr>`;
+            }
+            tbody.innerHTML = bodyHTML;
+            recalculateAll();
+        }
+
+        function columnToLetter(colIndex) {
+            let temp, letter = '';
+            colIndex++;
+            while (colIndex > 0) {
+                temp = (colIndex - 1) % 26;
+                letter = String.fromCharCode(temp + 65) + letter;
+                colIndex = (colIndex - temp - 1) / 26;
+            }
+            return letter;
+        }
+
+        function letterToColumn(letter) {
+            let column = 0;
+            for (let i = 0; i < letter.length; i++) {
+                column += (letter.charCodeAt(i) - 64) * Math.pow(26, letter.length - i - 1);
+            }
+            return column - 1;
+        }
+
+        function getCellId(r, c) { return columnToLetter(c) + (r + 1); }
+
+        function toggleRibbon() {
+            ribbonOpen = !ribbonOpen;
+            const ribbon = document.getElementById('ribbon-overlay');
+            if (ribbonOpen) {
+                ribbon.classList.remove('collapsed');
+            } else {
+                ribbon.classList.add('collapsed');
+            }
+        }
+
+        function handleHeaderTap(index, type) {
+            // Tapping header opens Ribbon automatically (Zero-Chrome UX)
+            if (!ribbonOpen) {
+                toggleRibbon();
+            }
+            let rememberTab = document.getElementById('setting-remember-tab')?.checked;
+            let targetTab = rememberTab ? lastRibbonTab : 'home';
+            switchRibbonTab(targetTab);
+            if (type === 'col') {
+                showToast(`Column ${columnToLetter(index)} selected`);
+            } else {
+                showToast(`Row ${index + 1} selected`);
+            }
+        }
+
+        function switchRibbonTab(tabName) {
+            activeRibbonTab = tabName;
+            lastRibbonTab = tabName;
+            document.querySelectorAll('.ribbon-tab').forEach(t => t.classList.remove('active'));
+            document.getElementById(`tab-${tabName === 'view' ? 'view' : tabName}`).classList.add('active');
+            renderRibbonContent(tabName);
+        }
+
+        function renderRibbonContent(tab) {
+            const area = document.getElementById('ribbon-content-area');
+            if (tab === 'home') {
+                area.innerHTML = `
+                    <div class="ribbon-group">
+                        <button onclick="formatCell('bold')" title="Bold"><b>B</b></button>
+                        <button onclick="formatCell('italic')" title="Italic"><i>I</i></button>
+                        <button onclick="formatCell('underline')" title="Underline"><u>U</u></button>
+                    </div>
+                    <div class="ribbon-group">
+                        <select id="font-family-selector" onchange="formatCell('fontFamily', this.value)" title="Font Family">
+                            <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">System Default</option>
+                            <option value="'Inter', sans-serif">Inter</option>
+                            <option value="'Roboto Mono', monospace">Roboto Mono</option>
+                            <option value="Georgia, serif">Georgia</option>
+                            <option value="'Courier New', Courier, monospace">Courier New</option>
+                            <option value="'Caveat', cursive">Caveat (Handwriting)</option>
+                            <option value="'Indie Flower', cursive">Indie Flower (Handwriting)</option>
+                            <option value="'Shadows Into Light', cursive">Shadows Into Light (Handwriting)</option>
+                        </select>
+                    </div>
+                    <div class="ribbon-group">
+                        <input type="color" id="text-color-picker" onchange="formatCell('color', this.value)" title="Text Color">
+                        <input type="color" id="bg-color-picker" onchange="formatCell('bgColor', this.value)" title="Fill Color" value="#ffffff">
+                    </div>
+                    <div class="ribbon-group">
+                        <button onclick="formatCell('align', 'left')">L</button>
+                        <button onclick="formatCell('align', 'center')">C</button>
+                        <button onclick="formatCell('align', 'right')">R</button>
+                    </div>
+                    <div class="ribbon-group">
+                        <select id="number-format" onchange="formatCell('numFormat', this.value)">
+                            <option value="general">General</option>
+                            <option value="currency">Currency ($)</option>
+                            <option value="percent">Percentage (%)</option>
+                            <option value="decimal">Decimal (0.00)</option>
+                        </select>
+                    </div>
+                `;
+            } else if (tab === 'data') {
+                area.innerHTML = `
+                    <div class="ribbon-group">
+                        <button class="primary" onclick="createOfficialTable()">Table (Ctrl+T)</button>
+                        <button onclick="openDataValidation()">Validation</button>
+                        <button onclick="openTextToColumns()">Text to Columns</button>
+                    </div>
+                `;
+            } else if (tab === 'view') {
+                area.innerHTML = `
+                    <div class="ribbon-group">
+                        <button onclick="openFreezeModal()">Freeze Panes...</button>
+                        <button onclick="openCondFormatting()">Cond. Formatting</button>
+                        <button class="primary" onclick="openWizard()">fx Wizard</button>
+                    </div>
+                `;
+            }
+        }
+
+        function setActiveCell(r, c) {
+            activeCell = { row: r, col: c };
+            const cellId = getCellId(r, c);
+            document.getElementById('current-cell-label').innerText = cellId;
+            const formulaInput = document.getElementById('formula-input');
+            const cellData = data[cellId];
+            formulaInput.value = cellData ? (cellData.formula || cellData.value || '') : '';
+            highlightSelection();
+            updateCellDock(cellId);
+        }
+
+        function updateCellDock(cellId) {
+            const dock = document.getElementById('cell-dock');
+            const dockButtons = document.getElementById('cell-dock-buttons');
+            let showFx = document.getElementById('setting-quick-fx')?.checked;
+            let showVal = document.getElementById('setting-val-picker')?.checked;
+
+            let html = '';
+            if (showFx) {
+                html += `<button onclick="insertQuickFn('SUM')">SUM</button>`;
+                html += `<button onclick="insertQuickFn('AVERAGE')">AVERAGE</button>`;
+                html += `<button onclick="openWizard()">fx Wizard</button>`;
+            }
+
+            // Check if cell has list validation
+            let coord = parseCellCoord(cellId);
+            let matchedRule = validationRules.find(rule => {
+                let start = parseCellCoord(rule.range.split(':')[0]);
+                let end = parseCellCoord(rule.range.split(':')[1]);
+                return coord.r >= Math.min(start.r, end.r) && coord.r <= Math.max(start.r, end.r) &&
+                       coord.c >= Math.min(start.c, end.c) && coord.c <= Math.max(start.c, end.c);
+            });
+
+            if (showVal && matchedRule && matchedRule.type === 'list') {
+                matchedRule.options.forEach(opt => {
+                    html += `<button onclick="setValidationValue('${cellId}', '${opt.trim()}')">${opt.trim()}</button>`;
+                });
+            }
+
+            if (html !== '') {
+                dockButtons.innerHTML = html;
+                dock.classList.remove('hidden');
+            } else {
+                dock.classList.add('hidden');
+            }
+        }
+
+        function setValidationValue(cellId, val) {
+            const inputEl = document.getElementById(`input-${cellId}`);
+            if (inputEl) {
+                inputEl.value = val;
+                onCellInput(cellId, val);
+            }
+        }
+
+        function insertQuickFn(fnName) {
+            const cellId = getCellId(activeCell.row, activeCell.col);
+            let guessed = `=${fnName}(${guessNeighborhoodRange(activeCell.row, activeCell.col)})`;
+            document.getElementById('formula-input').value = guessed;
+            document.getElementById(`input-${cellId}`).value = guessed;
+            onCellInput(cellId, guessed);
+        }
+
+        function startSelection(e, r, c) {
+            isMouseDown = true;
+            selectionRange = { startRow: r, startCol: c, endRow: r, endCol: c };
+            setActiveCell(r, c);
+        }
+
+        function updateSelection(e, r, c) {
+            if (!isMouseDown) return;
+            selectionRange.endRow = r;
+            selectionRange.endCol = c;
+            highlightSelection();
+        }
+
+        function endSelection() {
+            isMouseDown = false;
+            updateStats();
+            updateInsights();
+        }
+
+        function highlightSelection() {
+            document.querySelectorAll('td').forEach(td => td.classList.remove('selected', 'active-cell'));
+            const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
+            const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
+            const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
+            const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
+
+            for (let r = minR; r <= maxR; r++) {
+                for (let c = minC; c <= maxC; c++) {
+                    const cellId = getCellId(r, c);
+                    const td = document.getElementById(`cell-${cellId}`);
+                    if (td) {
+                        if (r === activeCell.row && c === activeCell.col) td.classList.add('active-cell');
+                        else td.classList.add('selected');
+                    }
+                }
+            }
+        }
+
+        function handleCellKey(e, r, c) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (r < ROWS - 1) setActiveCell(r + 1, c);
+                document.getElementById(`input-${getCellId(Math.min(r + 1, ROWS - 1), c)}`).focus();
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                if (c < COLS - 1) setActiveCell(r, c + 1);
+                document.getElementById(`input-${getCellId(r, Math.min(c + 1, COLS - 1))}`).focus();
+            }
+        }
+
+        function handleFormulaInputKey(e) {
+            if (e.key === 'Enter') {
+                const cellId = getCellId(activeCell.row, activeCell.col);
+                let val = e.target.value.trim();
+                if (!val.startsWith('=')) {
+                    val = parseNaturalLanguageShorthand(val, activeCell.row, activeCell.col);
+                }
+                const inputEl = document.getElementById(`input-${cellId}`);
+                inputEl.value = val;
+                onCellInput(cellId, val);
+                recordHistory(`Updated ${cellId} to ${val}`);
+            }
+        }
+
+        function parseNaturalLanguageShorthand(text, r, c) {
+            const lower = text.toLowerCase();
+            const rangeMatch = text.match(/([a-zA-Z][0-9]+)\s*(?:to|[:])\s*([a-zA-Z][0-9]+)/i);
+            const rangeStr = rangeMatch ? `${rangeMatch[1].toUpperCase()}:${rangeMatch[2].toUpperCase()}` : '';
+
+            if (lower.includes('average') || lower.includes('mean')) {
+                return rangeStr ? `=AVERAGE(${rangeStr})` : `=AVERAGE(${guessNeighborhoodRange(r, c)})`;
+            }
+            if (lower.includes('sum') || lower.includes('total') || lower.includes('add')) {
+                return rangeStr ? `=SUM(${rangeStr})` : `=SUM(${guessNeighborhoodRange(r, c)})`;
+            }
+            if (lower.includes('count')) {
+                return rangeStr ? `=COUNT(${rangeStr})` : `=COUNT(${guessNeighborhoodRange(r, c)})`;
+            }
+            if (lower.includes('max') || lower.includes('highest')) {
+                return rangeStr ? `=MAX(${rangeStr})` : `=MAX(${guessNeighborhoodRange(r, c)})`;
+            }
+            if (lower.includes('min') || lower.includes('lowest')) {
+                return rangeStr ? `=MIN(${rangeStr})` : `=MIN(${guessNeighborhoodRange(r, c)})`;
+            }
+            return text;
+        }
+
+        function guessNeighborhoodRange(r, c) {
+            let startR = r - 1;
+            while (startR >= 0 && getCellValue(getCellId(startR, c)) !== '') {
+                startR--;
+            }
+            startR = Math.max(0, startR + 1);
+            if (startR < r) {
+                return `${getCellId(startR, c)}:${getCellId(r - 1, c)}`;
+            }
+            let startC = c - 1;
+            while (startC >= 0 && getCellValue(getCellId(r, startC)) !== '') {
+                startC--;
+            }
+            startC = Math.max(0, startC + 1);
+            if (startC < c) {
+                return `${getCellId(r, startC)}:${getCellId(r, c - 1)}`;
+            }
+            return `${columnToLetter(c)}1:${columnToLetter(c)}${r}`;
+        }
+
+        function onCellInput(cellId, value) {
+            let coord = parseCellCoord(cellId);
+            validationRules.forEach(rule => {
+                let start = parseCellCoord(rule.range.split(':')[0]);
+                let end = parseCellCoord(rule.range.split(':')[1]);
+                if (coord.r >= Math.min(start.r, end.r) && coord.r <= Math.max(start.r, end.r) &&
+                    coord.c >= Math.min(start.c, end.c) && coord.c <= Math.max(start.c, end.c)) {
+                    if (rule.type === 'number' && isNaN(value) && value.trim() !== '') {
+                        showToast(`Validation Error: ${cellId} requires a whole number.`);
+                    }
+                }
+            });
+
+            if (!data[cellId]) data[cellId] = { style: {} };
+            if (value.startsWith('=')) {
+                data[cellId].formula = value;
+                data[cellId].value = evaluateFormula(value, coord.r, coord.c);
+            } else {
+                data[cellId].formula = '';
+                data[cellId].value = isNaN(value) || value.trim() === '' ? value : Number(value);
+            }
+            recalculateAll();
+            updateStats();
+            applyConditionalFormattingRules();
+        }
+
+        function evaluateFormula(formulaStr, curR, curC) {
+            try {
+                let expr = formulaStr.substring(1).trim();
+                const funcMatch = expr.match(/^([A-Z]+)\((.*)\)$/i);
+                if (funcMatch) {
+                    const funcName = funcMatch[1].toUpperCase();
+                    const argsStr = funcMatch[2];
+                    return executeFunction(funcName, argsStr, curR, curC);
+                }
+                let evalExpr = expr.replace(/ ([A-Z]+[0-9]+) /g, (match) => {
+                    const val = getCellValue(match);
+                    return typeof val === 'string' ? `"${val}"` : (val === '' ? 0 : val);
+                });
+                return Function('"use strict";return (' + evalExpr + ')')();
+            } catch (err) {
+                return '#ERROR!';
+            }
+        }
+
+        function getCellValue(cellId) {
+            if (!data[cellId]) return '';
+            let val = data[cellId].value;
+            return val !== undefined ? val : '';
+        }
+
+        function parseRange(rangeStr) {
+            let parts = rangeStr.split(':');
+            if (parts.length !== 2) return [rangeStr.replace(/"/g, '')];
+            let start = parseCellCoord(parts[0].trim());
+            let end = parseCellCoord(parts[1].trim());
+            let values = [];
+            for (let r = Math.min(start.r, end.r); r <= Math.max(start.r, end.r); r++) {
+                for (let c = Math.min(start.c, end.c); c <= Math.max(start.c, end.c); c++) {
+                    values.push(getCellValue(getCellId(r, c)));
+                }
+            }
+            return values;
+        }
+
+        function parseCellCoord(coordStr) {
+            let match = coordStr.match(/^([A-Z]+)([0-9]+)$/);
+            if (!match) return { r: 0, c: 0 };
+            return { r: parseInt(match[2]) - 1, c: letterToColumn(match[1]) };
+        }
+
+        function executeFunction(name, argsStr, curR, curC) {
+            let args = argsStr.split(',').map(arg => arg.trim());
+            switch(name) {
+                case 'SUM':
+                    return parseRange(args[0]).reduce((a, b) => a + (Number(b) || 0), 0);
+                case 'AVERAGE': {
+                    let vals = parseRange(args[0]).map(v => Number(v) || 0);
+                    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+                }
+                case 'COUNT':
+                    return parseRange(args[0]).filter(v => typeof v === 'number' && !isNaN(v)).length;
+                case 'MIN': {
+                    let vals = parseRange(args[0]).map(v => Number(v)).filter(v => !isNaN(v));
+                    return vals.length ? Math.min(...vals) : 0;
+                }
+                case 'MAX': {
+                    let vals = parseRange(args[0]).map(v => Number(v)).filter(v => !isNaN(v));
+                    return vals.length ? Math.max(...vals) : 0;
+                }
+                default:
+                    return '#NAME?';
+            }
+        }
+
+        function recalculateAll() {
+            for (let cellId in data) {
+                if (data[cellId].formula) {
+                    let coord = parseCellCoord(cellId);
+                    data[cellId].value = evaluateFormula(data[cellId].formula, coord.r, coord.c);
+                }
+                let val = data[cellId].value;
+                const inputEl = document.getElementById(`input-${cellId}`);
+                if (inputEl && document.activeElement !== inputEl) {
+                    inputEl.value = val !== undefined ? val : '';
+                }
+            }
+        }
+
+        function updateStats() {
+            let count = 0, sum = 0, numericCount = 0;
+            const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
+            const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
+            const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
+            const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
+
+            for (let r = minR; r <= maxR; r++) {
+                for (let c = minC; c <= maxC; c++) {
+                    count++;
+                    let val = getCellValue(getCellId(r, c));
+                    if (typeof val === 'number' && !isNaN(val)) {
+                        sum += val;
+                        numericCount++;
+                    }
+                }
+            }
+            let avg = numericCount ? sum / numericCount : 0;
+            document.getElementById('ready-status')?.remove(); // clean placeholder
+        }
+
+        function updateInsights() {
+            const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
+            const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
+            const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
+            const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
+
+            let nums = [];
+            for (let r = minR; r <= maxR; r++) {
+                for (let c = minC; c <= maxC; c++) {
+                    let v = Number(getCellValue(getCellId(r, c)));
+                    if (!isNaN(v) && getCellValue(getCellId(r, c)) !== '') nums.push(v);
+                }
+            }
+
+            const body = document.getElementById('insights-body');
+            if (nums.length === 0) {
+                body.innerHTML = `<p style="color: #64748b;">Highlight a numeric range to see sparklines, extremes, and distributions.</p>`;
+                return;
+            }
+
+            let min = Math.min(...nums);
+            let max = Math.max(...nums);
+            let sum = nums.reduce((a,b)=>a+b, 0);
+            let avg = sum / nums.length;
+
+            body.innerHTML = `
+                <div class="sparkline-box">
+                    <strong>Trend Sparkline</strong>
+                    <div style="font-family: monospace; font-size: 1.1rem; color: var(--accent-color);">
+                        ${nums.map(n => n > avg ? '▲' : '▼').join(' ')}
+                    </div>
+                </div>
+                <div class="sparkline-box">
+                    <strong>Extremes & Range</strong>
+                    <div>Highest: <strong>${max.toLocaleString()}</strong></div>
+                    <div>Lowest: <strong>${min.toLocaleString()}</strong></div>
+                </div>
+                <div class="sparkline-box">
+                    <strong>Distribution</strong>
+                    <div>Total Data Points: ${nums.length}</div>
+                    <div>Mean Average: ${avg.toFixed(2)}</div>
+                </div>
+            `;
+        }
+
+        // Sheet Management (Multi-Sheet Bottom Tabs)
+        function renderSheetTabs() {
+            const bar = document.getElementById('sheet-tab-bar');
+            let html = '';
+            sheets.forEach((s, idx) => {
+                html += `<button class="sheet-tab ${idx === currentSheetIdx ? 'active' : ''}" onclick="switchSheet(${idx})">${s.name}</button>`;
+            });
+            html += `<button class="sheet-tab" onclick="addNewSheet()">+ Add Sheet</button>`;
+            bar.innerHTML = html;
+        }
+
+        function switchSheet(idx) {
+            currentSheetIdx = idx;
+            let s = sheets[idx];
+            data = s.data;
+            conditionalRules = s.conditionalRules;
+            validationRules = s.validationRules;
+            tableObjects = s.tableObjects;
+            freezeRows = s.freezeRows;
+            freezeCols = s.freezeCols;
+            renderSheetTabs();
+            buildGridDOM();
+            showToast(`Switched to ${s.name}`);
+        }
+
+        function addNewSheet() {
+            let name = `Sheet ${sheets.length + 1}`;
+            sheets.push({ name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], freezeRows: 1, freezeCols: 1 });
+            switchSheet(sheets.length - 1);
+        }
+
+        // Freeze Panes Modal
+        function openFreezeModal() { document.getElementById('freeze-modal').classList.remove('hidden'); }
+        function closeFreezeModal() { document.getElementById('freeze-modal').classList.add('hidden'); }
+        function applyFreezePanes() {
+            freezeRows = parseInt(document.getElementById('freeze-rows-input').value) || 0;
+            freezeCols = parseInt(document.getElementById('freeze-cols-input').value) || 0;
+            sheets[currentSheetIdx].freezeRows = freezeRows;
+            sheets[currentSheetIdx].freezeCols = freezeCols;
+            buildGridDOM();
+            closeFreezeModal();
+            showToast(`Freeze panes applied: ${freezeRows} rows, ${freezeCols} cols`);
+            recordHistory("Updated freeze panes");
+        }
+
+        // Settings Modal
+        function openSettingsModal() { document.getElementById('settings-modal').classList.remove('hidden'); }
+        function closeSettingsModal() { document.getElementById('settings-modal').classList.add('hidden'); }
+
+        // Official Tables (Ctrl + T)
+        function createOfficialTable() {
+            const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
+            const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
+            const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
+            const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
+
+            tableObjects.push({ startR: minR, endR: maxR, startC: minC, endC: maxC });
+            sheets[currentSheetIdx].tableObjects = tableObjects;
+            showToast("Official Table created successfully!");
+            recordHistory("Created Official Table");
+        }
+
+        // Data Validation
+        function openDataValidation() { document.getElementById('val-modal').classList.remove('hidden'); }
+        function closeDataValidation() { document.getElementById('val-modal').classList.add('hidden'); }
+        function applyDataValidation() {
+            let range = document.getElementById('val-range').value;
+            let type = document.getElementById('val-type').value;
+            let options = document.getElementById('val-options').value.split(',');
+            validationRules.push({ range, type, options });
+            sheets[currentSheetIdx].validationRules = validationRules;
+            closeDataValidation();
+            showToast(`Validation rule applied to ${range}`);
+            recordHistory("Applied data validation");
+        }
+
+        // Text to Columns
+        function openTextToColumns() { document.getElementById('ttc-modal').classList.remove('hidden'); }
+        function closeTextToColumns() { document.getElementById('ttc-modal').classList.add('hidden'); }
+        function executeTextToColumns() {
+            let srcColLetter = document.getElementById('ttc-col').value.toUpperCase();
+            let delim = document.getElementById('ttc-delimiter').value;
+            let destColLetter = document.getElementById('ttc-dest').value.toUpperCase();
+            let srcC = letterToColumn(srcColLetter);
+            let destC = letterToColumn(destColLetter);
+
+            for (let r = 0; r < ROWS; r++) {
+                let srcVal = String(getCellValue(getCellId(r, srcC)));
+                if (srcVal && srcVal.includes(delim)) {
+                    let parts = srcVal.split(delim);
+                    parts.forEach((part, idx) => {
+                        let targetC = destC + idx;
+                        if (targetC < COLS) {
+                            let targetCellId = getCellId(r, targetC);
+                            if (!data[targetCellId]) data[targetCellId] = {};
+                            data[targetCellId].value = isNaN(part.trim()) ? part.trim() : Number(part.trim());
+                            data[targetCellId].formula = '';
+                        }
+                    });
+                }
+            }
+            recalculateAll();
+            closeTextToColumns();
+            showToast(`Text split successfully starting at ${destColLetter}`);
+            recordHistory("Executed Text to Columns");
+        }
+
+        // Formula Wizard
+        function openWizard() { document.getElementById('wizard-modal').classList.remove('hidden'); updateWizardFunctions(); }
+        function closeWizard() { document.getElementById('wizard-modal').classList.add('hidden'); }
+        function updateWizardFunctions() {
+            const cat = document.getElementById('wizard-category').value;
+            const funcSelect = document.getElementById('wizard-function');
+            let opts = '';
+            if (cat === 'math') opts = '<option value="SUM">SUM</option><option value="AVERAGE">AVERAGE</option><option value="MAX">MAX</option><option value="MIN">MIN</option><option value="COUNT">COUNT</option>';
+            else if (cat === 'finance') opts = '<option value="PMT">PMT (Loan Payment)</option>';
+            else opts = '<option value="SUM">SUM</option>';
+            funcSelect.innerHTML = opts;
+            renderWizardArguments();
+        }
+        function renderWizardArguments() {
+            const container = document.getElementById('wizard-args-container');
+            container.innerHTML = `<div class="form-group"><label>Range</label><input type="text" id="wiz-arg-1" value="A1:A10"></div>`;
+        }
+        function insertWizardFormula() {
+            const fn = document.getElementById('wizard-function').value;
+            let a1 = document.getElementById('wiz-arg-1')?.value || '';
+            let formulaStr = `=${fn}(${a1})`;
+            const cellId = getCellId(activeCell.row, activeCell.col);
+            document.getElementById('formula-input').value = formulaStr;
+            document.getElementById(`input-${cellId}`).value = formulaStr;
+            onCellInput(cellId, formulaStr);
+            recordHistory(`Inserted ${formulaStr}`);
+            closeWizard();
+        }
+
+        // Conditional Formatting
+        function openCondFormatting() { document.getElementById('cond-modal').classList.remove('hidden'); }
+        function closeCondFormatting() { document.getElementById('cond-modal').classList.add('hidden'); }
+        function applyConditionalFormatting() {
+            const range = document.getElementById('cond-range').value;
+            const entireRow = document.getElementById('cond-entire-row').checked;
+            const preset = document.getElementById('cond-preset').value;
+            conditionalRules.push({ range, entireRow, preset });
+            sheets[currentSheetIdx].conditionalRules = conditionalRules;
+            applyConditionalFormattingRules();
+            closeCondFormatting();
+            showToast("Conditional formatting applied");
+            recordHistory("Applied conditional formatting");
+        }
+        function applyConditionalFormattingRules() {
+            document.querySelectorAll('td').forEach(td => td.style.backgroundColor = '');
+            conditionalRules.forEach(rule => {
+                let parts = rule.range.split(':');
+                if (parts.length !== 2) return;
+                let start = parseCellCoord(parts[0].trim());
+                let end = parseCellCoord(parts[1].trim());
+
+                for (let r = Math.min(start.r, end.r); r <= Math.max(start.r, end.r); r++) {
+                    for (let c = Math.min(start.c, end.c); c <= Math.max(start.c, end.c); c++) {
+                        let cellId = getCellId(r, c);
+                        let val = getCellValue(cellId);
+                        let td = document.getElementById(`cell-${cellId}`);
+                        if (!td) continue;
+                        if (rule.preset === 'less_than_red' && !isNaN(val) && Number(val) < 60) {
+                            td.style.backgroundColor = '#fee2e2';
+                        } else if (rule.preset === 'zebra' && r % 2 === 0) {
+                            td.style.backgroundColor = '#f8fafc';
+                        }
+                    }
+                }
+            });
+        }
+
+        // Formatting & Cell Actions
+        function formatCell(type, value) {
+            const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
+            const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
+            const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
+            const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
+
+            for (let r = minR; r <= maxR; r++) {
+                for (let c = minC; c <= maxC; c++) {
+                    const cellId = getCellId(r, c);
+                    const inputEl = document.getElementById(`input-${cellId}`);
+                    if (type === 'bold') inputEl.style.fontWeight = inputEl.style.fontWeight === 'bold' ? 'normal' : 'bold';
+                    else if (type === 'italic') inputEl.style.fontStyle = inputEl.style.fontStyle === 'italic' ? 'normal' : 'italic';
+                    else if (type === 'underline') inputEl.style.textDecoration = inputEl.style.textDecoration === 'underline' ? 'none' : 'underline';
+                    else if (type === 'fontFamily') inputEl.style.fontFamily = value;
+                    else if (type === 'color') inputEl.style.color = value;
+                    else if (type === 'bgColor') document.getElementById(`cell-${cellId}`).style.backgroundColor = value;
+                    else if (type === 'align') inputEl.style.textAlign = value;
+                }
+            }
+            recordHistory("Formatted cells");
+        }
+
+        function recordHistory(actionName) {
+            historyStack.push({ name: actionName, snapshot: JSON.parse(JSON.stringify(sheets)) });
+            if (historyStack.length > 25) historyStack.shift();
+            renderTimeline();
+        }
+
+        function renderTimeline() {
+            const list = document.getElementById('timeline-list');
+            if (!list) return;
+            list.innerHTML = historyStack.map((h, i) => `
+                <div style="padding: 6px 10px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="restoreHistory(${i})">
+                    <span>${h.name}</span>
+                    <span style="font-size: 0.75rem; color: #94a3b8;">#${i+1}</span>
+                </div>
+            `).reverse().join('');
+        }
+
+        function restoreHistory(index) {
+            sheets = JSON.parse(JSON.stringify(historyStack[index].snapshot));
+            switchSheet(currentSheetIdx);
+            alert(`Time traveled back to checkpoint #${index + 1}: ${historyStack[index].name}`);
+        }
+
+        function toggleSidebar(id) {
+            document.getElementById(id).classList.toggle('hidden');
+        }
+
+        function handleGridScroll() {
+            // Can be used for custom virtualized rendering if needed
+        }
+
+        window.onload = initGrid;
+    </script>
+</body>
+</html>
