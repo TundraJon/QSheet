@@ -572,6 +572,57 @@
             cursor: default;
         }
 
+        /* Formula Wizard */
+        .wiz-count { font-size: 0.75rem; color: #64748b; }
+        .wizard-results {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-height: 190px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 4px;
+            background: #f8fafc;
+        }
+        .wizard-result {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            column-gap: 8px;
+            align-items: baseline;
+            text-align: left;
+            min-height: 48px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            width: 100%;
+        }
+        .wizard-result.selected { border-color: var(--accent-color); background: #e0e9ff; }
+        .wr-name { font-weight: 700; color: #0f172a; }
+        .wr-cat { font-size: 0.7rem; color: #64748b; justify-self: end; }
+        .wr-desc { grid-column: 1 / -1; font-size: 0.75rem; color: #475569; font-weight: 400; }
+        .wiz-info { font-size: 0.85rem; color: #334155; display: flex; flex-direction: column; gap: 4px; }
+        .wiz-syntax { font-family: 'Roboto Mono', monospace; font-size: 0.8rem; font-weight: 600; color: var(--accent-color); word-break: break-word; }
+        .wiz-arg label { display: flex; gap: 6px; align-items: baseline; }
+        .wiz-desc { font-size: 0.75rem; color: #64748b; }
+        .wiz-tag { font-size: 0.65rem; font-weight: 400; color: #94a3b8; }
+        .wiz-tag.req { color: #b45309; }
+        .wiz-repeat { display: flex; gap: 8px; flex-wrap: wrap; }
+        .wiz-formula { font-family: 'Roboto Mono', monospace; font-size: 0.8rem; padding: 8px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; word-break: break-all; }
+        .wiz-tip { font-size: 0.72rem; color: #64748b; }
+        /* Formula + live result stay pinned at the bottom of the dialog while you scroll through the argument boxes */
+        .wiz-live {
+            position: sticky;
+            bottom: -18px;
+            margin: 0 -18px -18px;
+            padding: 10px 18px;
+            background: #ffffff;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .wiz-live .wiz-formula { padding: 4px 8px; }
+
         /* Fixed column width: about 4-5 columns visible on a Pixel 7 (the frozen-column offsets in buildGridDOM assume 80px) */
         :root { --col-width: 80px; }
         table.spreadsheet th:not(.row-header):not(.corner-header) {
@@ -719,28 +770,34 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>Select Category</label>
-                    <select id="wizard-category" onchange="updateWizardFunctions()">
-                        <option value="math">Math & Aggregation</option>
-                        <option value="finance">Financial Core</option>
-                        <option value="lookup">Lookups & References</option>
-                        <option value="text">Text Processing</option>
-                        <option value="logic">Logic & Conditional</option>
-                    </select>
+                    <label for="wizard-search">Search functions</label>
+                    <input type="text" id="wizard-search" placeholder="e.g. loan, lookup, sum if, join text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="filterWizardFunctions()">
                 </div>
                 <div class="form-group">
-                    <label>Function</label>
-                    <select id="wizard-function" onchange="renderWizardArguments()"></select>
+                    <label for="wizard-category">Category</label>
+                    <select id="wizard-category" onchange="filterWizardFunctions()"></select>
                 </div>
+                <div id="wizard-count" class="wiz-count"></div>
+                <div id="wizard-results" class="wizard-results"></div>
+                <input type="hidden" id="wizard-function" value="">
+                <div id="wizard-func-info" class="wiz-info"></div>
                 <div id="wizard-args-container" style="display: flex; flex-direction: column; gap: 10px;"></div>
-                <div class="form-group">
-                    <label>Live Preview Result</label>
-                    <div id="wizard-preview" style="padding: 8px; background: #f1f5f9; border-radius: 4px; font-weight: 600;">--</div>
+                <div id="wizard-repeat-controls" class="wiz-repeat"></div>
+                <div class="wiz-tip">Tip: text can be typed with or without quotes. With a range selected on the grid, the first range box is filled in for you.</div>
+                <div class="wiz-live">
+                    <div class="form-group">
+                        <label>Formula</label>
+                        <div id="wizard-formula-text" class="wiz-formula">—</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Live Preview Result</label>
+                        <div id="wizard-preview" style="padding: 8px; background: #f1f5f9; border-radius: 4px; font-weight: 600; word-break: break-word;">--</div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button onclick="closeWizard()">Cancel</button>
-                <button class="primary" onclick="insertWizardFormula()">Insert Formula</button>
+                <button class="primary" id="wizard-insert-btn" onclick="insertWizardFormula()" disabled>Insert Formula</button>
             </div>
         </div>
     </div>
@@ -1684,7 +1741,7 @@
                     i += 2;
                     continue;
                 }
-                if ('+-*/^(),:=<>'.includes(ch)) {
+                if ('+-*/^(),:=<>&'.includes(ch)) {
                     tokens.push({ t: 'op', v: ch });
                     i++;
                     continue;
@@ -1702,10 +1759,18 @@
             const isOp = (v) => tokens[p] && tokens[p].t === 'op' && tokens[p].v === v;
 
             function parseComparison() {
-                let left = parseAdditive();
+                let left = parseConcat();
                 while (peek() && peek().t === 'op' && ['=', '<>', '<', '>', '<=', '>='].includes(peek().v)) {
                     const op = tokens[p++].v;
-                    left = { t: 'bin', op, l: left, r: parseAdditive() };
+                    left = { t: 'bin', op, l: left, r: parseConcat() };
+                }
+                return left;
+            }
+            function parseConcat() {
+                let left = parseAdditive();
+                while (isOp('&')) {
+                    p++;
+                    left = { t: 'bin', op: '&', l: left, r: parseAdditive() };
                 }
                 return left;
             }
@@ -1759,7 +1824,9 @@
                         const args = [];
                         if (isOp(')')) { p++; return { t: 'call', name: tok.v, args }; }
                         while (true) {
-                            args.push(parseComparison());
+                            // an empty argument (as in XLOOKUP(a,b,c,,1)) means "use the default"
+                            if (isOp(',') || isOp(')')) args.push({ t: 'empty' });
+                            else args.push(parseComparison());
                             if (isOp(',')) { p++; continue; }
                             if (isOp(')')) { p++; break; }
                             throw new FormulaError('#ERROR!');
@@ -1879,6 +1946,7 @@
                     return toNumber(a) / d;
                 }
                 case '^': return Math.pow(toNumber(a), toNumber(b));
+                case '&': return toText(a) + toText(b);
                 default: return compareValues(a, b, op);
             }
         }
@@ -2607,15 +2675,15 @@
                     if (nodes.length < 3 || nodes.length > 6) throw new FormulaError('#VALUE!');
                     const key = unwrap(ev(nodes[0]));
                     const lookup = asRange(ev(nodes[1])), ret = asRange(ev(nodes[2]));
-                    const matchMode = nodes.length > 4 ? toNumber(ev(nodes[4])) : 0;
-                    const searchMode = nodes.length > 5 ? toNumber(ev(nodes[5])) : 1;
+                    const matchMode = nodes.length > 4 && nodes[4].t !== 'empty' ? toNumber(ev(nodes[4])) : 0;
+                    const searchMode = nodes.length > 5 && nodes[5].t !== 'empty' ? toNumber(ev(nodes[5])) : 1;
                     if (lookup.rows !== 1 && lookup.cols !== 1) throw new FormulaError('#VALUE!');
                     const vals = lookup.values;
                     let i = findExact(key, vals, searchMode < 0);
                     if (i < 0 && matchMode === -1) i = findApprox(key, vals, 1);
                     else if (i < 0 && matchMode === 1) i = findApprox(key, vals, -1);
                     if (i < 0) {
-                        if (nodes.length > 3) return ev(nodes[3]);
+                        if (nodes.length > 3 && nodes[3].t !== 'empty') return ev(nodes[3]);
                         throw new FormulaError('#N/A');
                     }
                     if (lookup.cols === 1) {
@@ -2779,6 +2847,8 @@
                     return refValue(n.v);
                 case 'range':
                     return shrink(rangeValues(n));
+                case 'empty':
+                    return '';
                 case 'unary': {
                     const v = evalNode(n.e, curR, curC);
                     const neg = x => n.op === '-' ? -toNumber(x) : toNumber(x);
@@ -2830,8 +2900,8 @@
         }
 
         // Evaluates a formula to a single value (the top-left value if it produces a block of cells)
-        function evaluateFormula(formulaStr, curR, curC) {
-            const finish = res => isRange(res) ? res.values[0] : res;
+        function evaluateFormula(formulaStr, curR, curC, keepBlock) {
+            const finish = res => (isRange(res) && !keepBlock) ? res.values[0] : res;
             if (calcState) return finish(evalFormulaCore(formulaStr, curR, curC));
             calcState = { done: new Set(), busy: new Set(), spilled: false };
             try {
@@ -3180,44 +3250,336 @@
             recordHistory("Executed Text to Columns");
         }
 
-        // Formula Wizard
-        function openWizard() { document.getElementById('wizard-modal').classList.remove('hidden'); updateWizardFunctions(); }
-        function closeWizard() { document.getElementById('wizard-modal').classList.add('hidden'); }
-        function updateWizardFunctions() {
-            const cat = document.getElementById('wizard-category').value;
-            const funcSelect = document.getElementById('wizard-function');
-            let opts = '';
-            if (cat === 'math') opts = '<option value="SUM">SUM</option><option value="AVERAGE">AVERAGE</option><option value="MAX">MAX</option><option value="MIN">MIN</option><option value="COUNT">COUNT</option>';
-            else if (cat === 'finance') opts = '<option value="PMT">PMT (Loan Payment)</option>';
-            else opts = '<option value="SUM">SUM</option>';
-            funcSelect.innerHTML = opts;
+        // ===== Formula Wizard (guided function builder) =====
+        // Pick a function (search or category), fill in labelled argument fields, see the result live, insert it.
+        // To list a new function here, add an entry to WIZARD_CATALOG (it must also exist in FUNCTIONS above).
+        // Argument types: 'range' / 'num' / 'expr' are used as typed; 'val' wraps plain words in quotes;
+        // 'crit' (criteria) also wraps things like >50 or <>apple in quotes.
+        const WIZ_CATS = ['Math & Aggregation', 'Conditional Calculations', 'Logic & Error Control', 'Text & String', 'Date & Time', 'Financial', 'Information', 'Lookups & References'];
+        const wa = (n, d, ex, o = {}) => ({ n, d, ex, t: o.t || 'expr', opt: !!o.opt, def: o.def, rng: !!o.rng });
+        const wizAgg = (name, desc, kw) => ({
+            name, cat: 'Math & Aggregation', desc, kw,
+            args: [wa('number1', 'First number or range of cells', 'A2:A20', { t: 'range', rng: true })],
+            rep: { from: 2, args: [wa('number', 'Another number or range (optional)', 'B2:B20', { t: 'range', opt: true })] }
+        });
+
+        const WIZARD_CATALOG = [
+            // Math & Aggregation
+            wizAgg('SUM', 'Adds up numbers and ranges.', 'total add plus'),
+            wizAgg('AVERAGE', 'Average (mean) of the numbers. Blank and text cells are ignored.', 'mean'),
+            wizAgg('COUNT', 'Counts how many cells contain numbers.', 'how many numbers'),
+            wizAgg('COUNTA', 'Counts how many cells are not empty.', 'how many filled non blank'),
+            wizAgg('MIN', 'The smallest number.', 'lowest minimum'),
+            wizAgg('MAX', 'The largest number.', 'highest maximum biggest'),
+            wizAgg('MEDIAN', 'The middle value when the numbers are put in order.', 'middle'),
+            wizAgg('PRODUCT', 'Multiplies the numbers together.', 'multiply times'),
+            { name: 'ABS', cat: 'Math & Aggregation', desc: 'Removes the minus sign: the distance from zero.', kw: 'absolute positive', args: [wa('number', 'The number', '-5', { t: 'num' })] },
+            { name: 'ROUND', cat: 'Math & Aggregation', desc: 'Rounds a number to a set number of decimal places (halves round up).', kw: 'decimals nearest', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '2', { t: 'num' })] },
+            { name: 'ROUNDUP', cat: 'Math & Aggregation', desc: 'Rounds a number up, away from zero.', kw: 'ceiling', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '0', { t: 'num' })] },
+            { name: 'ROUNDDOWN', cat: 'Math & Aggregation', desc: 'Rounds a number down, toward zero.', kw: 'floor truncate', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '0', { t: 'num' })] },
+            {
+                name: 'SUBTOTAL', cat: 'Math & Aggregation', desc: 'Adds, averages, counts ... a range, chosen by a code.', kw: 'summary total',
+                args: [wa('function_num', 'Which calculation: 9 = SUM, 1 = AVERAGE, 2 = COUNT, 3 = COUNTA, 4 = MAX, 5 = MIN, 6 = PRODUCT', '9', { t: 'num' }), wa('ref1', 'The range of cells', 'A2:A20', { t: 'range', rng: true })],
+                rep: { from: 2, args: [wa('ref', 'Another range (optional)', 'B2:B20', { t: 'range', opt: true })] }
+            },
+
+            // Conditional Calculations
+            { name: 'SUMIF', cat: 'Conditional Calculations', desc: 'Adds up the cells that meet one condition.', kw: 'total if only where', args: [wa('range', 'Cells to test against the condition', 'A2:A20', { t: 'range', rng: true }), wa('criteria', 'The condition: a value, or something like >50, <>apple, ap*', '">50"', { t: 'crit' }), wa('sum_range', 'Cells to add up, if different from the tested cells', 'B2:B20', { t: 'range', opt: true })] },
+            {
+                name: 'SUMIFS', cat: 'Conditional Calculations', desc: 'Adds up the cells that meet several conditions at once.', kw: 'total multiple conditions where and',
+                args: [wa('sum_range', 'Cells to add up', 'C2:C20', { t: 'range', rng: true }), wa('criteria_range1', 'Cells to test against condition 1', 'A2:A20', { t: 'range' }), wa('criteria1', 'Condition 1', '"apple"', { t: 'crit' })],
+                rep: { from: 2, args: [wa('criteria_range', 'Cells to test against this condition', 'B2:B20', { t: 'range' }), wa('criteria', 'This condition', '">10"', { t: 'crit' })] }
+            },
+            { name: 'COUNTIF', cat: 'Conditional Calculations', desc: 'Counts the cells that meet one condition.', kw: 'how many if where', args: [wa('range', 'Cells to look at', 'A2:A20', { t: 'range', rng: true }), wa('criteria', 'The condition: a value, or something like >50, <>apple, ap*', '"apple"', { t: 'crit' })] },
+            {
+                name: 'COUNTIFS', cat: 'Conditional Calculations', desc: 'Counts the rows that meet several conditions at once.', kw: 'how many multiple conditions where and',
+                args: [wa('criteria_range1', 'Cells to test against condition 1', 'A2:A20', { t: 'range', rng: true }), wa('criteria1', 'Condition 1', '"apple"', { t: 'crit' })],
+                rep: { from: 2, args: [wa('criteria_range', 'Cells to test against this condition', 'B2:B20', { t: 'range' }), wa('criteria', 'This condition', '">10"', { t: 'crit' })] }
+            },
+            { name: 'AVERAGEIF', cat: 'Conditional Calculations', desc: 'Averages the cells that meet one condition.', kw: 'mean if where', args: [wa('range', 'Cells to test against the condition', 'A2:A20', { t: 'range', rng: true }), wa('criteria', 'The condition: a value, or something like >50, <>apple, ap*', '">50"', { t: 'crit' }), wa('average_range', 'Cells to average, if different from the tested cells', 'B2:B20', { t: 'range', opt: true })] },
+            {
+                name: 'AVERAGEIFS', cat: 'Conditional Calculations', desc: 'Averages the cells that meet several conditions at once.', kw: 'mean multiple conditions where and',
+                args: [wa('average_range', 'Cells to average', 'C2:C20', { t: 'range', rng: true }), wa('criteria_range1', 'Cells to test against condition 1', 'A2:A20', { t: 'range' }), wa('criteria1', 'Condition 1', '"apple"', { t: 'crit' })],
+                rep: { from: 2, args: [wa('criteria_range', 'Cells to test against this condition', 'B2:B20', { t: 'range' }), wa('criteria', 'This condition', '">10"', { t: 'crit' })] }
+            },
+
+            // Logic & Error Control
+            { name: 'IF', cat: 'Logic & Error Control', desc: 'Gives one answer if a test is true and another if it is false.', kw: 'condition decide either or', args: [wa('logical_test', 'The test, for example A2>100', 'A2>100'), wa('value_if_true', 'Answer when the test is true', '"High"', { t: 'val' }), wa('value_if_false', 'Answer when the test is false (blank = FALSE)', '"Normal"', { t: 'val', opt: true })] },
+            {
+                name: 'IFS', cat: 'Logic & Error Control', desc: 'Checks several tests in order and gives the answer for the first one that is true.', kw: 'multiple conditions nested if grade',
+                args: [wa('logical_test1', 'First test', 'A2>=90'), wa('value_if_true1', 'Answer if the first test is true', '"A"', { t: 'val' })],
+                rep: { from: 2, args: [wa('logical_test', 'Next test (use TRUE for "everything else")', 'A2>=80'), wa('value_if_true', 'Answer if this test is true', '"B"', { t: 'val' })] }
+            },
+            { name: 'AND', cat: 'Logic & Error Control', desc: 'TRUE only when every test is true.', kw: 'all both', args: [wa('logical1', 'First test', 'A2>5')], rep: { from: 2, args: [wa('logical', 'Another test', 'B2<100', { opt: true })] } },
+            { name: 'OR', cat: 'Logic & Error Control', desc: 'TRUE when at least one test is true.', kw: 'any either', args: [wa('logical1', 'First test', 'A2>5')], rep: { from: 2, args: [wa('logical', 'Another test', 'B2<100', { opt: true })] } },
+            { name: 'NOT', cat: 'Logic & Error Control', desc: 'Flips TRUE to FALSE and FALSE to TRUE.', kw: 'opposite reverse', args: [wa('logical', 'The test to flip', 'A2>5')] },
+            { name: 'IFERROR', cat: 'Logic & Error Control', desc: 'Shows a friendly answer instead of an error such as #DIV/0!.', kw: 'catch error handle fallback', args: [wa('value', 'The formula that might fail', 'A2/B2'), wa('value_if_error', 'What to show if it fails', '"n/a"', { t: 'val' })] },
+
+            // Text & String
+            { name: 'CONCAT', cat: 'Text & String', desc: 'Joins pieces of text together.', kw: 'join combine merge', args: [wa('text1', 'First piece of text or cell', 'A2', { t: 'val', rng: true })], rep: { from: 2, args: [wa('text', 'Another piece (optional)', 'B2', { t: 'val', opt: true })] } },
+            {
+                name: 'TEXTJOIN', cat: 'Text & String', desc: 'Joins text with a separator between the pieces.', kw: 'join combine merge delimiter list',
+                args: [wa('delimiter', 'Separator, for example ", "', '", "', { t: 'val' }), wa('ignore_empty', 'TRUE to skip empty cells', 'TRUE', { t: 'num' }), wa('text1', 'First piece of text, or a range', 'A2:A10', { t: 'val', rng: true })],
+                rep: { from: 2, args: [wa('text', 'Another piece or range (optional)', 'B2:B10', { t: 'val', opt: true })] }
+            },
+            { name: 'LEFT', cat: 'Text & String', desc: 'Takes characters from the start of some text.', kw: 'first characters substring', args: [wa('text', 'The text', 'A2', { t: 'val' }), wa('num_chars', 'How many characters (blank = 1)', '3', { t: 'num', opt: true, def: '1' })] },
+            { name: 'RIGHT', cat: 'Text & String', desc: 'Takes characters from the end of some text.', kw: 'last characters substring', args: [wa('text', 'The text', 'A2', { t: 'val' }), wa('num_chars', 'How many characters (blank = 1)', '3', { t: 'num', opt: true, def: '1' })] },
+            { name: 'MID', cat: 'Text & String', desc: 'Takes characters from the middle of some text.', kw: 'substring extract', args: [wa('text', 'The text', 'A2', { t: 'val' }), wa('start_num', 'Position of the first character to take (1 = first)', '4', { t: 'num' }), wa('num_chars', 'How many characters to take', '3', { t: 'num' })] },
+            { name: 'LEN', cat: 'Text & String', desc: 'Counts the characters in some text.', kw: 'length how long', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'TRIM', cat: 'Text & String', desc: 'Removes extra spaces, leaving single spaces between words.', kw: 'spaces clean', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'CLEAN', cat: 'Text & String', desc: 'Removes hidden non-printing characters.', kw: 'invisible strip', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'UPPER', cat: 'Text & String', desc: 'Makes text ALL CAPS.', kw: 'capital uppercase', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'LOWER', cat: 'Text & String', desc: 'Makes text all lowercase.', kw: 'lowercase', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'PROPER', cat: 'Text & String', desc: 'Capitalizes The First Letter Of Each Word.', kw: 'title case names', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'SUBSTITUTE', cat: 'Text & String', desc: 'Swaps some text for other text inside a string.', kw: 'replace find', args: [wa('text', 'The text to change', 'A2', { t: 'val' }), wa('old_text', 'The text to find', '"-"', { t: 'val' }), wa('new_text', 'What to put in its place', '" "', { t: 'val' }), wa('instance_num', 'Only change this occurrence (blank = all of them)', '1', { t: 'num', opt: true })] },
+
+            // Date & Time
+            { name: 'TODAY', cat: 'Date & Time', desc: "Today's date. It updates every time the sheet recalculates.", kw: 'current date now', args: [] },
+            { name: 'NOW', cat: 'Date & Time', desc: 'The current date and time.', kw: 'current date time clock', args: [] },
+            { name: 'DATE', cat: 'Date & Time', desc: 'Builds a date from a year, month and day. Overflow rolls over (month 13 = January next year).', kw: 'make create calendar', args: [wa('year', 'The year', '2025', { t: 'num' }), wa('month', 'The month (1-12)', '3', { t: 'num' }), wa('day', 'The day of the month', '15', { t: 'num' })] },
+            { name: 'DATEDIF', cat: 'Date & Time', desc: 'How much time is between two dates.', kw: 'age difference between days months years elapsed', args: [wa('start_date', 'The earlier date', 'A2', { t: 'val' }), wa('end_date', 'The later date', 'B2', { t: 'val' }), wa('unit', 'Y = whole years, M = whole months, D = days, YM = months left after years, MD = days left after months, YD = days left after years', '"Y"', { t: 'val' })] },
+            { name: 'YEAR', cat: 'Date & Time', desc: 'The year of a date.', kw: 'extract', args: [wa('serial_number', 'A date or a cell containing one', 'A2', { t: 'val' })] },
+            { name: 'MONTH', cat: 'Date & Time', desc: 'The month number (1-12) of a date.', kw: 'extract', args: [wa('serial_number', 'A date or a cell containing one', 'A2', { t: 'val' })] },
+            { name: 'DAY', cat: 'Date & Time', desc: 'The day of the month (1-31) of a date.', kw: 'extract', args: [wa('serial_number', 'A date or a cell containing one', 'A2', { t: 'val' })] },
+            { name: 'EOMONTH', cat: 'Date & Time', desc: 'The last day of a month, some months before or after a date.', kw: 'end of month last day', args: [wa('start_date', 'The starting date', 'A2', { t: 'val' }), wa('months', 'Months to move: 0 = same month, 1 = next month, -1 = last month', '0', { t: 'num' })] },
+
+            // Financial
+            { name: 'PMT', cat: 'Financial', desc: 'The regular payment on a loan with a fixed rate. Payments come back negative (money going out).', kw: 'loan mortgage payment amortization monthly car', args: [wa('rate', 'Interest rate for each period (yearly rate / 12 for monthly)', '0.05/12', { t: 'num' }), wa('nper', 'Number of payments in total', '60', { t: 'num' }), wa('pv', 'Amount borrowed today', '20000', { t: 'num' }), wa('fv', 'Balance left after the last payment (blank = 0)', '0', { t: 'num', opt: true, def: '0' }), wa('type', '0 = pay at end of each period, 1 = at the start (blank = 0)', '0', { t: 'num', opt: true, def: '0' })] },
+            { name: 'FV', cat: 'Financial', desc: 'What regular savings or an investment will be worth in the future.', kw: 'retirement savings compound growth future value interest', args: [wa('rate', 'Interest rate for each period', '0.06/12', { t: 'num' }), wa('nper', 'Number of periods', '120', { t: 'num' }), wa('pmt', 'Amount paid each period (negative = you pay in)', '-200', { t: 'num' }), wa('pv', 'Amount already saved today (negative = you put it in)', '-500', { t: 'num', opt: true, def: '0' }), wa('type', '0 = pay at end of each period, 1 = at the start', '0', { t: 'num', opt: true, def: '0' })] },
+            { name: 'PV', cat: 'Financial', desc: 'What a series of future payments is worth today.', kw: 'present value discounted cash flow worth now', args: [wa('rate', 'Interest rate for each period', '0.08/12', { t: 'num' }), wa('nper', 'Number of periods', '240', { t: 'num' }), wa('pmt', 'Amount received each period', '500', { t: 'num' }), wa('fv', 'Value you want left at the end (blank = 0)', '0', { t: 'num', opt: true, def: '0' }), wa('type', '0 = paid at end of each period, 1 = at the start', '0', { t: 'num', opt: true, def: '0' })] },
+            { name: 'NPV', cat: 'Financial', desc: 'Net present value of a series of future cash flows. Cash flows start one period from now.', kw: 'capital budgeting investment discount cash flows', args: [wa('rate', 'Discount rate per period, for example 0.1 for 10%', '0.1', { t: 'num' }), wa('value1', 'Cash flows: a range, or a single amount', 'B2:B6', { t: 'range', rng: true })], rep: { from: 2, args: [wa('value', 'More cash flows (optional)', 'C2:C6', { t: 'range', opt: true })] } },
+            { name: 'IRR', cat: 'Financial', desc: 'The yearly return that makes a series of cash flows break even. Needs at least one gain and one loss.', kw: 'internal rate of return investment uneven cash flows profit', args: [wa('values', 'Cash flows in order, first one usually negative', 'B2:B7', { t: 'range', rng: true }), wa('guess', 'A starting guess (blank = 0.1)', '0.1', { t: 'num', opt: true, def: '0.1' })] },
+
+            // Information
+            { name: 'ISBLANK', cat: 'Information', desc: 'TRUE if the cell is empty.', kw: 'empty check', args: [wa('value', 'The cell to check', 'A2', { t: 'range' })] },
+            { name: 'ISNUMBER', cat: 'Information', desc: 'TRUE if the value is a number.', kw: 'check type', args: [wa('value', 'The value or cell to check', 'A2')] },
+            { name: 'ISTEXT', cat: 'Information', desc: 'TRUE if the value is text.', kw: 'check type words', args: [wa('value', 'The value or cell to check', 'A2')] },
+            { name: 'ISERROR', cat: 'Information', desc: 'TRUE if the value is any kind of error.', kw: 'check error', args: [wa('value', 'The value or formula to check', 'A2/B2')] },
+            { name: 'ISERR', cat: 'Information', desc: 'TRUE if the value is an error other than #N/A.', kw: 'check error', args: [wa('value', 'The value or formula to check', 'A2/B2')] },
+            { name: 'CELL', cat: 'Information', desc: 'Information about a cell: its address, row, column, contents or type.', kw: 'address row column info inspect', args: [wa('info_type', 'address, row, col, contents or type', '"address"', { t: 'val' }), wa('reference', 'The cell to ask about (blank = this cell)', 'B3', { t: 'range', opt: true })] },
+
+            // Lookups & References
+            { name: 'VLOOKUP', cat: 'Lookups & References', desc: 'Finds a value in the first column of a table and returns something from the same row.', kw: 'find search table column vertical', args: [wa('lookup_value', 'What to look for', 'A2', { t: 'val' }), wa('table_array', 'The table. The thing you look for must be in its first column', 'D2:F20', { t: 'range', rng: true }), wa('col_index_num', 'Which column of the table to return (1 = first)', '2', { t: 'num' }), wa('range_lookup', 'FALSE = exact match only, TRUE = closest match below (blank = TRUE)', 'FALSE', { t: 'num', opt: true, def: 'TRUE' })] },
+            { name: 'HLOOKUP', cat: 'Lookups & References', desc: 'Finds a value in the top row of a table and returns something from the same column.', kw: 'find search table row horizontal', args: [wa('lookup_value', 'What to look for', 'A2', { t: 'val' }), wa('table_array', 'The table. The thing you look for must be in its top row', 'D1:H5', { t: 'range', rng: true }), wa('row_index_num', 'Which row of the table to return (1 = first)', '2', { t: 'num' }), wa('range_lookup', 'FALSE = exact match only, TRUE = closest match below (blank = TRUE)', 'FALSE', { t: 'num', opt: true, def: 'TRUE' })] },
+            {
+                name: 'XLOOKUP', cat: 'Lookups & References', desc: 'Finds a value in one list and returns the matching item from another list. A modern, simpler VLOOKUP.', kw: 'find search match lookup vlookup',
+                args: [wa('lookup_value', 'What to look for', 'A2', { t: 'val' }), wa('lookup_array', 'The list to search in (one row or one column)', 'D2:D20', { t: 'range', rng: true }), wa('return_array', 'The list to take the answer from (same size)', 'E2:E20', { t: 'range' }), wa('if_not_found', 'What to show if there is no match (blank = #N/A)', '"Not found"', { t: 'val', opt: true }), wa('match_mode', '0 = exact, -1 = exact or next smaller, 1 = exact or next larger (blank = 0)', '0', { t: 'num', opt: true, def: '0' }), wa('search_mode', '1 = search first to last, -1 = last to first (blank = 1)', '1', { t: 'num', opt: true, def: '1' })]
+            },
+            { name: 'INDEX', cat: 'Lookups & References', desc: 'Returns the cell at a given row and column inside a range.', kw: 'position pick select cell by number', args: [wa('array', 'The range', 'A2:C20', { t: 'range', rng: true }), wa('row_num', 'Row number inside the range (0 = whole column)', '3', { t: 'num' }), wa('column_num', 'Column number inside the range (blank = the whole row, or the only column)', '2', { t: 'num', opt: true })] },
+            { name: 'MATCH', cat: 'Lookups & References', desc: 'Finds where a value sits in a list (its position number).', kw: 'position find where index', args: [wa('lookup_value', 'What to look for', 'A2', { t: 'val' }), wa('lookup_array', 'The list to search (one row or one column)', 'D2:D20', { t: 'range', rng: true }), wa('match_type', '0 = exact, 1 = largest value that is not more (sorted low to high), -1 = smallest not less (sorted high to low)', '0', { t: 'num', opt: true, def: '1' })] },
+            { name: 'OFFSET', cat: 'Lookups & References', desc: 'Returns the cell (or block of cells) a set number of rows and columns away from a starting cell.', kw: 'move shift relative reference', args: [wa('reference', 'The starting cell', 'A1', { t: 'range', rng: true }), wa('rows', 'Rows to move down (negative = up)', '2', { t: 'num' }), wa('cols', 'Columns to move right (negative = left)', '1', { t: 'num' }), wa('height', 'Rows tall (blank = same as the start)', '3', { t: 'num', opt: true }), wa('width', 'Columns wide (blank = same as the start)', '1', { t: 'num', opt: true })] },
+            { name: 'INDIRECT', cat: 'Lookups & References', desc: 'Turns text such as "B2" or "A1:A10" into a real cell reference.', kw: 'text to reference dynamic address', args: [wa('ref_text', 'Text that names a cell or range', '"B2"', { t: 'val' })] },
+            { name: 'CHOOSE', cat: 'Lookups & References', desc: 'Picks the Nth item from a list of choices.', kw: 'select pick option by number', args: [wa('index_num', 'Which choice to use (1 = first)', '2', { t: 'num' }), wa('value1', 'First choice', '"Low"', { t: 'val' })], rep: { from: 2, args: [wa('value', 'Another choice', '"High"', { t: 'val' })] } },
+            { name: 'FILTER', cat: 'Lookups & References', desc: 'Returns only the rows that pass a test. Results spread into the cells below.', kw: 'rows condition where extract dynamic array spill', args: [wa('array', 'The data to filter', 'A2:C20', { t: 'range', rng: true }), wa('include', 'A test for each row, for example B2:B20>50', 'B2:B20>50'), wa('if_empty', 'What to show if no row passes (blank = #CALC!)', '"None"', { t: 'val', opt: true })] },
+            { name: 'SORT', cat: 'Lookups & References', desc: 'Returns a sorted copy of a range. Results spread into the cells below.', kw: 'order ascending descending dynamic array spill', args: [wa('array', 'The data to sort', 'A2:C20', { t: 'range', rng: true }), wa('sort_index', 'Which column to sort by (blank = 1)', '2', { t: 'num', opt: true, def: '1' }), wa('sort_order', '1 = low to high, -1 = high to low (blank = 1)', '-1', { t: 'num', opt: true, def: '1' }), wa('by_col', 'TRUE to sort across columns instead of down rows (blank = FALSE)', 'FALSE', { t: 'num', opt: true, def: 'FALSE' })] },
+            { name: 'UNIQUE', cat: 'Lookups & References', desc: 'Returns the list with duplicates removed. Results spread into the cells below.', kw: 'distinct duplicates remove dedupe dynamic array spill', args: [wa('array', 'The data', 'A2:A20', { t: 'range', rng: true }), wa('by_col', 'TRUE to compare columns instead of rows (blank = FALSE)', 'FALSE', { t: 'num', opt: true, def: 'FALSE' }), wa('exactly_once', 'TRUE to keep only items that appear once (blank = FALSE)', 'FALSE', { t: 'num', opt: true, def: 'FALSE' })] }
+        ];
+
+        let wizardRepeats = 0; // how many extra argument groups ("+ Add") are showing
+
+        function wizardFn(name) { return WIZARD_CATALOG.find(f => f.name === name); }
+
+        function wizardSyntax(fn) {
+            const parts = fn.args.map(a => a.opt ? `[${a.n}]` : a.n);
+            if (fn.rep) parts.push('…');
+            return `${fn.name}(${parts.join(', ')})`;
+        }
+
+        // The argument rows currently shown: fixed ones, then each added group
+        function wizardRows(fn) {
+            const rows = fn.args.map(a => ({ def: a, label: a.n, optional: a.opt }));
+            if (fn.rep) {
+                for (let g = 0; g < wizardRepeats; g++) {
+                    fn.rep.args.forEach(a => rows.push({ def: a, label: `${a.n}${fn.rep.from + g}`, optional: a.opt }));
+                }
+            }
+            return rows;
+        }
+
+        function wizardSelectionText() {
+            const b = selBounds();
+            if (b.minR === b.maxR && b.minC === b.maxC) return '';
+            return `${getCellId(b.minR, b.minC)}:${getCellId(b.maxR, b.maxC)}`;
+        }
+
+        function openWizard() {
+            const catSel = document.getElementById('wizard-category');
+            if (!catSel.options.length) {
+                catSel.innerHTML = '<option value="all">All categories</option>' + WIZ_CATS.map(c => `<option value="${c}">${c}</option>`).join('');
+            }
+            catSel.value = 'all';
+            document.getElementById('wizard-search').value = '';
+            document.getElementById('wizard-function').value = '';
+            wizardRepeats = 0;
+            document.getElementById('wizard-modal').classList.remove('hidden');
+            filterWizardFunctions();
             renderWizardArguments();
         }
-        function renderWizardArguments() {
+        function closeWizard() { document.getElementById('wizard-modal').classList.add('hidden'); }
+
+        function filterWizardFunctions() {
+            const q = document.getElementById('wizard-search').value.trim().toLowerCase();
+            const cat = document.getElementById('wizard-category').value;
+            const chosen = document.getElementById('wizard-function').value;
+            let list = WIZARD_CATALOG.filter(f => cat === 'all' || f.cat === cat);
+            if (q) {
+                const terms = q.split(/\s+/);
+                list = list.filter(f => {
+                    const hay = `${f.name} ${f.cat} ${f.desc} ${f.kw || ''}`.toLowerCase();
+                    return terms.every(t => hay.includes(t));
+                });
+                const score = f => f.name.toLowerCase().startsWith(q) ? 0 : (f.name.toLowerCase().includes(q) ? 1 : 2);
+                list.sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name));
+            } else {
+                list.sort((a, b) => a.name.localeCompare(b.name));
+            }
+            document.getElementById('wizard-count').innerText = list.length ? `${list.length} function${list.length === 1 ? '' : 's'}` : 'No functions match. Try another word or category.';
+            document.getElementById('wizard-results').innerHTML = list.map(f => `
+                <button type="button" class="wizard-result${f.name === chosen ? ' selected' : ''}" data-fn="${f.name}" onclick="selectWizardFunction('${f.name}')">
+                    <span class="wr-name">${f.name}</span>
+                    <span class="wr-cat">${f.cat}</span>
+                    <span class="wr-desc">${f.desc}</span>
+                </button>`).join('');
+        }
+
+        function selectWizardFunction(name) {
+            document.getElementById('wizard-function').value = name;
+            wizardRepeats = 0;
+            renderWizardArguments(true);
+            document.querySelectorAll('#wizard-results .wizard-result').forEach(b => b.classList.toggle('selected', b.dataset.fn === name));
+            const info = document.getElementById('wizard-func-info');
+            if (info.scrollIntoView) info.scrollIntoView({ block: 'nearest' });
+        }
+
+        function renderWizardArguments(prefill) {
+            const fn = wizardFn(document.getElementById('wizard-function').value);
+            const info = document.getElementById('wizard-func-info');
             const container = document.getElementById('wizard-args-container');
-            container.innerHTML = `<div class="form-group"><label>Range</label><input type="text" id="wiz-arg-1" value="A1:A10" oninput="previewWizard()"></div>`;
+            const repeatBox = document.getElementById('wizard-repeat-controls');
+            if (!fn) {
+                info.innerHTML = '<span style="color: #64748b;">Pick a function from the list above.</span>';
+                container.innerHTML = '';
+                repeatBox.innerHTML = '';
+                previewWizard();
+                return;
+            }
+            // Keep what was already typed when argument rows are added / removed
+            const old = Array.from(container.querySelectorAll('input')).map(i => i.value);
+            info.innerHTML = `<div class="wiz-syntax">${wizardSyntax(fn)}</div><div>${fn.desc}</div>`;
+            const rows = wizardRows(fn);
+            container.innerHTML = rows.map((r, i) => `
+                <div class="form-group wiz-arg">
+                    <label for="wiz-arg-${i}">${r.label} <span class="wiz-tag${r.optional ? '' : ' req'}">${r.optional ? 'optional' : 'required'}</span></label>
+                    <div class="wiz-desc">${r.def.d}</div>
+                    <input type="text" id="wiz-arg-${i}" placeholder="e.g. ${r.def.ex.replace(/"/g, '&quot;')}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="previewWizard()">
+                </div>`).join('');
+            rows.forEach((r, i) => { if (old[i] !== undefined) document.getElementById(`wiz-arg-${i}`).value = old[i]; });
+            if (prefill) {
+                const sel = wizardSelectionText();
+                const first = rows.findIndex(r => r.def.rng);
+                if (sel && first >= 0 && rows[first].def.t === 'range') document.getElementById(`wiz-arg-${first}`).value = sel;
+            }
+            let buttons = '';
+            if (fn.rep) {
+                const groupNames = fn.rep.args.map(a => a.n).join(' + ');
+                buttons += `<button type="button" onclick="wizardAddRepeat()">+ Add ${groupNames}</button>`;
+                if (wizardRepeats > 0) buttons += `<button type="button" onclick="wizardRemoveRepeat()">Remove last</button>`;
+            }
+            repeatBox.innerHTML = buttons;
             previewWizard();
         }
+
+        function wizardAddRepeat() { wizardRepeats++; renderWizardArguments(); }
+        function wizardRemoveRepeat() { if (wizardRepeats > 0) { wizardRepeats--; renderWizardArguments(); } }
+
+        // Plain words become text (apple -> "apple"); criteria like >50 or <>apple get quoted too. Everything else is used as typed.
+        function wizardAutoQuote(value, type) {
+            const v = value.trim();
+            if (v === '' || (type !== 'val' && type !== 'crit')) return v;
+            if (v.startsWith('"')) return v;
+            if (/^-?\d+(\.\d+)?$/.test(v)) return v;
+            if (/^\$?[A-Za-z]{1,3}\$?\d+(:\$?[A-Za-z]{1,3}\$?\d+)?$/.test(v)) return v;
+            if (/^(TRUE|FALSE)$/i.test(v)) return v;
+            const wordy = /^[A-Za-z][A-Za-z0-9 _'.\-]*$/.test(v);
+            const operator = type === 'crit' && /^(<=|>=|<>|<|>|=)\s*\S[^"]*$/.test(v);
+            return (wordy || operator) ? `"${v.replace(/"/g, '""')}"` : v;
+        }
+
+        function buildWizardFormula() {
+            const fn = wizardFn(document.getElementById('wizard-function').value);
+            if (!fn) return null;
+            const rows = wizardRows(fn);
+            const vals = rows.map((r, i) => {
+                const el = document.getElementById(`wiz-arg-${i}`);
+                return el ? wizardAutoQuote(el.value, r.def.t) : '';
+            });
+            const missing = rows.filter((r, i) => !r.optional && vals[i] === '').map(r => r.label);
+            let last = vals.length - 1;
+            while (last >= 0 && vals[last] === '' && rows[last].optional) last--;
+            const parts = [], shown = [];
+            for (let i = 0; i <= last; i++) {
+                if (vals[i] !== '') { parts.push(vals[i]); shown.push(vals[i]); }
+                else {
+                    parts.push(rows[i].def.def !== undefined ? rows[i].def.def : ''); // skipped optional argument in the middle
+                    shown.push(rows[i].optional ? parts[parts.length - 1] : `‹${rows[i].label}›`);
+                }
+            }
+            // not-yet-filled required boxes beyond the last typed value are shown too, so the formula reads as a to-do list
+            for (let i = last + 1; i < rows.length; i++) if (!rows[i].optional) shown.push(`‹${rows[i].label}›`);
+            return { fn, formula: `=${fn.name}(${parts.join(',')})`, shown: `=${fn.name}(${shown.join(',')})`, missing };
+        }
+
+        const WIZ_ERROR_TEXT = {
+            '#DIV/0!': 'divided by zero', '#NAME?': 'a name or function is not recognized (is text missing quotes?)',
+            '#VALUE!': 'a value is the wrong kind', '#REF!': 'a cell reference is not valid', '#N/A': 'no match found',
+            '#NUM!': 'the numbers do not work', '#CALC!': 'nothing to return', '#CIRC!': 'the formula refers to itself',
+            '#SPILL!': 'something is in the way', '#ERROR!': 'the formula could not be read'
+        };
+
+        function wizardPreviewText(formula, res) {
+            if (isRange(res)) {
+                const shown = res.values.slice(0, 8).map(v => displayValue(v)).join(', ');
+                return `${res.rows} × ${res.cols} result: ${shown}${res.values.length > 8 ? ', …' : ''}  (spreads into the cells below / beside)`;
+            }
+            if (typeof res === 'string' && ERROR_CODES.includes(res)) return `${res}  ${WIZ_ERROR_TEXT[res] || ''}`.trim();
+            const shown = dateDisplayFor(formula, res);
+            return String(displayValue(shown !== undefined ? shown : res));
+        }
+
         function previewWizard() {
-            const fn = document.getElementById('wizard-function').value;
-            let a1 = document.getElementById('wiz-arg-1')?.value || '';
-            let formulaStr = `=${fn}(${a1})`;
+            const built = buildWizardFormula();
+            const out = document.getElementById('wizard-preview');
+            const text = document.getElementById('wizard-formula-text');
+            const btn = document.getElementById('wizard-insert-btn');
+            if (!built) {
+                text.innerText = '—';
+                out.innerText = '--';
+                btn.disabled = true;
+                return;
+            }
+            text.innerText = built.missing.length ? built.shown : built.formula;
+            if (built.missing.length) {
+                out.innerText = `Fill in: ${built.missing.join(', ')}`;
+                btn.disabled = true;
+                return;
+            }
+            btn.disabled = false;
             try {
-                let res = evaluateFormula(formulaStr, activeCell.row, activeCell.col);
-                document.getElementById('wizard-preview').innerText = displayValue(res);
-            } catch(e) {
-                document.getElementById('wizard-preview').innerText = formulaStr;
+                out.innerText = wizardPreviewText(built.formula, evaluateFormula(built.formula, activeCell.row, activeCell.col, true));
+            } catch (e) {
+                out.innerText = built.formula;
             }
         }
+
         function insertWizardFormula() {
-            const fn = document.getElementById('wizard-function').value;
-            let a1 = document.getElementById('wiz-arg-1')?.value || '';
-            let formulaStr = `=${fn}(${a1})`;
+            const built = buildWizardFormula();
+            if (!built) { showToast('Pick a function first'); return; }
+            if (built.missing.length) { showToast(`Fill in: ${built.missing.join(', ')}`); return; }
             const cellId = getCellId(activeCell.row, activeCell.col);
-            document.getElementById('formula-input').value = formulaStr;
-            document.getElementById(`input-${cellId}`).value = formulaStr;
-            onCellInput(cellId, formulaStr);
-            recordHistory(`Inserted ${formulaStr}`);
+            document.getElementById('formula-input').value = built.formula;
+            document.getElementById(`input-${cellId}`).value = built.formula;
+            onCellInput(cellId, built.formula);
+            recordHistory(`Inserted ${built.formula}`);
             closeWizard();
         }
 

@@ -44,7 +44,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 13. ~~Formula functions (BQ-02/03): all except `SUM`, `AVERAGE`, `COUNT`, `MIN`, `MAX` (V2 also had `IF`). Includes SUMIF/SUMIFS, COUNTIF/COUNTIFS, AVERAGEIF/AVERAGEIFS, IFS/AND/OR/NOT/IFERROR, text, date, financial (PMT/FV/PV/NPV/IRR), info (ISBLANK etc., CELL), and lookups (XLOOKUP, VLOOKUP, HLOOKUP, INDEX, MATCH, OFFSET, INDIRECT, CHOOSE, FILTER, SORT, UNIQUE).~~ **Done — see Build Log 4.**
 14. ~~Nested formulas / real formula parser (arguments are currently split on commas).~~ **Done — see Build Log 4.**
 15. Conditional formatting: Top/Bottom rules, above/below average, 3-color heatmap, custom formula rules, entire-row toggle, preset palettes, plain-English rule summaries (BQ-05/06).
-16. Formula Wizard: category/keyword search, per-function argument fields with descriptions (BQ-07).
+16. ~~Formula Wizard: category/keyword search, per-function argument fields with descriptions (BQ-07).~~ **Done — see Build Log 5.**
 17. Smart guessing for `IF` (5+ signatures), `XLOOKUP`/`VLOOKUP`, and `PMT` headers (BQ-08.2).
 18. Time Travel: visual drawer, scrub forward/back, restore formatting/merges/rules (currently `alert()` restore of cell data only) (BQ-08.4).
 19. Sort & Filter header dropdowns, value checklist filtering with search, view masking in aggregates (BQ-09.2).
@@ -109,5 +109,19 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **Information:** ISBLANK, ISNUMBER, ISTEXT, ISERROR, ISERR, CELL (`address`, `row`, `col`, `contents`, `type`).
 - [x] **Lookups & references:** VLOOKUP, HLOOKUP, XLOOKUP (exact, next smaller/larger, wildcard, search direction, if-not-found), INDEX, MATCH, OFFSET, INDIRECT, CHOOSE, FILTER, SORT, UNIQUE.
 - [x] **Engine additions needed for the above:** blocks of cells (ranges) are now real 2-D values; operators work on whole ranges (`=A1:A10>5`, `=A1:A3*2`); results that are several cells (FILTER, SORT, UNIQUE, a bare `=A1:A5`, XLOOKUP returning a row) **spill** into the cells below / beside the formula, show `#SPILL!` if something is in the way, and update/shrink as the data changes. Formulas that read spilled cells work. Wrong argument counts return `#VALUE!`. New error codes: `#N/A`, `#SPILL!`, `#CALC!`.
-- Known limits (not in the queue, say if you want any): the `&` text-join operator is not supported (use CONCAT); SUBTOTAL does not skip filtered-out rows (filtering is queue item 19); dates before 1 Mar 1900 are off by one day; arithmetic on dates (`=TODAY()+7`) shows a plain number until number formats (item 12) exist; a spill that feeds another spilling formula more than two levels deep may need one extra edit to settle.
+- Known limits (not in the queue, say if you want any): the `&` text-join operator is not supported (use CONCAT — added in Build Log 5); SUBTOTAL does not skip filtered-out rows (filtering is queue item 19); dates before 1 Mar 1900 are off by one day; arithmetic on dates (`=TODAY()+7`) shows a plain number until number formats (item 12) exist; a spill that feeds another spilling formula more than two levels deep may need one extra edit to settle.
+
+### Build Log 5 — Item 16: Formula Wizard + the `&` operator
+
+- [x] **Wizard rebuilt (BQ-07)** around a catalog of all 67 functions (every function the engine has; a test fails if the two ever get out of step).
+  - **Search + category:** type a word (`loan`, `lookup`, `sum if`, `retirement`, `join text`) and the list narrows; names that start with what you typed rank first. Category dropdown filters the list. Each row shows the name, category and a one-line plain-English description.
+  - **Argument boxes** are generated for the chosen function: a syntax line (`PMT(rate, nper, pv, [fv], [type])`), then one box per argument with its name, a required / optional tag, a description, and an example as the placeholder.
+  - **"+ Add" / "Remove last"** for functions that take any number of arguments or condition pairs (SUM, SUMIFS, COUNTIFS, IFS, CHOOSE, ...).
+  - **Live Preview** shows the finished formula and its result as you type (errors are explained in words; FILTER / SORT / UNIQUE show the block they will produce). Formula + result stay pinned at the bottom of the dialog so they are visible while you scroll through the boxes. Missing required boxes are shown as `‹name›` and Insert stays disabled until they are filled.
+  - **Typing help:** plain words are put in quotes for you (`apple` → `"apple"`, `>50` → `">50"` for conditions); cell references, numbers and tests such as `A2>100` are left alone. If cells are selected on the grid, the first range box is filled with that selection.
+  - **Skipped optional boxes** get their default so later ones still line up (e.g. SORT with only sort_order filled becomes `=SORT(A1:A5,1,-1)`).
+  - **One-tap Insert** writes the formula into the active cell (validated like any other entry) and adds it to Time Travel.
+- [x] **`&` text-join operator:** `=A1&" "&B1`, `="Total: "&SUM(A1:A3)`, `=INDIRECT("A"&2)`. Binds looser than `+ -` and tighter than comparisons, works on whole ranges.
+- [x] **Empty arguments** are now allowed, as in a spreadsheet: `=XLOOKUP(x,a,b,,-1)` skips if_not_found (keeps the `#N/A`).
+- Not done (not requested): percent literals such as `5%` in formulas (type `0.05`).
 
