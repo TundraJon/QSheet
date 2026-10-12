@@ -35,7 +35,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 ### B. Bugs in V3
 
 9. ~~Cell-reference math is broken: `=A1+B1` returns `#ERROR!` (reference-replacing regex requires spaces around the reference).~~ **Done — see Build Log 1.**
-10. Freeze Panes: offsets assume 80px columns but no widths are set; sticky `<tr>` rows are unreliable (BQ-10.2).
+10. ~~Freeze Panes: offsets assume 80px columns but no widths are set; sticky `<tr>` rows are unreliable (BQ-10.2).~~ **Done — see Build Log 3.**
 11. ~~Cell range selection is mouse-only (`onmousedown`/`onmouseover`); range select does not work by touch on Pixel 7. This blocks stats, Insights, and range formatting.~~ **Done — see Build Log 1.**
 12. Number format dropdown does nothing (also true in V2) (BQ-04.3).
 
@@ -64,7 +64,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 
 ### F. Reported after Build Log 2
 
-27. Freeze Panes: reported "on with no way to clear." Freeze defaults to 1 row + 1 column on every sheet, and the only control is the modal under View / Insert → Freeze Panes… (set both numbers to 0 to clear), which is easy to miss and always opens showing 1 / 1 instead of the current setting. Diagnosis only, not built: needs a visible Unfreeze/Clear control and the modal should show current values (related to item 10).
+27. ~~Freeze Panes: reported "on with no way to clear." Freeze defaults to 1 row + 1 column on every sheet, and the only control is the modal under View / Insert → Freeze Panes… (set both numbers to 0 to clear), which is easy to miss and always opens showing 1 / 1 instead of the current setting. Diagnosis only, not built: needs a visible Unfreeze/Clear control and the modal should show current values (related to item 10).~~ **Done — see Build Log 3.**
 
 ## Build Log (completed)
 
@@ -88,4 +88,12 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 
 - [x] **Column width:** every column is now a fixed 80px (it was ~230px, from the browser's default input width), so about 4–5 columns fit on a Pixel 7 instead of 1–2. Set in one place (`--col-width` in the CSS). 80px also matches the offsets the frozen-column code already assumed.
 - [x] **Insights / Time Travel (BQ-08.3 / 08.4):** on phone-width screens they slide up as a bottom sheet (full width, max ~42% of screen height, sitting above the sheet tabs and status bar) instead of a 320px side panel that squeezed the grid. Only one sheet is open at a time, the grid can still be scrolled so the last rows clear the sheet, the cell dock hides while a sheet is open, the close button is a 40px touch target, Time Travel entries are taller, and Insights refreshes when opened. Wider screens keep the side-panel layout.
+
+### Build Log 3 — Items 10 + 27: Freeze Panes fixed, Unfreeze button
+
+- [x] **Unfreeze button** (View / Insert tab, next to Freeze Panes…): one tap clears all frozen rows and columns. It greys out when nothing is frozen and tracks each sheet separately.
+- [x] **Freeze Panes… dialog** now opens showing the current rows / columns (it always showed 1 / 1 before) and states the limit for the screen. Requests larger than the limit are trimmed with a message so the grid can never be frozen into a state that can't scroll (about 2 columns / 14 rows on a Pixel 7).
+- [x] **Freeze layout rebuilt** from the real measured cell positions instead of guessed sizes. Fixed: frozen row/column were see-through (scrolled text showed through), row numbers piled up at the top while scrolling, and a divider line now marks the freeze edge. Keyboard navigation no longer scrolls the active cell underneath the frozen area.
+- [x] Changing the freeze no longer rebuilds the grid, so cell formatting (bold, colors, fonts) is no longer lost when you freeze or unfreeze. (Switching sheets / Time Travel still drops formatting — separate known issue.)
+- Note: new sheets still start frozen at 1 row + 1 column (unchanged); say the word if the default should be "nothing frozen".
 

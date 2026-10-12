@@ -552,6 +552,26 @@
             gap: 6px;
         }
 
+        /* Row numbers scroll with their rows (they only stick to the left) */
+        table.spreadsheet th.row-header { top: auto; }
+
+        /* Frozen panes: opaque so scrolling cells never show through, with a divider at the freeze edge */
+        .frozen-cell {
+            background-color: #ffffff;
+            box-shadow: inset -1px -1px 0 0 var(--border-color);
+        }
+        td.frozen-cell.selected { background-color: #dee8fc !important; }
+        .freeze-edge-col { box-shadow: inset -2px 0 0 0 #64748b, inset 0 -1px 0 0 var(--border-color); }
+        .freeze-edge-row { box-shadow: inset 0 -2px 0 0 #64748b, inset -1px 0 0 0 var(--border-color); }
+        .freeze-edge-row.freeze-edge-col { box-shadow: inset -2px -2px 0 0 #64748b; }
+        th.freeze-edge-col { box-shadow: inset -2px 0 0 0 #64748b; }
+        th.freeze-edge-row { box-shadow: inset 0 -2px 0 0 #64748b; }
+
+        button:disabled {
+            opacity: 0.45;
+            cursor: default;
+        }
+
         /* Fixed column width: about 4-5 columns visible on a Pixel 7 (the frozen-column offsets in buildGridDOM assume 80px) */
         :root { --col-width: 80px; }
         table.spreadsheet th:not(.row-header):not(.corner-header) {
@@ -830,11 +850,11 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>Freeze Rows (Top N rows)</label>
+                    <label>Freeze Rows (Top N rows) <small id="freeze-rows-hint" style="color: #64748b; font-weight: 400;"></small></label>
                     <input type="number" id="freeze-rows-input" min="0" max="50" value="1">
                 </div>
                 <div class="form-group">
-                    <label>Freeze Columns (Left N columns, e.g. 1 for Col A)</label>
+                    <label>Freeze Columns (Left N columns, e.g. 1 for Col A) <small id="freeze-cols-hint" style="color: #64748b; font-weight: 400;"></small></label>
                     <input type="number" id="freeze-cols-input" min="0" max="10" value="1">
                 </div>
             </div>
@@ -892,6 +912,7 @@
         let activeCell = { row: 0, col: 0 };
         let selectionRange = { startRow: 0, startCol: 0, endRow: 0, endCol: 0 };
         let highlightedTds = [];
+        let frozenEls = []; // elements currently made sticky by the freeze panes
         let editingCell = null; // { row, col, original } while a cell is being typed into
         let pointerState = null; // current touch / mouse gesture on the grid
         let rangeDragMode = false;
@@ -926,32 +947,18 @@
             let headerRowHTML = '<tr><th class="corner-header"></th>';
             for (let c = 0; c < COLS; c++) {
                 let colLet = columnToLetter(c);
-                let isFrozen = c < freezeCols;
-                let frozenStyle = isFrozen ? `position: sticky; left: ${c === 0 ? 50 : 50 + c * 80}px; z-index: 12; background: #f1f5f9;` : '';
-                headerRowHTML += `<th id="col-th-${c}" style="${frozenStyle}" onclick="handleHeaderTap(${c}, 'col')">${colLet}</th>`;
+                headerRowHTML += `<th id="col-th-${c}" onclick="handleHeaderTap(${c}, 'col')">${colLet}</th>`;
             }
             headerRowHTML += '</tr>';
             thead.innerHTML = headerRowHTML;
 
             let bodyHTML = '';
             for (let r = 0; r < ROWS; r++) {
-                let isRowFrozen = r < freezeRows;
-                let rowStickyStyle = isRowFrozen ? `position: sticky; top: ${r === 0 ? 26 : 26 + r * 26}px; z-index: 9; background: #f1f5f9;` : '';
-                bodyHTML += `<tr style="${rowStickyStyle}">`;
-                bodyHTML += `<th class="row-header" style="${rowStickyStyle}" onclick="handleHeaderTap(${r}, 'row')">${r + 1}</th>`;
+                bodyHTML += `<tr>`;
+                bodyHTML += `<th class="row-header" id="row-th-${r}" onclick="handleHeaderTap(${r}, 'row')">${r + 1}</th>`;
                 for (let c = 0; c < COLS; c++) {
                     const cellId = columnToLetter(c) + (r + 1);
-                    let isColFrozen = c < freezeCols;
-                    let cellStickyStyle = '';
-                    if (isColFrozen && isRowFrozen) {
-                        cellStickyStyle = `position: sticky; left: ${c === 0 ? 50 : 50 + c * 80}px; top: ${r === 0 ? 26 : 26 + r * 26}px; z-index: 14; background: #ffffff;`;
-                    } else if (isColFrozen) {
-                        cellStickyStyle = `position: sticky; left: ${c === 0 ? 50 : 50 + c * 80}px; z-index: 8; background: #ffffff;`;
-                    } else if (isRowFrozen) {
-                        cellStickyStyle = `position: sticky; top: ${r === 0 ? 26 : 26 + r * 26}px; z-index: 8; background: #ffffff;`;
-                    }
-
-                    bodyHTML += `<td id="cell-${cellId}" style="${cellStickyStyle}" data-row="${r}" data-col="${c}">`;
+                    bodyHTML += `<td id="cell-${cellId}" data-row="${r}" data-col="${c}">`;
                     bodyHTML += `<input type="text" class="cell-input" id="input-${cellId}" data-cell="${cellId}" readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="setCellContent('${cellId}', this.value)" onblur="onCellBlur(${r}, ${c})" onkeydown="handleCellKey(event, ${r}, ${c})">`;
                     bodyHTML += `</td>`;
                 }
@@ -960,10 +967,85 @@
             tbody.innerHTML = bodyHTML;
             editingCell = null;
             highlightedTds = [];
+            frozenEls = [];
             applyMerges();
             applyTableHeaders();
+            layoutFreeze();
             recalculateAll();
             highlightSelection();
+        }
+
+        // ===== Freeze Panes =====
+        // Frozen rows / columns are sticky cells positioned from the real measured layout (not guessed sizes).
+        // Changing the freeze only re-lays-out the sticky cells, so cell formatting is never lost.
+        function clearFreezeLayout() {
+            frozenEls.forEach(el => {
+                el.classList.remove('frozen-cell', 'freeze-edge-row', 'freeze-edge-col');
+                el.style.position = '';
+                el.style.top = '';
+                el.style.left = '';
+                el.style.zIndex = '';
+            });
+            frozenEls = [];
+            const grid = document.getElementById('grid-container');
+            grid.style.scrollPaddingTop = '';
+            grid.style.scrollPaddingLeft = '';
+        }
+
+        function layoutFreeze() {
+            clearFreezeLayout();
+            const rows = Math.min(freezeRows, ROWS);
+            const cols = Math.min(freezeCols, COLS);
+            if (!rows && !cols) return;
+            const byId = id => document.getElementById(id);
+
+            // Measure the natural (unstuck) positions first
+            const tops = [], lefts = [];
+            for (let r = 0; r < rows; r++) tops.push(byId(`row-th-${r}`).parentElement.offsetTop);
+            for (let c = 0; c < cols; c++) lefts.push(byId(`col-th-${c}`).offsetLeft);
+            const headerH = byId('col-th-0').offsetHeight;
+            const rowHeaderW = byId('row-th-0').offsetWidth;
+            let frozenBottom = headerH, frozenRight = rowHeaderW;
+            if (rows) { const tr = byId(`row-th-${rows - 1}`).parentElement; frozenBottom = tr.offsetTop + tr.offsetHeight; }
+            if (cols) { const th = byId(`col-th-${cols - 1}`); frozenRight = th.offsetLeft + th.offsetWidth; }
+
+            const stick = (el, top, left, z) => {
+                el.style.position = 'sticky';
+                if (top !== null) el.style.top = top + 'px';
+                if (left !== null) el.style.left = left + 'px';
+                el.style.zIndex = z;
+                frozenEls.push(el);
+            };
+
+            for (let r = 0; r < rows; r++) {
+                const rowTh = byId(`row-th-${r}`);
+                stick(rowTh, tops[r], null, 13);
+                if (r === rows - 1) rowTh.classList.add('freeze-edge-row');
+                for (let c = 0; c < COLS; c++) {
+                    const td = byId(`cell-${getCellId(r, c)}`);
+                    const colFrozen = c < cols;
+                    stick(td, tops[r], colFrozen ? lefts[c] : null, colFrozen ? 9 : 8);
+                    td.classList.add('frozen-cell');
+                    if (r === rows - 1) td.classList.add('freeze-edge-row');
+                    if (c === cols - 1) td.classList.add('freeze-edge-col');
+                }
+            }
+            for (let c = 0; c < cols; c++) {
+                const th = byId(`col-th-${c}`);
+                stick(th, 0, lefts[c], 14);
+                if (c === cols - 1) th.classList.add('freeze-edge-col');
+                for (let r = rows; r < ROWS; r++) {
+                    const td = byId(`cell-${getCellId(r, c)}`);
+                    stick(td, null, lefts[c], 8);
+                    td.classList.add('frozen-cell');
+                    if (c === cols - 1) td.classList.add('freeze-edge-col');
+                }
+            }
+
+            // Keep keyboard / scrollIntoView navigation from landing under the frozen area
+            const grid = byId('grid-container');
+            grid.style.scrollPaddingTop = frozenBottom + 'px';
+            grid.style.scrollPaddingLeft = frozenRight + 'px';
         }
 
         function columnToLetter(colIndex) {
@@ -1125,6 +1207,7 @@
                 area.innerHTML = `
                     <div class="ribbon-group">
                         <button onclick="openFreezeModal()">Freeze Panes...</button>
+                        <button id="unfreeze-btn" onclick="unfreezePanes()" ${freezeRows || freezeCols ? '' : 'disabled'}>Unfreeze</button>
                         <button onclick="openCondFormatting()">Cond. Formatting</button>
                         <button class="primary" onclick="openWizard()">fx Wizard</button>
                     </div>
@@ -2036,6 +2119,7 @@
             freezeCols = s.freezeCols;
             renderSheetTabs();
             buildGridDOM();
+            updateUnfreezeButton();
             showToast(`Switched to ${s.name}`);
         }
 
@@ -2046,17 +2130,61 @@
         }
 
         // Freeze Panes Modal
-        function openFreezeModal() { document.getElementById('freeze-modal').classList.remove('hidden'); }
+        // Limits keep part of the grid scrollable on small screens (about 2 columns / 14 rows on a Pixel 7)
+        function freezeLimits() {
+            const g = document.getElementById('grid-container');
+            const maxCols = Math.max(0, Math.min(10, Math.floor((g.clientWidth * 0.6 - 50) / 80)));
+            const maxRows = Math.max(0, Math.min(50, Math.floor((g.clientHeight * 0.6 - 26) / 26)));
+            return { maxRows, maxCols };
+        }
+        function openFreezeModal() {
+            const lim = freezeLimits();
+            const rowsInput = document.getElementById('freeze-rows-input');
+            const colsInput = document.getElementById('freeze-cols-input');
+            rowsInput.max = lim.maxRows;
+            colsInput.max = lim.maxCols;
+            rowsInput.value = freezeRows;
+            colsInput.value = freezeCols;
+            document.getElementById('freeze-rows-hint').innerText = `(0 to ${lim.maxRows} on this screen)`;
+            document.getElementById('freeze-cols-hint').innerText = `(0 to ${lim.maxCols} on this screen)`;
+            document.getElementById('freeze-modal').classList.remove('hidden');
+        }
         function closeFreezeModal() { document.getElementById('freeze-modal').classList.add('hidden'); }
+        function updateUnfreezeButton() {
+            const btn = document.getElementById('unfreeze-btn');
+            if (btn) btn.disabled = !(freezeRows || freezeCols);
+        }
         function applyFreezePanes() {
-            freezeRows = parseInt(document.getElementById('freeze-rows-input').value) || 0;
-            freezeCols = parseInt(document.getElementById('freeze-cols-input').value) || 0;
+            let rows = Math.max(0, parseInt(document.getElementById('freeze-rows-input').value) || 0);
+            let cols = Math.max(0, parseInt(document.getElementById('freeze-cols-input').value) || 0);
+            const lim = freezeLimits();
+            const clamped = rows > lim.maxRows || cols > lim.maxCols;
+            rows = Math.min(rows, lim.maxRows);
+            cols = Math.min(cols, lim.maxCols);
+            freezeRows = rows;
+            freezeCols = cols;
             sheets[currentSheetIdx].freezeRows = freezeRows;
             sheets[currentSheetIdx].freezeCols = freezeCols;
-            buildGridDOM();
+            layoutFreeze();
+            updateUnfreezeButton();
             closeFreezeModal();
-            showToast(`Freeze panes applied: ${freezeRows} rows, ${freezeCols} cols`);
+            if (clamped) showToast(`Limited to ${rows} rows, ${cols} cols so the grid can still scroll`);
+            else showToast(rows || cols ? `Freeze panes applied: ${rows} rows, ${cols} cols` : 'Panes unfrozen');
             recordHistory("Updated freeze panes");
+        }
+        function unfreezePanes() {
+            if (!freezeRows && !freezeCols) {
+                showToast('Nothing is frozen');
+                return;
+            }
+            freezeRows = 0;
+            freezeCols = 0;
+            sheets[currentSheetIdx].freezeRows = 0;
+            sheets[currentSheetIdx].freezeCols = 0;
+            layoutFreeze();
+            updateUnfreezeButton();
+            showToast('Panes unfrozen');
+            recordHistory("Unfroze panes");
         }
 
         // Settings Modal
