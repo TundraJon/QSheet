@@ -1151,6 +1151,180 @@
             setTimeout(() => toast.classList.add('hidden'), 3000);
         }
 
+        // ===== Number formats =====
+        // A format changes only how a number is SHOWN. The cell keeps its real value (formulas, sorting, rules and the
+        // CSV export all use it, and editing shows it). The format lives in the cell's style: { numFormat, decimals }.
+        //   general      as it is                       currency   $1,234.50  /  -$1,234.50
+        //   percent      7.50%  (value 0.075)           decimal    1,234.50
+        //   date_mdy     10/13/2026                     date_ymd   2026/10/13
+        //   datetime     10/13/2026 3:25 PM             text       kept exactly as typed (007)
+        const NUM_FORMATS = ['general', 'currency', 'percent', 'decimal', 'date_mdy', 'date_ymd', 'datetime', 'text'];
+        const DATE_FORMATS = ['date_mdy', 'date_ymd', 'datetime'];
+        const FORMAT_DECIMALS_DEFAULT = { currency: 2, percent: 2, decimal: 2 };
+        const MAX_DECIMALS = 10;
+        const PERCENT_TEXT = /^\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+))\s*%\s*$/;
+
+        function groupedFixed(abs, d) {
+            const parts = abs.toFixed(d).split('.');
+            return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (parts[1] ? '.' + parts[1] : '');
+        }
+
+        function formatDateSerial(v, fmt) {
+            if (typeof v !== 'number' || !isFinite(v) || v < 0) return undefined;
+            let day = Math.floor(v);
+            let mins = Math.round((v - day) * 1440);
+            if (mins >= 1440) { mins -= 1440; day += 1; }
+            const { y, m, d } = ymdFromSerial(day);
+            const pad = n => String(n).padStart(2, '0');
+            const year = String(y).padStart(4, '0');
+            const date = fmt === 'date_ymd' ? `${year}/${pad(m)}/${pad(d)}` : `${pad(m)}/${pad(d)}/${year}`;
+            if (fmt !== 'datetime') return date;
+            const h = Math.floor(mins / 60);
+            return `${date} ${h % 12 || 12}:${pad(mins % 60)} ${h >= 12 ? 'PM' : 'AM'}`;
+        }
+
+        // The text a number format gives a value, or undefined when it should be shown as it is
+        function formatNumberStyle(v, st) {
+            const fmt = st && st.numFormat;
+            if (!fmt || fmt === 'general' || fmt === 'text') return undefined;
+            if (typeof v !== 'number' || !isFinite(v)) return undefined;
+            if (DATE_FORMATS.includes(fmt)) return formatDateSerial(v, fmt);
+            const d = Number.isInteger(st.decimals) ? st.decimals : FORMAT_DECIMALS_DEFAULT[fmt];
+            if (d === undefined) return undefined;
+            const scaled = fmt === 'percent' ? Math.abs(v) * 100 : Math.abs(v);
+            if (scaled >= 1e21) return undefined;
+            const rounded = roundTo(scaled, d, 'half');
+            const sign = v < 0 && rounded !== 0 ? '-' : '';
+            const body = groupedFixed(rounded, d);
+            if (fmt === 'currency') return `${sign}$${body}`;
+            if (fmt === 'percent') return `${sign}${body}%`;
+            return `${sign}${body}`;
+        }
+
+        function cellDisplayText(cell) {
+            const shown = formatNumberStyle(cell.value, cell.style);
+            return shown !== undefined ? shown : displayValue(cell.value);
+        }
+
+        // What you see when you edit a cell or look at the formula bar (the real value; a percent shows as 7.5%)
+        function cellEditText(cellId) {
+            const cell = data[cellId];
+            if (!cell) return '';
+            if (cell.formula) return cell.formula;
+            const st = cell.style || {};
+            if (st.numFormat === 'percent' && typeof cell.value === 'number' && isFinite(cell.value)) return String(roundTo(cell.value * 100, 10, 'half')) + '%';
+            return cell.value === undefined || cell.value === null ? '' : cell.value;
+        }
+
+        // Numbers and dates line up on the right unless the user chose an alignment
+        function effectiveAlign(cell) {
+            const st = cell.style || {};
+            if (st.textAlign) return st.textAlign;
+            return (typeof cell.value === 'number' && isFinite(cell.value) && st.numFormat !== 'text') ? 'right' : '';
+        }
+
+        function renderCellDisplay(cellId) {
+            const cell = data[cellId];
+            const input = document.getElementById(`input-${cellId}`);
+            if (!cell || !input) return;
+            if (document.activeElement !== input) input.value = cellDisplayText(cell);
+            const want = effectiveAlign(cell);
+            if (input.style.textAlign !== want) input.style.textAlign = want;
+        }
+
+        // Typing: "12%" is 0.12 shown as a percentage; a plain number typed into a percent cell is read as a percent; Text cells keep what was typed
+        function parseTypedValue(value, st) {
+            if (st.numFormat === 'text') return value;
+            const pm = PERCENT_TEXT.exec(value);
+            if (pm) {
+                st.numFormat = 'percent';
+                return Number((Number(pm[1]) / 100).toPrecision(15));
+            }
+            if (value.trim() === '' || isNaN(value)) return value;
+            if (st.numFormat === 'percent') return Number((Number(value) / 100).toPrecision(15));
+            return Number(value);
+        }
+
+        // Which date format a formula's result should have (TODAY()+7 is a date, B1-B2 for two dates is a count of days)
+        function exprFormat(n, lookup) {
+            if (!n) return null;
+            if (n.t === 'call') {
+                if (n.name === 'NOW') return 'datetime';
+                if (n.name === 'DATE' || n.name === 'TODAY' || n.name === 'EOMONTH') return 'date_mdy';
+                return null;
+            }
+            if (n.t === 'ref') { const f = lookup(n.v); return DATE_FORMATS.includes(f) ? f : null; }
+            if (n.t === 'bin' && (n.op === '+' || n.op === '-')) {
+                const l = exprFormat(n.l, lookup), r = exprFormat(n.r, lookup);
+                return n.op === '+' ? (l || r) : (l && !r ? l : null);
+            }
+            return null;
+        }
+        function dateFormatForFormula(formula, lookup) {
+            try { return exprFormat(parseFormula(String(formula).substring(1).trim()), lookup); } catch (e) { return null; }
+        }
+
+        // Done when an entry is committed, so a half-typed formula does not pick a format
+        function autoDateFormat(cellId) {
+            const cell = data[cellId];
+            if (!cell || !cell.formula) return;
+            const st = cell.style || (cell.style = {});
+            if (st.numFormat !== undefined) return;
+            const f = dateFormatForFormula(cell.formula, id => (data[id] && data[id].style ? data[id].style.numFormat : undefined));
+            if (f) { st.numFormat = f; applyCellStyle(cellId); renderCellDisplay(cellId); syncNumberFormatSelect(); }
+        }
+
+        function applyNumberFormat(cellId, fmt) {
+            if (!NUM_FORMATS.includes(fmt)) return;
+            if (!data[cellId]) {
+                if (fmt === 'general') return;
+                data[cellId] = { style: {}, value: '', formula: '' };
+            }
+            const cell = data[cellId];
+            const st = cell.style || (cell.style = {});
+            st.numFormat = fmt; // "general" is remembered too, so a chosen General is never replaced automatically
+            if (!(fmt in FORMAT_DECIMALS_DEFAULT)) delete st.decimals;
+            if (fmt === 'text' && typeof cell.value === 'number' && !cell.formula) cell.value = String(cell.value);
+            applyCellStyle(cellId);
+            renderCellDisplay(cellId);
+        }
+
+        function syncNumberFormatSelect() {
+            const sel = document.getElementById('number-format');
+            if (!sel) return;
+            const cell = data[getCellId(activeCell.row, activeCell.col)];
+            sel.value = (cell && cell.style && cell.style.numFormat) || 'general';
+        }
+
+        // +.0 / −.0 : one more / one fewer decimal on the selected numbers (General becomes Decimal)
+        function changeDecimals(delta) {
+            const b = selBounds();
+            let changed = 0;
+            for (let r = b.minR; r <= b.maxR; r++) {
+                for (let c = b.minC; c <= b.maxC; c++) {
+                    const id = getCellId(r, c);
+                    const cell = data[id];
+                    if (!cell || typeof cell.value !== 'number' || !isFinite(cell.value)) continue;
+                    const st = cell.style || (cell.style = {});
+                    const fmt = st.numFormat || 'general';
+                    if (fmt === 'text' || DATE_FORMATS.includes(fmt)) continue;
+                    const shown = (String(cell.value).split('.')[1] || '').replace(/e.*$/i, '').length;
+                    const cur = fmt === 'general' ? Math.min(shown, MAX_DECIMALS) : (Number.isInteger(st.decimals) ? st.decimals : FORMAT_DECIMALS_DEFAULT[fmt]);
+                    const next = Math.max(0, Math.min(MAX_DECIMALS, cur + delta));
+                    if (next === cur) continue;
+                    if (fmt === 'general') st.numFormat = 'decimal';
+                    st.decimals = next;
+                    applyCellStyle(id);
+                    renderCellDisplay(id);
+                    changed++;
+                }
+            }
+            if (!changed) { showToast('Select cells that hold numbers first'); return; }
+            syncNumberFormatSelect();
+            markDirty();
+            recordHistory(delta > 0 ? 'Increased decimals' : 'Decreased decimals');
+        }
+
         // ===== AutoSave =====
         // One workbook, saved in the browser's IndexedDB (localStorage as a fallback where IndexedDB is not available).
         // The save is compact: only cells that hold something, each distinct format stored once, and calculated
@@ -1289,6 +1463,22 @@
             return out;
         }
 
+        // Formatting read from storage or a file: only known settings with valid values are kept
+        function cleanStyle(st) {
+            const out = {};
+            if (!st || typeof st !== 'object') return out;
+            if (st.fontWeight === 'bold') out.fontWeight = 'bold';
+            if (st.fontStyle === 'italic') out.fontStyle = 'italic';
+            if (st.textDecoration === 'underline') out.textDecoration = 'underline';
+            if (typeof st.fontFamily === 'string' && /^[\w\s'",\-]{1,120}$/.test(st.fontFamily)) out.fontFamily = st.fontFamily;
+            if (isHex(st.color)) out.color = st.color;
+            if (isHex(st.bgColor)) out.bgColor = st.bgColor;
+            if (['left', 'center', 'right'].includes(st.textAlign)) out.textAlign = st.textAlign;
+            if (NUM_FORMATS.includes(st.numFormat)) out.numFormat = st.numFormat;
+            if (Number.isInteger(st.decimals) && st.decimals >= 0 && st.decimals <= MAX_DECIMALS) out.decimals = st.decimals;
+            return out;
+        }
+
         function decodeSheet(es) {
             if (!es || typeof es !== 'object') throw new Error('Bad sheet');
             const data = {};
@@ -1299,10 +1489,18 @@
                 if (!/^[A-Z]{1,3}\d+$/.test(id) || co.r >= ROWS || co.c >= COLS) continue;
                 const c = cells[id];
                 if (c !== null && typeof c === 'object') {
-                    const st = (c.s !== undefined && styles[c.s] && typeof styles[c.s] === 'object') ? { ...styles[c.s] } : {};
+                    const st = (c.s !== undefined) ? cleanStyle(styles[c.s]) : {};
                     data[id] = { style: st, value: c.v !== undefined ? c.v : '', formula: typeof c.f === 'string' && c.f.startsWith('=') ? c.f : '' };
                 } else if (typeof c === 'string' || typeof c === 'number' || typeof c === 'boolean') {
                     data[id] = { style: {}, value: c, formula: '' };
+                }
+            }
+            // Workbooks saved before number formats existed showed date-function results as dates by themselves
+            for (const id in data) {
+                const cell = data[id];
+                if (cell.formula && cell.style.numFormat === undefined) {
+                    const f = dateFormatForFormula(cell.formula, ref => (data[ref] ? data[ref].style.numFormat : undefined));
+                    if (f) cell.style.numFormat = f;
                 }
             }
             return {
@@ -2112,12 +2310,19 @@
                             <option value="currency">Currency ($)</option>
                             <option value="percent">Percentage (%)</option>
                             <option value="decimal">Decimal (0.00)</option>
+                            <option value="date_mdy">Date (MM/DD/YYYY)</option>
+                            <option value="date_ymd">Date (YYYY/MM/DD)</option>
+                            <option value="datetime">Date &amp; Time</option>
+                            <option value="text">Text</option>
                         </select>
+                        <button onclick="changeDecimals(1)" title="More decimal places">+.0</button>
+                        <button onclick="changeDecimals(-1)" title="Fewer decimal places">−.0</button>
                     </div>
                     <div class="ribbon-group">
                         <button onclick="triggerAutoSum()" title="AutoSum">Σ AutoSum</button>
                     </div>
                 `;
+                syncNumberFormatSelect();
             } else if (tab === 'data') {
                 area.innerHTML = `
                     <div class="ribbon-group">
@@ -2153,9 +2358,10 @@
             const cellId = getCellId(r, c);
             document.getElementById('current-cell-label').innerText = cellId;
             const formulaInput = document.getElementById('formula-input');
-            formulaInput.value = cellRaw(cellId);
+            formulaInput.value = cellEditText(cellId);
             highlightSelection();
             updateCellDock(cellId);
+            syncNumberFormatSelect();
         }
 
         function updateCellDock(cellId) {
@@ -2393,10 +2599,10 @@
             if (!input) return;
             if (editingCell) endEdit(true);
             if (activeCell.row !== r || activeCell.col !== c) selectSingle(r, c);
-            editingCell = { row: r, col: c, original: cellRaw(cellId) };
+            editingCell = { row: r, col: c, original: cellEditText(cellId) };
             input.readOnly = false;
             input.classList.add('editing');
-            input.value = replaceWith !== undefined ? replaceWith : cellRaw(cellId);
+            input.value = replaceWith !== undefined ? replaceWith : cellEditText(cellId);
             input.focus();
             const len = input.value.length;
             try { input.setSelectionRange(len, len); } catch (err) {}
@@ -2422,7 +2628,7 @@
             }
             recalculateAll();
             if (activeCell.row === row && activeCell.col === col) {
-                document.getElementById('formula-input').value = cellRaw(cellId);
+                document.getElementById('formula-input').value = cellEditText(cellId);
             }
         }
 
@@ -2541,20 +2747,22 @@
                 }
             });
             setCellContent(cellId, value);
+            autoDateFormat(cellId);
         }
 
         // Stores a value / formula and recalculates (runs on every keystroke while typing in a cell)
         function setCellContent(cellId, value) {
             let coord = parseCellCoord(cellId);
             if (!data[cellId]) data[cellId] = { style: {} };
-            delete data[cellId].spillOf; // typing over a spilled cell takes it over
-            if (value.startsWith('=')) {
-                data[cellId].formula = value;
-                data[cellId].value = evaluateFormula(value, coord.r, coord.c);
+            const cell = data[cellId];
+            if (!cell.style) cell.style = {};
+            delete cell.spillOf; // typing over a spilled cell takes it over
+            if (value.startsWith('=') && cell.style.numFormat !== 'text') {
+                cell.formula = value;
+                cell.value = evaluateFormula(value, coord.r, coord.c);
             } else {
-                data[cellId].formula = '';
-                delete data[cellId].display;
-                data[cellId].value = isNaN(value) || value.trim() === '' ? value : Number(value);
+                cell.formula = '';
+                cell.value = parseTypedValue(value, cell.style);
             }
             recalculateAll();
             updateStats();
@@ -2618,7 +2826,7 @@
                     i += 2;
                     continue;
                 }
-                if ('+-*/^(),:=<>&'.includes(ch)) {
+                if ('+-*/^(),:=<>&%'.includes(ch)) {
                     tokens.push({ t: 'op', v: ch });
                     i++;
                     continue;
@@ -2680,7 +2888,16 @@
                     const op = tokens[p++].v;
                     return { t: 'unary', op, e: parseUnary() };
                 }
-                return parsePrimary();
+                return parsePostfix();
+            }
+            // 12% means 12 / 100 (and works on any value: A1%, (1+2)%)
+            function parsePostfix() {
+                let e = parsePrimary();
+                while (isOp('%')) {
+                    p++;
+                    e = { t: 'bin', op: '/', l: e, r: { t: 'num', v: 100 } };
+                }
+                return e;
             }
             function parsePrimary() {
                 const tok = tokens[p++];
@@ -2861,8 +3078,6 @@
                     releaseSpill(id);
                     cell.value = result;
                 }
-                const shown = dateDisplayFor(cell.formula, cell.value);
-                if (shown !== undefined) cell.display = shown; else delete cell.display;
             } finally {
                 calcState.busy.delete(id);
                 calcState.done.add(id);
@@ -3107,25 +3322,11 @@
             throw new FormulaError('#VALUE!');
         }
         const daysInMonth = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
-        function formatSerial(s, kind) {
-            const { y, m, d } = ymdFromSerial(s);
-            const pad = n => String(n).padStart(2, '0');
-            let out = `${y}-${pad(m)}-${pad(d)}`;
-            if (kind === 'datetime') {
-                const mins = Math.round((s - Math.floor(s)) * 1440);
-                out += ` ${pad(Math.floor(mins / 60) % 24)}:${pad(mins % 60)}`;
-            }
-            return out;
-        }
-        // Cells whose formula is a date function show as a date (the stored value stays the serial number)
-        const DATE_RESULT_FUNCS = { TODAY: 'date', DATE: 'date', EOMONTH: 'date', NOW: 'datetime' };
+        // Used by the Formula Wizard preview: how a date function's result is shown
         function dateDisplayFor(formula, value) {
             if (typeof value !== 'number') return undefined;
-            try {
-                const ast = parseFormula(formula.substring(1).trim());
-                if (ast.t === 'call' && DATE_RESULT_FUNCS[ast.name]) return formatSerial(value, DATE_RESULT_FUNCS[ast.name]);
-            } catch (e) {}
-            return undefined;
+            const f = dateFormatForFormula(formula, () => undefined);
+            return f ? formatDateSerial(value, f) : undefined;
         }
 
         function datedif(s, e, unit) {
@@ -3782,7 +3983,8 @@
                     if (def.lazy) return def.fn(n.args, node => evalNode(node, curR, curC), curR, curC);
                     const lim = ARG_LIMITS[n.name];
                     if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!');
-                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : evalNode(a, curR, curC));
+                    // A single cell passed to a function counts as a cell (like a range of one): text in it is skipped by SUM, AVERAGE, ...
+                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'ref' ? new RangeVal(1, 1, [evalNode(a, curR, curC)]) : evalNode(a, curR, curC)));
                     return def.fn(args, curR, curC);
                 }
             }
@@ -3869,13 +4071,7 @@
                 }
                 if (!spilled) break;
             }
-            for (let cellId in data) {
-                const inputEl = document.getElementById(`input-${cellId}`);
-                if (inputEl && document.activeElement !== inputEl) {
-                    const cell = data[cellId];
-                    inputEl.value = displayValue(cell.display !== undefined ? cell.display : cell.value);
-                }
-            }
+            for (let cellId in data) renderCellDisplay(cellId);
         }
 
         function updateStats() {
@@ -4924,7 +5120,7 @@
                 input.style.textDecoration = st.textDecoration || '';
                 input.style.fontFamily = st.fontFamily || '';
                 input.style.color = st.color || '';
-                input.style.textAlign = st.textAlign || '';
+                input.style.textAlign = data[cellId] ? effectiveAlign(data[cellId]) : (st.textAlign || '');
             }
             if (td) td.style.backgroundColor = st.bgColor || '';
         }
@@ -4944,8 +5140,8 @@
 
             for (let r = minR; r <= maxR; r++) {
                 for (let c = minC; c <= maxC; c++) {
-                    if (type === 'numFormat') continue; // number formats are not built yet
                     const cellId = getCellId(r, c);
+                    if (type === 'numFormat') { applyNumberFormat(cellId, value); continue; }
                     if (!data[cellId]) data[cellId] = { style: {}, value: '', formula: '' };
                     if (!data[cellId].style) data[cellId].style = {};
                     const st = data[cellId].style;
@@ -4955,6 +5151,12 @@
                     else if (STYLE_KEY[type]) st[STYLE_KEY[type]] = value;
                     applyCellStyle(cellId);
                 }
+            }
+            if (type === 'numFormat') { // text cells are not numbers to a formula
+                recalculateAll();
+                updateStats();
+                syncNumberFormatSelect();
+                document.getElementById('formula-input').value = cellEditText(getCellId(activeCell.row, activeCell.col));
             }
             applyConditionalFormattingRules(); // rules are drawn on top of fill colours
             recordHistory("Formatted cells");

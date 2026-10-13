@@ -37,7 +37,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 9. ~~Cell-reference math is broken: `=A1+B1` returns `#ERROR!` (reference-replacing regex requires spaces around the reference).~~ **Done — see Build Log 1.**
 10. ~~Freeze Panes: offsets assume 80px columns but no widths are set; sticky `<tr>` rows are unreliable (BQ-10.2).~~ **Done — see Build Log 3.**
 11. ~~Cell range selection is mouse-only (`onmousedown`/`onmouseover`); range select does not work by touch on Pixel 7. This blocks stats, Insights, and range formatting.~~ **Done — see Build Log 1.**
-12. Number format dropdown does nothing (also true in V2) (BQ-04.3). **DECIDED, awaiting go-ahead to build:** formats = General, Currency ($1,234.50; negatives -$1,234.50), Percentage (2 decimals by default: 7.50%; stored as a fraction), Decimal (with commas: 1,234.50), Date MM/DD/YYYY, Date YYYY/MM/DD, Date & Time (MM/DD/YYYY h:mm AM/PM), Text (keeps 007). Extras: +.0 / −.0 buttons (adjust decimals on any number format); typing `12%` stores 0.12 and sets Percentage, and `5%` works inside formulas. Numbers and dates are right-aligned by default (text stays left; an alignment the user set wins). Date functions (DATE, TODAY, NOW, EOMONTH) take the chosen date format instead of the old YYYY-MM-DD hack. Formats change display only (formulas, sorting and rules use the real value; editing and the formula bar show the real value). CSV export stays raw numbers. The dropdown shows the selected cell's format.
+12. ~~Number format dropdown does nothing (also true in V2) (BQ-04.3). **DECIDED, awaiting go-ahead to build:** formats = General, Currency ($1,234.50; negatives -$1,234.50), Percentage (2 decimals by default: 7.50%; stored as a fraction), Decimal (with commas: 1,234.50), Date MM/DD/YYYY, Date YYYY/MM/DD, Date & Time (MM/DD/YYYY h:mm AM/PM), Text (keeps 007). Extras: +.0 / −.0 buttons (adjust decimals on any number format); typing `12%` stores 0.12 and sets Percentage, and `5%` works inside formulas. Numbers and dates are right-aligned by default (text stays left; an alignment the user set wins). Date functions (DATE, TODAY, NOW, EOMONTH) take the chosen date format instead of the old YYYY-MM-DD hack. Formats change display only (formulas, sorting and rules use the real value; editing and the formula bar show the real value). CSV export stays raw numbers. The dropdown shows the selected cell's format.~~ **Done — see Build Log 11.**
 
 ### C. Never built in V2 or V3
 
@@ -182,3 +182,14 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **Export Lists / Import Lists** (`qsheet-lists.json`): a backup, or a way to move lists to another device. Import asks first and numbers a name you already have ("Abilities (2)"); wrong or newer files are refused. Everything read from a file is checked and shown as plain text.
 - [x] A long list scrolls sideways inside the cell-tap chip bar instead of running off the screen. (A search sheet for very long lists and a date rule are still item 21.)
 
+### Build Log 11 — Item 12: number formats
+
+- [x] **Format dropdown now works** (Home tab): General, Currency ($), Percentage (%), Decimal (0.00), Date (MM/DD/YYYY), Date (YYYY/MM/DD), Date & Time (MM/DD/YYYY h:mm AM/PM), Text. It shows the selected cell's format.
+- [x] **Display only.** The cell keeps its real value; formulas, sorting, rules and the formula bar use the real value. **CSV export stays raw numbers.**
+- [x] **Currency** `$1,234.50`, negatives `-$1,234.50`. **Percentage** 2 decimals by default (`7.50%`, stored as 0.075). **Decimal** with commas (`1,234.50`). **Text** keeps exactly what you type (`007`).
+- [x] **+.0 / −.0 buttons** add or remove a decimal place on the selected numbers (General becomes Decimal). Range 0–10.
+- [x] **Typing `12%`** stores 0.12 and sets Percentage; `5%` also works inside formulas. Editing a percent cell shows `7.5%`.
+- [x] **Numbers and dates are right-aligned by default**; text stays left; an alignment you set wins.
+- [x] **Date formulas** (DATE, TODAY, NOW, EOMONTH, and date +/- days) pick a date format automatically when entered, unless you already chose a format (a chosen General is kept). Older saved workbooks get the same treatment when opened.
+- [x] **Side effect:** a formula argument that is a single cell (e.g. `SUM(A1)`) now skips text in that cell, like Excel. Text in A1 gives 0.
+- [x] Formats are saved with the workbook; imported style data is whitelisted.
