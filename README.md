@@ -37,7 +37,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 9. ~~Cell-reference math is broken: `=A1+B1` returns `#ERROR!` (reference-replacing regex requires spaces around the reference).~~ **Done — see Build Log 1.**
 10. ~~Freeze Panes: offsets assume 80px columns but no widths are set; sticky `<tr>` rows are unreliable (BQ-10.2).~~ **Done — see Build Log 3.**
 11. ~~Cell range selection is mouse-only (`onmousedown`/`onmouseover`); range select does not work by touch on Pixel 7. This blocks stats, Insights, and range formatting.~~ **Done — see Build Log 1.**
-12. Number format dropdown does nothing (also true in V2) (BQ-04.3).
+12. Number format dropdown does nothing (also true in V2) (BQ-04.3). **DECIDED, awaiting go-ahead to build:** formats = General, Currency ($1,234.50; negatives -$1,234.50), Percentage (2 decimals by default: 7.50%; stored as a fraction), Decimal (with commas: 1,234.50), Date MM/DD/YYYY, Date YYYY/MM/DD, Date & Time (MM/DD/YYYY h:mm AM/PM), Text (keeps 007). Extras: +.0 / −.0 buttons (adjust decimals on any number format); typing `12%` stores 0.12 and sets Percentage, and `5%` works inside formulas. Numbers and dates are right-aligned by default (text stays left; an alignment the user set wins). Date functions (DATE, TODAY, NOW, EOMONTH) take the chosen date format instead of the old YYYY-MM-DD hack. Formats change display only (formulas, sorting and rules use the real value; editing and the formula bar show the real value). CSV export stays raw numbers. The dropdown shows the selected cell's format.
 
 ### C. Never built in V2 or V3
 
