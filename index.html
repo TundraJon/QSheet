@@ -572,6 +572,30 @@
             cursor: default;
         }
 
+        /* Save status line */
+        .save-status {
+            height: 22px;
+            min-height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            background: #f1f5f9;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.72rem;
+            color: #475569;
+            cursor: pointer;
+            z-index: 41;
+            touch-action: manipulation;
+        }
+        .save-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+        .save-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .save-dot.ok { background: #16a34a; }
+        .save-dot.busy { background: #2563eb; animation: savePulse 1s ease-in-out infinite; }
+        .save-dot.warn { background: #d97706; }
+        .save-dot.fail { background: #dc2626; }
+        @keyframes savePulse { 50% { opacity: 0.35; } }
+
         /* Conditional Formatting */
         #cond-modal .hidden { display: none !important; }
         .cond-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -715,6 +739,9 @@
 <body>
 
     <!-- Top Header -->
+    <!-- Save status (like the AutoSave strip in Excel) -->
+    <div class="save-status" id="save-status" role="button" tabindex="0" onclick="onSaveStatusTap()"><span class="save-label">AutoSave on</span><span class="save-state"><span class="save-dot ok"></span>Loading…</span></div>
+
     <header>
         <div class="app-title">Spreadsheet Studio</div>
         <div class="header-actions">
@@ -796,6 +823,7 @@
     </div>
 
     <input type="file" id="csv-file-input" style="display: none;" accept=".csv,text/csv" onchange="importCSV(event)">
+    <input type="file" id="workbook-file-input" style="display: none;" accept=".json,application/json" onchange="importWorkbook(event)">
 
     <!-- Cell Bottom Action Dock (Quick fx & validation pickers) -->
     <div class="cell-dock hidden" id="cell-dock">
@@ -997,16 +1025,20 @@
             </div>
             <div class="modal-body">
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="setting-autosave">AutoSave (save changes automatically)</label>
+                    <input type="checkbox" id="setting-autosave" checked style="width: 20px; height: 20px;" onchange="onAutosaveToggle()">
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
                     <label for="setting-quick-fx">Enable Quick fx Access on Cell Tap</label>
-                    <input type="checkbox" id="setting-quick-fx" checked style="width: 20px; height: 20px;">
+                    <input type="checkbox" id="setting-quick-fx" checked style="width: 20px; height: 20px;" onchange="saveSettings()">
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
                     <label for="setting-val-picker">Enable Data Validation Pickers on Cell Tap</label>
-                    <input type="checkbox" id="setting-val-picker" checked style="width: 20px; height: 20px;">
+                    <input type="checkbox" id="setting-val-picker" checked style="width: 20px; height: 20px;" onchange="saveSettings()">
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
                     <label for="setting-remember-tab">Remember Last Used Ribbon Tab</label>
-                    <input type="checkbox" id="setting-remember-tab" checked style="width: 20px; height: 20px;">
+                    <input type="checkbox" id="setting-remember-tab" checked style="width: 20px; height: 20px;" onchange="saveSettings()">
                 </div>
             </div>
             <div class="modal-footer">
@@ -1054,14 +1086,371 @@
             setTimeout(() => toast.classList.add('hidden'), 3000);
         }
 
-        function initGrid() {
-            renderRibbonContent('home');
+        // ===== AutoSave =====
+        // One workbook, saved in the browser's IndexedDB (localStorage as a fallback where IndexedDB is not available).
+        // The save is compact: only cells that hold something, each distinct format stored once, and calculated
+        // values left out (they are recalculated on open). Time Travel history is not saved.
+        const SAVE_VERSION = 1;
+        const AUTOSAVE_DELAY = 1000;
+        const saveState = { enabled: true, dirty: false, saving: false, failed: false, loading: true, lastSaved: null, seq: 0, timer: null, retry: null, hadSave: false };
+
+        const escapeHtml = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+        function makeBlankSheet(name) {
+            return { name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0 };
+        }
+
+        // ----- Storage (IndexedDB, with localStorage only if IndexedDB cannot be opened at all) -----
+        const DB_NAME = 'qsheet-db', DB_STORE = 'kv';
+        let dbPromise = null;
+        let useLocalStorage = false;
+
+        function openDB() {
+            if (!dbPromise) {
+                dbPromise = new Promise((resolve, reject) => {
+                    if (!window.indexedDB) { reject(new Error('IndexedDB unavailable')); return; }
+                    let req;
+                    try { req = indexedDB.open(DB_NAME, 1); } catch (e) { reject(e); return; }
+                    req.onupgradeneeded = () => { req.result.createObjectStore(DB_STORE); };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error || new Error('IndexedDB error'));
+                    req.onblocked = () => reject(new Error('IndexedDB blocked'));
+                });
+            }
+            return dbPromise;
+        }
+
+        async function kvGet(key) {
+            if (!useLocalStorage) {
+                try {
+                    const db = await openDB();
+                    return await new Promise((resolve, reject) => {
+                        const req = db.transaction(DB_STORE, 'readonly').objectStore(DB_STORE).get(key);
+                        req.onsuccess = () => resolve(req.result);
+                        req.onerror = () => reject(req.error);
+                    });
+                } catch (e) {
+                    if (dbPromise) { dbPromise = null; }
+                    useLocalStorage = true;
+                }
+            }
+            const raw = localStorage.getItem('qsheet:' + key);
+            return raw === null ? undefined : JSON.parse(raw);
+        }
+
+        async function kvSet(key, value) {
+            if (!useLocalStorage) {
+                try {
+                    const db = await openDB();
+                    await new Promise((resolve, reject) => {
+                        const tx = db.transaction(DB_STORE, 'readwrite');
+                        tx.objectStore(DB_STORE).put(value, key);
+                        tx.oncomplete = () => resolve();
+                        tx.onerror = () => reject(tx.error);
+                        tx.onabort = () => reject(tx.error || new Error('Save aborted'));
+                    });
+                    return;
+                } catch (e) {
+                    // Only switch to localStorage when IndexedDB cannot be opened at all (not when a write fails, e.g. no space)
+                    let openFailed = false;
+                    try { await openDB(); } catch (e2) { openFailed = true; }
+                    if (!openFailed) throw e;
+                    dbPromise = null;
+                    useLocalStorage = true;
+                }
+            }
+            localStorage.setItem('qsheet:' + key, JSON.stringify(value));
+        }
+
+        // ----- Compact save format -----
+        function normalizeStyle(st) {
+            return Object.keys(st).sort().reduce((o, k) => { o[k] = st[k]; return o; }, {});
+        }
+
+        function encodeSheet(s) {
+            const styles = [], styleIndex = new Map(), cells = {};
+            for (const id in s.data) {
+                const cell = s.data[id];
+                const st = cell.style && Object.keys(cell.style).length ? normalizeStyle(cell.style) : null;
+                const derived = !!cell.spillOf; // spilled values are recalculated; only their formatting is kept
+                const hasFormula = !derived && !!cell.formula;
+                const value = (derived || hasFormula) ? '' : cell.value;
+                const hasValue = !(value === '' || value === undefined || value === null);
+                if (!hasValue && !hasFormula && !st) continue;
+                let si;
+                if (st) {
+                    const key = JSON.stringify(st);
+                    if (!styleIndex.has(key)) { styleIndex.set(key, styles.length); styles.push(st); }
+                    si = styleIndex.get(key);
+                }
+                if (!hasFormula && si === undefined) cells[id] = value;
+                else {
+                    const o = {};
+                    if (hasFormula) o.f = cell.formula; else if (hasValue) o.v = value;
+                    if (si !== undefined) o.s = si;
+                    cells[id] = o;
+                }
+            }
+            return { name: s.name, cells, styles, cf: s.conditionalRules, dv: s.validationRules, tb: s.tableObjects, mg: s.merges || [], fr: s.freezeRows, fc: s.freezeCols };
+        }
+
+        function encodeWorkbook() {
+            return { app: 'QSheet', version: SAVE_VERSION, savedAt: Date.now(), current: currentSheetIdx, sheets: sheets.map(encodeSheet) };
+        }
+
+        // Anything read back from storage or from an imported file is checked and cleaned before use
+        const isHex = c => typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c);
+        const cleanText = (v, max = 200) => String(v === undefined || v === null ? '' : v).slice(0, max);
+        const cleanInt = (v, lo, hi, dflt) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : dflt; };
+        const CF_TYPE_IDS = ['gt', 'lt', 'eq', 'between', 'text', 'top', 'bottom', 'topPct', 'bottomPct', 'above', 'below', 'scale', 'formula'];
+
+        function cleanRule(r) {
+            if (!r || typeof r !== 'object' || !parseRangeText(r.range)) return null;
+            const out = { range: cleanText(r.range, 30).toUpperCase(), entireRow: !!r.entireRow };
+            if (!r.type) {
+                if (!['less_than_red', 'status_in_progress', 'zebra', 'top_10_percent', 'above_average', 'heatmap'].includes(r.preset)) return null;
+                out.preset = r.preset;
+                return out;
+            }
+            if (!CF_TYPE_IDS.includes(r.type)) return null;
+            out.type = r.type;
+            if (r.v1 !== undefined) out.v1 = cleanText(r.v1);
+            if (r.v2 !== undefined) out.v2 = cleanText(r.v2);
+            if (r.n !== undefined) out.n = cleanInt(r.n, 1, 100000, 10);
+            if (r.formula !== undefined) out.formula = cleanText(r.formula, 500);
+            if (r.type === 'scale') out.scale = Array.isArray(r.scale) && r.scale.length === 3 && r.scale.every(isHex) ? r.scale.slice() : CF_SCALES[0].colors.slice();
+            else { out.fill = isHex(r.fill) ? r.fill : '#fee2e2'; out.color = isHex(r.color) ? r.color : ''; }
+            return out;
+        }
+
+        function decodeSheet(es) {
+            if (!es || typeof es !== 'object') throw new Error('Bad sheet');
+            const data = {};
+            const styles = Array.isArray(es.styles) ? es.styles : [];
+            const cells = es.cells && typeof es.cells === 'object' ? es.cells : {};
+            for (const id in cells) {
+                const co = parseCellCoord(id);
+                if (!/^[A-Z]{1,3}\d+$/.test(id) || co.r >= ROWS || co.c >= COLS) continue;
+                const c = cells[id];
+                if (c !== null && typeof c === 'object') {
+                    const st = (c.s !== undefined && styles[c.s] && typeof styles[c.s] === 'object') ? { ...styles[c.s] } : {};
+                    data[id] = { style: st, value: c.v !== undefined ? c.v : '', formula: typeof c.f === 'string' && c.f.startsWith('=') ? c.f : '' };
+                } else if (typeof c === 'string' || typeof c === 'number' || typeof c === 'boolean') {
+                    data[id] = { style: {}, value: c, formula: '' };
+                }
+            }
+            return {
+                name: cleanText(es.name || 'Sheet', 40) || 'Sheet',
+                data,
+                conditionalRules: (Array.isArray(es.cf) ? es.cf : []).map(cleanRule).filter(Boolean),
+                validationRules: (Array.isArray(es.dv) ? es.dv : []).filter(v => v && parseRangeText(v.range) && (v.type === 'list' || v.type === 'number')).map(v => ({ range: cleanText(v.range, 30).toUpperCase(), type: v.type, options: (Array.isArray(v.options) ? v.options : []).map(o => cleanText(o, 100)) })),
+                tableObjects: (Array.isArray(es.tb) ? es.tb : []).map(t => t && ({ startR: cleanInt(t.startR, 0, ROWS - 1, -1), endR: cleanInt(t.endR, 0, ROWS - 1, -1), startC: cleanInt(t.startC, 0, COLS - 1, -1), endC: cleanInt(t.endC, 0, COLS - 1, -1) })).filter(t => t && t.startR >= 0 && t.endR >= t.startR && t.startC >= 0 && t.endC >= t.startC),
+                merges: (Array.isArray(es.mg) ? es.mg : []).map(m => m && ({ r: cleanInt(m.r, 0, ROWS - 1, -1), c: cleanInt(m.c, 0, COLS - 1, -1), rows: cleanInt(m.rows, 1, ROWS, 1), cols: cleanInt(m.cols, 1, COLS, 1) })).filter(m => m && m.r >= 0 && m.c >= 0 && m.r + m.rows <= ROWS && m.c + m.cols <= COLS && (m.rows > 1 || m.cols > 1)),
+                freezeRows: cleanInt(es.fr, 0, 50, 0),
+                freezeCols: cleanInt(es.fc, 0, 10, 0)
+            };
+        }
+
+        function decodeWorkbook(rec) {
+            if (!rec || rec.app !== 'QSheet' || !Array.isArray(rec.sheets) || !rec.sheets.length) throw new Error('This is not a QSheet workbook.');
+            if (typeof rec.version !== 'number' || rec.version > SAVE_VERSION) throw new Error('This workbook was saved by a newer version of the app.');
+            const decoded = rec.sheets.slice(0, 50).map(decodeSheet);
+            return { sheets: decoded, current: cleanInt(rec.current, 0, decoded.length - 1, 0), savedAt: rec.savedAt };
+        }
+
+        // Replaces the open workbook with a decoded one and redraws everything
+        function applyWorkbook(wb) {
+            if (editingCell) endEdit(false);
+            sheets = wb.sheets;
+            bindSheet(wb.current);
+            activeCell = { row: 0, col: 0 };
+            selectionRange = { startRow: 0, startCol: 0, endRow: 0, endCol: 0 };
+            historyStack = [];
             renderSheetTabs();
             buildGridDOM();
-            initGridInteractions();
-            recordHistory("Initial blank sheet");
-            recalculateAll();
+            updateUnfreezeButton();
+            recordHistory('Opened workbook');
+            setActiveCell(0, 0);
             updateStats();
+            updateInsights();
+        }
+
+        // ----- Settings (kept separately so they stick even when AutoSave is off) -----
+        function currentSettings() {
+            const on = id => { const el = document.getElementById(id); return el ? !!el.checked : true; };
+            return { version: 1, autosave: on('setting-autosave'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab') };
+        }
+        function applySettings(st) {
+            if (!st || typeof st !== 'object') return;
+            const set = (id, v) => { const el = document.getElementById(id); if (el && typeof v === 'boolean') el.checked = v; };
+            set('setting-autosave', st.autosave);
+            set('setting-quick-fx', st.quickFx);
+            set('setting-val-picker', st.valPicker);
+            set('setting-remember-tab', st.rememberTab);
+            saveState.enabled = document.getElementById('setting-autosave').checked;
+        }
+        function saveSettings() {
+            kvSet('settings', currentSettings()).catch(() => {});
+        }
+        function onAutosaveToggle() {
+            saveState.enabled = document.getElementById('setting-autosave').checked;
+            saveSettings();
+            if (saveState.enabled) {
+                if (saveState.dirty) saveWorkbookNow();
+                showToast('AutoSave is on');
+            } else {
+                clearTimeout(saveState.timer);
+                showToast('AutoSave is off. Tap the top line to save.');
+            }
+            renderSaveStatus();
+        }
+
+        // ----- The save status line -----
+        function renderSaveStatus() {
+            const el = document.getElementById('save-status');
+            if (!el) return;
+            const s = saveState;
+            let dot, text;
+            if (s.failed) { dot = 'fail'; text = 'Save failed — tap to retry'; }
+            else if (s.saving || (s.dirty && s.enabled)) { dot = 'busy'; text = 'Saving…'; }
+            else if (s.dirty) { dot = 'warn'; text = 'Unsaved changes — tap to save'; }
+            else if (s.lastSaved) { dot = 'ok'; text = 'Saved ' + s.lastSaved.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+            else { dot = 'ok'; text = 'No changes yet'; }
+            el.innerHTML = `<span class="save-label">AutoSave ${s.enabled ? 'on' : 'off'}</span><span class="save-state"><span class="save-dot ${dot}"></span>${escapeHtml(text)}</span>`;
+        }
+
+        function onSaveStatusTap() {
+            if (saveState.dirty || saveState.failed) saveWorkbookNow();
+            else showToast('Everything is saved');
+        }
+
+        function markDirty() {
+            if (saveState.loading) return;
+            saveState.dirty = true;
+            if (saveState.enabled) {
+                clearTimeout(saveState.timer);
+                saveState.timer = setTimeout(saveWorkbookNow, AUTOSAVE_DELAY);
+            }
+            renderSaveStatus();
+        }
+
+        async function saveWorkbookNow() {
+            clearTimeout(saveState.timer);
+            clearTimeout(saveState.retry);
+            if (saveState.loading) return;
+            if (saveState.saving) { saveState.again = true; return; }
+            saveState.saving = true;
+            saveState.dirty = false; // anything changed while the write is running marks it dirty again
+            saveState.seq++;
+            renderSaveStatus();
+            try {
+                const rec = encodeWorkbook();
+                await kvSet('workbook', rec);
+                saveState.lastSaved = new Date(rec.savedAt);
+                saveState.hadSave = true;
+                saveState.failed = false;
+            } catch (e) {
+                saveState.failed = true;
+                saveState.dirty = true;
+                saveState.retry = setTimeout(saveWorkbookNow, 5000);
+            }
+            saveState.saving = false;
+            if (saveState.again) { saveState.again = false; if (saveState.dirty && saveState.enabled && !saveState.failed) saveState.timer = setTimeout(saveWorkbookNow, AUTOSAVE_DELAY); }
+            renderSaveStatus();
+        }
+
+        // Phones close or freeze background tabs, so save the moment the app is hidden
+        function flushSave() {
+            if (saveState.dirty && saveState.enabled && !saveState.saving) saveWorkbookNow();
+        }
+
+        function initAutosave() {
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+            window.addEventListener('pagehide', flushSave);
+            window.addEventListener('beforeunload', e => {
+                if (saveState.dirty && (!saveState.enabled || saveState.failed)) { e.preventDefault(); e.returnValue = ''; }
+            });
+            try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+        }
+
+        // Runs at startup: loads settings and the saved workbook, if there is one
+        async function restoreSavedWorkbook() {
+            try { applySettings(await kvGet('settings')); } catch (e) {}
+            let rec;
+            try { rec = await kvGet('workbook'); } catch (e) { rec = undefined; }
+            if (!rec) return null;
+            try {
+                const wb = decodeWorkbook(rec);
+                saveState.lastSaved = wb.savedAt ? new Date(wb.savedAt) : null;
+                saveState.hadSave = true;
+                return wb;
+            } catch (e) {
+                // Keep the unreadable copy so it is not lost, then start fresh
+                try { await kvSet('workbook-unreadable', rec); } catch (e2) {}
+                return { error: true };
+            }
+        }
+
+        // ----- New / export / import workbook -----
+        function newWorkbook() {
+            if (!confirm('Start a new, empty workbook?\n\nThe current workbook will be replaced. Use Export Workbook first if you want a backup.')) return;
+            applyWorkbook({ sheets: [makeBlankSheet('Sheet 1')], current: 0 });
+            markDirty();
+            if (saveState.enabled) saveWorkbookNow();
+            showToast('New workbook started');
+        }
+
+        function exportWorkbook() {
+            const blob = new Blob([JSON.stringify(encodeWorkbook())], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'qsheet-workbook.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast('Workbook exported');
+        }
+
+        function importWorkbook(e) {
+            const f = e.target.files[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                let wb;
+                try { wb = decodeWorkbook(JSON.parse(evt.target.result)); }
+                catch (err) { showToast(err.message && !/JSON/.test(err.message) ? err.message : 'That file is not a QSheet workbook.'); return; }
+                if (!confirm(`Open "${f.name}"?\n\nThe current workbook will be replaced.`)) return;
+                applyWorkbook(wb);
+                markDirty();
+                if (saveState.enabled) saveWorkbookNow();
+                showToast('Workbook opened');
+            };
+            reader.onerror = function() { showToast('Could not read that file'); };
+            reader.readAsText(f);
+            e.target.value = '';
+        }
+
+        async function initGrid() {
+            let restored = null;
+            try { restored = await restoreSavedWorkbook(); } catch (e) { restored = null; }
+            renderRibbonContent('home');
+            initGridInteractions();
+            initAutosave();
+            if (restored && !restored.error) {
+                applyWorkbook(restored);
+            } else {
+                renderSheetTabs();
+                buildGridDOM();
+                recordHistory("Initial blank sheet");
+                recalculateAll();
+                updateStats();
+            }
+            saveState.loading = false;
+            renderSaveStatus();
+            if (restored && restored.error) showToast('The saved workbook could not be read, so a new one was started. A copy was kept.');
+            else if (restored) showToast('Restored your workbook');
         }
 
         function buildGridDOM() {
@@ -1329,6 +1718,11 @@
                         <button onclick="document.getElementById('csv-file-input').click()">Import CSV</button>
                         <button onclick="clearSheet()">Clear Sheet</button>
                     </div>
+                    <div class="ribbon-group">
+                        <button onclick="newWorkbook()">New Workbook</button>
+                        <button onclick="exportWorkbook()">Export Workbook</button>
+                        <button onclick="document.getElementById('workbook-file-input').click()">Import Workbook</button>
+                    </div>
                 `;
             } else if (tab === 'view') {
                 area.innerHTML = `
@@ -1376,7 +1770,7 @@
 
             if (showVal && matchedRule && matchedRule.type === 'list') {
                 matchedRule.options.forEach(opt => {
-                    html += `<button onclick="setValidationValue('${cellId}', '${opt.trim()}')">${opt.trim()}</button>`;
+                    html += `<button data-cell="${cellId}" data-val="${escapeHtml(opt.trim())}" onclick="setValidationValue(this.dataset.cell, this.dataset.val)">${escapeHtml(opt.trim())}</button>`;
                 });
             }
 
@@ -1753,6 +2147,7 @@
             recalculateAll();
             updateStats();
             applyConditionalFormattingRules();
+            markDirty();
         }
 
         // ===== Formula Engine =====
@@ -3143,14 +3538,14 @@
             const bar = document.getElementById('sheet-tab-bar');
             let html = '';
             sheets.forEach((s, idx) => {
-                html += `<button class="sheet-tab ${idx === currentSheetIdx ? 'active' : ''}" onclick="switchSheet(${idx})">${s.name}</button>`;
+                html += `<button class="sheet-tab ${idx === currentSheetIdx ? 'active' : ''}" onclick="switchSheet(${idx})">${escapeHtml(s.name)}</button>`;
             });
             html += `<button class="sheet-tab" onclick="addNewSheet()">+ Add Sheet</button>`;
             bar.innerHTML = html;
         }
 
-        function switchSheet(idx) {
-            if (editingCell) endEdit(true);
+        // Points the working variables at one sheet (without redrawing)
+        function bindSheet(idx) {
             currentSheetIdx = idx;
             let s = sheets[idx];
             if (!s.merges) s.merges = [];
@@ -3161,15 +3556,22 @@
             merges = s.merges;
             freezeRows = s.freezeRows;
             freezeCols = s.freezeCols;
+        }
+
+        function switchSheet(idx) {
+            if (editingCell) endEdit(true);
+            bindSheet(idx);
+            const s = sheets[idx];
             renderSheetTabs();
             buildGridDOM();
             updateUnfreezeButton();
             showToast(`Switched to ${s.name}`);
+            markDirty();
         }
 
         function addNewSheet() {
             let name = `Sheet ${sheets.length + 1}`;
-            sheets.push({ name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0 });
+            sheets.push(makeBlankSheet(name));
             switchSheet(sheets.length - 1);
         }
 
@@ -4071,7 +4473,7 @@
                 const swatch = rule && rule.type === 'scale'
                     ? `background:linear-gradient(90deg, ${rule.scale.join(', ')});`
                     : `background:${rule ? rule.fill : '#fff'}; color:${rule ? rule.color : '#000'};`;
-                return `<div class="cond-rule"><span class="cond-swatch" style="${swatch}">${rule && rule.type === 'scale' ? '' : 'Aa'}</span><span class="cond-rule-text">${rule ? describeCondRule(rule, false) : 'Unknown rule'}</span><button type="button" onclick="removeCondRule(${i})" title="Remove this rule">Remove</button></div>`;
+                return `<div class="cond-rule"><span class="cond-swatch" style="${swatch}">${rule && rule.type === 'scale' ? '' : 'Aa'}</span><span class="cond-rule-text">${rule ? escapeHtml(describeCondRule(rule, false)) : 'Unknown rule'}</span><button type="button" onclick="removeCondRule(${i})" title="Remove this rule">Remove</button></div>`;
             }).join('');
         }
 
@@ -4325,6 +4727,7 @@
             historyStack.push({ name: actionName, snapshot: JSON.parse(JSON.stringify(sheets)) });
             if (historyStack.length > 25) historyStack.shift();
             renderTimeline();
+            markDirty();
         }
 
         function renderTimeline() {
@@ -4332,7 +4735,7 @@
             if (!list) return;
             list.innerHTML = historyStack.map((h, i) => `
                 <div style="padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="restoreHistory(${i})">
-                    <span>${h.name}</span>
+                    <span>${escapeHtml(h.name)}</span>
                     <span style="font-size: 0.75rem; color: #94a3b8;">#${i+1}</span>
                 </div>
             `).reverse().join('');
