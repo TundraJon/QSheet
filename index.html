@@ -572,6 +572,25 @@
             cursor: default;
         }
 
+        /* My Lists */
+        #lists-modal .hidden, #val-modal .hidden { display: none !important; }
+        .lists-empty { padding: 14px 4px; color: #475569; line-height: 1.5; }
+        .list-card { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: #f8fafc; }
+        .list-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+        .list-name { font-weight: 700; color: #0f172a; }
+        .list-count { font-size: 0.72rem; color: #64748b; text-align: right; }
+        .list-preview { font-size: 0.8rem; color: #334155; word-break: break-word; }
+        .list-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .list-item-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+        .list-item-row input { flex: 1; min-width: 0; }
+        .list-item-row button { min-width: 40px; min-height: 40px; padding: 0; }
+        #lists-modal textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; resize: vertical; }
+        #lists-modal .form-group input[type="text"] { padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; }
+        /* A long list scrolls sideways inside the cell dock instead of stretching it off the screen */
+        .cell-dock { max-width: 94vw; }
+        #cell-dock-buttons { overflow-x: auto; min-width: 0; scrollbar-width: none; }
+        #cell-dock-buttons button { flex: 0 0 auto; white-space: nowrap; }
+
         /* Save status line */
         .save-status {
             height: 22px;
@@ -839,6 +858,7 @@
     </div>
 
     <input type="file" id="csv-file-input" style="display: none;" accept=".csv,text/csv" onchange="importCSV(event)">
+ <input type="file" id="lists-file-input" style="display: none;" accept=".json,application/json" onchange="importLists(event)">
     <input type="file" id="workbook-file-input" style="display: none;" accept=".json,application/json" onchange="importWorkbook(event)">
 
     <!-- Cell Bottom Action Dock (Quick fx & validation pickers) -->
@@ -959,14 +979,27 @@
                 </div>
                 <div class="form-group">
                     <label>Rule Type</label>
-                    <select id="val-type">
-                        <option value="list">List Drop-Down Options (comma separated)</option>
+                    <select id="val-type" onchange="onValSourceChange()">
+                        <option value="list">List Drop-Down Options</option>
                         <option value="number">Whole Number Only</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label>List Options (e.g. Pending, In Progress, Completed)</label>
+                <div class="form-group" id="val-source-wrap">
+                    <label>Where do the options come from?</label>
+                    <select id="val-source" onchange="onValSourceChange()">
+                        <option value="typed">Type them in now</option>
+                        <option value="list">One of My Lists</option>
+                    </select>
+                </div>
+                <div class="form-group" id="val-options-wrap">
+                    <label>List Options (separate with commas, e.g. Pending, In Progress, Completed)</label>
                     <input type="text" id="val-options" value="Pending, In Progress, Completed, Cancelled">
+                </div>
+                <div class="form-group" id="val-list-wrap">
+                    <label>My List</label>
+                    <select id="val-list"></select>
+                    <div id="val-list-hint" class="wiz-tip"></div>
+                    <div class="wiz-tip">Linked: if you change the list later, this drop-down changes too.</div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1032,6 +1065,18 @@
         </div>
     </div>
 
+    <!-- My Lists Modal -->
+    <div class="modal-overlay hidden" id="lists-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span id="lists-title">My Lists</span>
+                <button onclick="closeListsModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="lists-body"></div>
+            <div class="modal-footer" id="lists-footer" style="flex-wrap: wrap;"></div>
+        </div>
+    </div>
+
     <!-- Settings Modal -->
     <div class="modal-overlay hidden" id="settings-modal">
         <div class="modal">
@@ -1043,6 +1088,10 @@
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
                     <label for="setting-autosave">AutoSave (save changes automatically)</label>
                     <input type="checkbox" id="setting-autosave" checked style="width: 20px; height: 20px;" onchange="onAutosaveToggle()">
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between; gap: 10px;">
+                    <label>My Lists <small style="font-weight: 400; color: #64748b;">(reusable drop-down lists, kept with the app)</small></label>
+                    <button type="button" onclick="openListsFromSettings()">Manage…</button>
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
                     <label for="setting-quick-fx">Enable Quick fx Access on Cell Tap</label>
@@ -1211,6 +1260,7 @@
         }
 
         function encodeWorkbook() {
+            syncRuleSnapshots();
             return { app: 'QSheet', version: SAVE_VERSION, savedAt: Date.now(), current: currentSheetIdx, sheets: sheets.map(encodeSheet) };
         }
 
@@ -1259,7 +1309,7 @@
                 name: cleanText(es.name || 'Sheet', 40) || 'Sheet',
                 data,
                 conditionalRules: (Array.isArray(es.cf) ? es.cf : []).map(cleanRule).filter(Boolean),
-                validationRules: (Array.isArray(es.dv) ? es.dv : []).filter(v => v && parseRangeText(v.range) && (v.type === 'list' || v.type === 'number')).map(v => ({ range: cleanText(v.range, 30).toUpperCase(), type: v.type, options: (Array.isArray(v.options) ? v.options : []).map(o => cleanText(o, 100)) })),
+                validationRules: (Array.isArray(es.dv) ? es.dv : []).filter(v => v && parseRangeText(v.range) && (v.type === 'list' || v.type === 'number')).map(v => ({ range: cleanText(v.range, 30).toUpperCase(), type: v.type, options: (Array.isArray(v.options) ? v.options : []).map(o => cleanText(o, 100)), ...(v.listId ? { listId: cleanText(v.listId, 40), listName: cleanText(v.listName, 40) } : {}) })),
                 tableObjects: (Array.isArray(es.tb) ? es.tb : []).map(t => t && ({ startR: cleanInt(t.startR, 0, ROWS - 1, -1), endR: cleanInt(t.endR, 0, ROWS - 1, -1), startC: cleanInt(t.startC, 0, COLS - 1, -1), endC: cleanInt(t.endC, 0, COLS - 1, -1) })).filter(t => t && t.startR >= 0 && t.endR >= t.startR && t.startC >= 0 && t.endC >= t.startC),
                 merges: (Array.isArray(es.mg) ? es.mg : []).map(m => m && ({ r: cleanInt(m.r, 0, ROWS - 1, -1), c: cleanInt(m.c, 0, COLS - 1, -1), rows: cleanInt(m.rows, 1, ROWS, 1), cols: cleanInt(m.cols, 1, COLS, 1) })).filter(m => m && m.r >= 0 && m.c >= 0 && m.r + m.rows <= ROWS && m.c + m.cols <= COLS && (m.rows > 1 || m.cols > 1)),
                 freezeRows: cleanInt(es.fr, 0, 50, 0),
@@ -1401,6 +1451,7 @@
 
         // Runs at startup: loads settings and the saved workbook, if there is one
         async function restoreSavedWorkbook() {
+            await loadLists();
             try { applySettings(await kvGet('settings')); } catch (e) {}
             let rec;
             try { rec = await kvGet('workbook'); } catch (e) { rec = undefined; }
@@ -1456,6 +1507,341 @@
             reader.onerror = function() { showToast('Could not read that file'); };
             reader.readAsText(f);
             e.target.value = '';
+        }
+
+        // ===== My Lists =====
+        // Reusable named lists (for example Str, Dex, Con, Int, Wis, Cha). They belong to the app, not to a workbook:
+        // they are saved separately (immediately, whatever the AutoSave setting) and survive New Workbook.
+        // A validation rule can point at a list ("linked"): edit the list and the drop-down changes everywhere.
+        // Every linked rule also keeps a copy of the items, so a workbook still works where the list does not exist.
+        let myLists = [];
+        let listEditor = null; // { id (null for a new list), name, items:[...] } while a list is being edited
+        const LIST_LIMITS = { lists: 200, items: 1000, name: 40, item: 100 };
+
+        const newListId = () => 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+        function cleanLists(raw) {
+            if (!raw || !Array.isArray(raw.lists)) return [];
+            const seen = new Set();
+            return raw.lists.slice(0, LIST_LIMITS.lists).map(l => {
+                if (!l || typeof l !== 'object') return null;
+                let id = cleanText(l.id, 40) || newListId();
+                while (seen.has(id)) id = newListId();
+                seen.add(id);
+                return { id, name: cleanText(l.name, LIST_LIMITS.name).trim(), items: (Array.isArray(l.items) ? l.items : []).slice(0, LIST_LIMITS.items).map(i => cleanText(i, LIST_LIMITS.item).trim()).filter(i => i !== '') };
+            }).filter(l => l && l.name);
+        }
+
+        async function loadLists() {
+            try { myLists = cleanLists(await kvGet('lists')); } catch (e) { myLists = []; }
+        }
+
+        // Lists are saved straight away (they are settings, not workbook content)
+        async function persistLists() {
+            try {
+                await kvSet('lists', { version: 1, lists: myLists });
+                return true;
+            } catch (e) {
+                showToast('Could not save your lists (storage is full or blocked).');
+                return false;
+            }
+        }
+
+        function findList(id) { return myLists.find(l => l.id === id); }
+
+        // The options a validation rule offers: its list if it is linked (and the list exists), otherwise its own copy
+        function validationOptions(rule) {
+            if (rule.listId) {
+                const list = findList(rule.listId);
+                if (list) return list.items;
+            }
+            return rule.options || [];
+        }
+
+        // Keeps each linked rule's saved copy in step with its list (so the workbook saves the current items)
+        function syncRuleSnapshots() {
+            sheets.forEach(s => (s.validationRules || []).forEach(rule => {
+                if (!rule.listId) return;
+                const list = findList(rule.listId);
+                if (list) { rule.options = list.items.slice(); rule.listName = list.name; }
+            }));
+        }
+
+        function listsUsedByRules(id) {
+            let n = 0;
+            sheets.forEach(s => (s.validationRules || []).forEach(rule => { if (rule.listId === id) n++; }));
+            return n;
+        }
+
+        // ----- The manager screens -----
+        const listsEl = id => document.getElementById(id);
+
+        function openListsFromSettings() { closeSettingsModal(); openListsModal(); }
+        function openListsModal() {
+            listEditor = null;
+            renderListsScreen();
+            listsEl('lists-modal').classList.remove('hidden');
+        }
+        function closeListsModal() {
+            listEditor = null;
+            listsEl('lists-modal').classList.add('hidden');
+            if (!listsEl('val-modal').classList.contains('hidden')) refreshValidationLists();
+        }
+
+        function renderListsScreen() {
+            listEditor = null;
+            listsEl('lists-title').innerText = 'My Lists';
+            const body = listsEl('lists-body');
+            if (!myLists.length) {
+                body.innerHTML = `<div class="lists-empty">No lists yet.<br>Tap <b>+ New List</b> to make one, for example <b>Abilities</b>: Str, Dex, Con, Int, Wis, Cha.</div>`;
+            } else {
+                body.innerHTML = myLists.map(l => {
+                    const used = listsUsedByRules(l.id);
+                    const preview = l.items.slice(0, 8).map(escapeHtml).join(', ') + (l.items.length > 8 ? ', …' : '');
+                    return `<div class="list-card">
+                        <div class="list-card-head"><span class="list-name">${escapeHtml(l.name)}</span><span class="list-count">${l.items.length} item${l.items.length === 1 ? '' : 's'}${used ? ` · used by ${used} rule${used === 1 ? '' : 's'}` : ''}</span></div>
+                        <div class="list-preview">${preview || '<i>empty</i>'}</div>
+                        <div class="list-card-actions">
+                            <button type="button" onclick="openListEditor('${l.id}')">Edit</button>
+                            <button type="button" onclick="fillSelectionWithList('${l.id}')" ${l.items.length ? '' : 'disabled'}>Fill selected cells</button>
+                            <button type="button" onclick="deleteList('${l.id}')">Delete</button>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+            listsEl('lists-footer').innerHTML = `
+                <button type="button" onclick="exportLists()" ${myLists.length ? '' : 'disabled'}>Export Lists</button>
+                <button type="button" onclick="listsEl('lists-file-input').click()">Import Lists</button>
+                <button type="button" onclick="closeListsModal()">Close</button>
+                <button type="button" class="primary" onclick="openListEditor(null)">+ New List</button>`;
+        }
+
+        function openListEditor(id) {
+            const list = id ? findList(id) : null;
+            listEditor = { id: list ? list.id : null, name: list ? list.name : '', items: list ? list.items.slice() : [''] };
+            renderListEditor();
+            if (!list) { const n = listsEl('list-name-input'); if (n) n.focus(); }
+        }
+
+        function renderListEditor() {
+            const e = listEditor;
+            listsEl('lists-title').innerText = e.id ? 'Edit List' : 'New List';
+            const used = e.id ? listsUsedByRules(e.id) : 0;
+            listsEl('lists-body').innerHTML = `
+                <div class="form-group">
+                    <label for="list-name-input">List name</label>
+                    <input type="text" id="list-name-input" value="${escapeHtml(e.name)}" maxlength="${LIST_LIMITS.name}" placeholder="e.g. Abilities" autocomplete="off" autocapitalize="sentences" oninput="listEditor.name = this.value">
+                </div>
+                ${used ? `<div class="wiz-tip">Used by ${used} validation rule${used === 1 ? '' : 's'} in this workbook. Changes here carry through to them.</div>` : ''}
+                <div class="form-group">
+                    <label>Items <small style="font-weight: 400; color: #64748b;">(in this order)</small></label>
+                    <div id="list-items">
+                        ${e.items.map((it, i) => `
+                        <div class="list-item-row">
+                            <input type="text" id="list-item-${i}" value="${escapeHtml(it)}" maxlength="${LIST_LIMITS.item}" placeholder="Item ${i + 1}" autocomplete="off" autocapitalize="off" oninput="listEditor.items[${i}] = this.value">
+                            <button type="button" onclick="listMoveItem(${i}, -1)" ${i === 0 ? 'disabled' : ''} title="Move up">↑</button>
+                            <button type="button" onclick="listMoveItem(${i}, 1)" ${i === e.items.length - 1 ? 'disabled' : ''} title="Move down">↓</button>
+                            <button type="button" onclick="listRemoveItem(${i})" title="Remove">✕</button>
+                        </div>`).join('')}
+                    </div>
+                    <button type="button" onclick="listAddItem()">+ Add item</button>
+                </div>
+                <div class="form-group">
+                    <label for="list-paste">Add many at once <small style="font-weight: 400; color: #64748b;">(separate with commas or new lines)</small></label>
+                    <textarea id="list-paste" rows="3" placeholder="Str, Dex, Con, Int, Wis, Cha" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+                    <button type="button" onclick="listAddPasted()">Add these to the list</button>
+                </div>`;
+            listsEl('lists-footer').innerHTML = `
+                <button type="button" onclick="renderListsScreen()">Cancel</button>
+                <button type="button" onclick="saveListEditor(true)" title="Saves the list, then writes it into the selected cells">Save + fill selected cells</button>
+                <button type="button" class="primary" onclick="saveListEditor()">Save List</button>`;
+        }
+
+        function listAddItem() {
+            listEditor.items.push('');
+            renderListEditor();
+            const el = listsEl(`list-item-${listEditor.items.length - 1}`);
+            if (el) { el.focus(); if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); }
+        }
+        function listRemoveItem(i) {
+            listEditor.items.splice(i, 1);
+            if (!listEditor.items.length) listEditor.items.push('');
+            renderListEditor();
+        }
+        function listMoveItem(i, dir) {
+            const j = i + dir;
+            if (j < 0 || j >= listEditor.items.length) return;
+            [listEditor.items[i], listEditor.items[j]] = [listEditor.items[j], listEditor.items[i]];
+            renderListEditor();
+        }
+        function listAddPasted() {
+            const box = listsEl('list-paste');
+            const pieces = box.value.split(/[\n,]+/).map(s => s.trim()).filter(s => s !== '');
+            if (!pieces.length) { showToast('Type or paste some items first'); return; }
+            const have = new Set(listEditor.items.map(s => s.trim().toLowerCase()).filter(Boolean));
+            let added = 0;
+            pieces.forEach(p => {
+                if (have.has(p.toLowerCase())) return;
+                have.add(p.toLowerCase());
+                if (listEditor.items.length === 1 && listEditor.items[0].trim() === '') listEditor.items[0] = p; // use the empty starter row first
+                else listEditor.items.push(p);
+                added++;
+            });
+            renderListEditor();
+            showToast(added === pieces.length ? `Added ${added} item${added === 1 ? '' : 's'}` : `Added ${added} (skipped ${pieces.length - added} already in the list)`);
+        }
+
+        function cleanedEditorItems() {
+            return listEditor.items.map(s => s.trim()).filter(s => s !== '');
+        }
+
+        async function saveListEditor(thenFill) {
+            const e = listEditor;
+            const name = e.name.trim();
+            const items = cleanedEditorItems();
+            if (!name) { showToast('Give the list a name'); return; }
+            if (myLists.some(l => l.id !== e.id && l.name.toLowerCase() === name.toLowerCase())) { showToast(`A list called "${name}" already exists`); return; }
+            if (!items.length) { showToast('Add at least one item'); return; }
+            if (!e.id && myLists.length >= LIST_LIMITS.lists) { showToast('That is the most lists allowed'); return; }
+            let savedId = e.id;
+            if (e.id) {
+                const list = findList(e.id);
+                list.name = name;
+                list.items = items;
+            } else {
+                savedId = newListId();
+                myLists.push({ id: savedId, name, items });
+            }
+            syncRuleSnapshots();
+            markDirty();
+            await persistLists();
+            showToast(`List "${name}" saved`);
+            renderListsScreen();
+            if (!listsEl('val-modal').classList.contains('hidden')) refreshValidationLists();
+            updateCellDock(getCellId(activeCell.row, activeCell.col));
+            if (thenFill === true) fillSelectionWithList(savedId);
+        }
+
+        async function deleteList(id) {
+            const list = findList(id);
+            if (!list) return;
+            const used = listsUsedByRules(id);
+            const msg = used
+                ? `Delete the list "${list.name}"?\n\nIt is used by ${used} validation rule${used === 1 ? '' : 's'} in this workbook. Those rules will keep a fixed copy of the items and keep working.`
+                : `Delete the list "${list.name}"?`;
+            if (!confirm(msg)) return;
+            sheets.forEach(s => (s.validationRules || []).forEach(rule => {
+                if (rule.listId === id) { rule.options = list.items.slice(); delete rule.listId; delete rule.listName; }
+            }));
+            myLists = myLists.filter(l => l.id !== id);
+            markDirty();
+            await persistLists();
+            showToast(`List "${list.name}" deleted`);
+            renderListsScreen();
+            updateCellDock(getCellId(activeCell.row, activeCell.col));
+        }
+
+        // ----- Fill the selected cells with a list -----
+        function fillSelectionWithList(id) {
+            const list = findList(id);
+            if (!list || !list.items.length) { showToast('That list has no items'); return; }
+            const b = selBounds();
+            const items = list.items;
+            const writes = [];
+            const single = b.minR === b.maxR && b.minC === b.maxC;
+            if (single) {
+                for (let i = 0; i < items.length && b.minR + i < ROWS; i++) writes.push([b.minR + i, b.minC, items[i]]);
+            } else if (b.minR === b.maxR) {
+                for (let c = b.minC; c <= b.maxC; c++) writes.push([b.minR, c, items[(c - b.minC) % items.length]]);
+            } else {
+                for (let c = b.minC; c <= b.maxC; c++) for (let r = b.minR; r <= b.maxR; r++) writes.push([r, c, items[(r - b.minR) % items.length]]);
+            }
+            const occupied = writes.filter(([r, c]) => { const cell = data[getCellId(r, c)]; return cell && (cell.formula || !isBlank(cell.value)); }).length;
+            if (occupied && !confirm(`${occupied} of the ${writes.length} cells already have something in them.\n\nReplace them with the list "${list.name}"?`)) return;
+            writes.forEach(([r, c, item]) => {
+                const cellId = getCellId(r, c);
+                if (!data[cellId]) data[cellId] = { style: {}, value: '', formula: '' };
+                delete data[cellId].spillOf;
+                delete data[cellId].display;
+                data[cellId].formula = '';
+                // Items are written as typed: numbers become numbers, everything else (even a leading =) stays text
+                data[cellId].value = (item.trim() === '' || isNaN(item)) ? item : Number(item);
+            });
+            // select what was just filled
+            const rs = writes.map(w => w[0]), cs = writes.map(w => w[1]);
+            selectionRange = { startRow: Math.min(...rs), startCol: Math.min(...cs), endRow: Math.max(...rs), endCol: Math.max(...cs) };
+            setActiveCell(selectionRange.startRow, selectionRange.startCol);
+            recalculateAll();
+            updateStats();
+            updateInsights();
+            applyConditionalFormattingRules();
+            recordHistory(`Filled cells with list ${list.name}`);
+            closeListsModal();
+            showToast(`Filled ${writes.length} cell${writes.length === 1 ? '' : 's'} with "${list.name}"`);
+        }
+
+        // ----- Backup / move lists between devices -----
+        function exportLists() {
+            const blob = new Blob([JSON.stringify({ app: 'QSheet', kind: 'lists', version: 1, lists: myLists })], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'qsheet-lists.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast('Lists exported');
+        }
+
+        function importLists(e) {
+            const f = e.target.files[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = async function(evt) {
+                let incoming;
+                try {
+                    const rec = JSON.parse(evt.target.result);
+                    if (!rec || rec.app !== 'QSheet' || rec.kind !== 'lists' || typeof rec.version !== 'number') throw new Error('bad');
+                    if (rec.version > 1) { showToast('That lists file is from a newer version of the app.'); return; }
+                    incoming = cleanLists(rec);
+                } catch (err) { showToast('That file is not a QSheet lists file.'); return; }
+                if (!incoming.length) { showToast('No lists found in that file'); return; }
+                if (!confirm(`Add ${incoming.length} list${incoming.length === 1 ? '' : 's'} from "${f.name}"?\n\nA list whose name you already have is added with a number after its name.`)) return;
+                const taken = new Set(myLists.map(l => l.name.toLowerCase()));
+                incoming.forEach(l => {
+                    let name = l.name, n = 2;
+                    while (taken.has(name.toLowerCase())) name = `${l.name.slice(0, LIST_LIMITS.name - 5)} (${n++})`;
+                    taken.add(name.toLowerCase());
+                    myLists.push({ id: newListId(), name, items: l.items });
+                });
+                await persistLists();
+                renderListsScreen();
+                showToast(`Added ${incoming.length} list${incoming.length === 1 ? '' : 's'}`);
+            };
+            reader.onerror = function() { showToast('Could not read that file'); };
+            reader.readAsText(f);
+            e.target.value = '';
+        }
+
+        // ----- Using a list in Data Validation -----
+        function refreshValidationLists() {
+            const sel = listsEl('val-list');
+            const keep = sel.value;
+            sel.innerHTML = myLists.length
+                ? myLists.map(l => `<option value="${escapeHtml(l.id)}">${escapeHtml(l.name)} (${l.items.length})</option>`).join('')
+                : '<option value="">No lists yet</option>';
+            if (keep && findList(keep)) sel.value = keep;
+            listsEl('val-list-hint').innerText = myLists.length ? '' : 'You have no lists yet. Make one in Settings → My Lists.';
+            onValSourceChange();
+        }
+
+        function onValSourceChange() {
+            const isList = listsEl('val-type').value === 'list';
+            const fromList = listsEl('val-source').value === 'list';
+            listsEl('val-source-wrap').classList.toggle('hidden', !isList);
+            listsEl('val-options-wrap').classList.toggle('hidden', !isList || fromList);
+            listsEl('val-list-wrap').classList.toggle('hidden', !isList || !fromList);
         }
 
         async function initGrid() {
@@ -1795,7 +2181,7 @@
             });
 
             if (showVal && matchedRule && matchedRule.type === 'list') {
-                matchedRule.options.forEach(opt => {
+                validationOptions(matchedRule).forEach(opt => {
                     html += `<button data-cell="${cellId}" data-val="${escapeHtml(opt.trim())}" onclick="setValidationValue(this.dataset.cell, this.dataset.val)">${escapeHtml(opt.trim())}</button>`;
                 });
             }
@@ -2147,7 +2533,7 @@
                     if (rule.type === 'number' && isNaN(value) && value.trim() !== '') {
                         showToast(`Validation Error: ${cellId} requires a whole number.`);
                     } else if (rule.type === 'list' && value.trim() !== '') {
-                        let allowed = rule.options.map(o => o.trim().toLowerCase());
+                        let allowed = validationOptions(rule).map(o => o.trim().toLowerCase());
                         if (!allowed.includes(value.trim().toLowerCase())) {
                             showToast(`Validation Warning: Value not in allowed dropdown list.`);
                         }
@@ -3746,13 +4132,25 @@
         }
 
         // Data Validation
-        function openDataValidation() { document.getElementById('val-modal').classList.remove('hidden'); }
+        function openDataValidation() {
+            refreshValidationLists();
+            document.getElementById('val-source').value = myLists.length ? 'list' : 'typed';
+            onValSourceChange();
+            document.getElementById('val-modal').classList.remove('hidden');
+        }
         function closeDataValidation() { document.getElementById('val-modal').classList.add('hidden'); }
         function applyDataValidation() {
             let range = document.getElementById('val-range').value;
             let type = document.getElementById('val-type').value;
-            let options = document.getElementById('val-options').value.split(',');
-            validationRules.push({ range, type, options });
+            let rule;
+            if (type === 'list' && document.getElementById('val-source').value === 'list') {
+                const list = findList(document.getElementById('val-list').value);
+                if (!list) { showToast('Pick one of your lists (make one in Settings → My Lists)'); return; }
+                rule = { range, type, options: list.items.slice(), listId: list.id, listName: list.name };
+            } else {
+                rule = { range, type, options: document.getElementById('val-options').value.split(',') };
+            }
+            validationRules.push(rule);
             sheets[currentSheetIdx].validationRules = validationRules;
             closeDataValidation();
             showToast(`Validation rule applied to ${range}`);
