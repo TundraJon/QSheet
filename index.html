@@ -322,13 +322,14 @@
             user-select: text;
         }
 
+        /* The selection is a see-through tint, so fill colours and conditional-formatting colours stay visible under it */
         td.selected {
-            background-color: var(--selection-bg) !important;
+            background-image: linear-gradient(var(--selection-bg), var(--selection-bg));
             box-shadow: inset 0 0 0 2px var(--selection-border);
         }
 
         td.active-cell {
-            background-color: #ffffff !important;
+            background-image: none;
             box-shadow: inset 0 0 0 2px var(--selection-border);
         }
 
@@ -560,7 +561,6 @@
             background-color: #ffffff;
             box-shadow: inset -1px -1px 0 0 var(--border-color);
         }
-        td.frozen-cell.selected { background-color: #dee8fc !important; }
         .freeze-edge-col { box-shadow: inset -2px 0 0 0 #64748b, inset 0 -1px 0 0 var(--border-color); }
         .freeze-edge-row { box-shadow: inset 0 -2px 0 0 #64748b, inset -1px 0 0 0 var(--border-color); }
         .freeze-edge-row.freeze-edge-col { box-shadow: inset -2px -2px 0 0 #64748b; }
@@ -570,6 +570,51 @@
         button:disabled {
             opacity: 0.45;
             cursor: default;
+        }
+
+        /* Conditional Formatting */
+        #cond-modal .hidden { display: none !important; }
+        .cond-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .cond-chip { gap: 6px; min-height: 40px; }
+        .cond-swatch {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 32px;
+            height: 22px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .cond-swatch.scale { min-width: 44px; }
+        .cond-pickers { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+        .cond-pickers label { display: flex; align-items: center; gap: 6px; font-weight: 500; color: #475569; }
+        .cond-rule { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #e2e8f0; }
+        .cond-rule-text { flex: 1; font-size: 0.78rem; color: #334155; }
+        .cond-empty { font-size: 0.8rem; color: #64748b; }
+        .cond-live {
+            position: sticky;
+            bottom: -18px;
+            margin: 0 -18px -18px;
+            padding: 10px 18px;
+            background: #ffffff;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            font-size: 0.8rem;
+            color: #334155;
+        }
+        .cond-sample {
+            min-width: 64px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            font-weight: 600;
         }
 
         /* Formula Wizard */
@@ -811,26 +856,47 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>Target Range (e.g. A1:AZ50)</label>
-                    <input type="text" id="cond-range" value="A1:AZ50">
+                    <label for="cond-range">Apply to (range, e.g. A5:D26)</label>
+                    <input type="text" id="cond-range" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" oninput="updateCondSummary()">
                 </div>
-                <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="cond-entire-row">
+                <div class="form-group">
+                    <label for="cond-type">Rule</label>
+                    <select id="cond-type" onchange="onCondTypeChange()"></select>
+                </div>
+                <div id="cond-params" style="display: flex; flex-direction: column; gap: 12px;"></div>
+                <div id="cond-format-box" class="form-group">
+                    <label>Look (tap a ready-made one, or pick your own colors)</label>
+                    <div id="cond-palettes" class="cond-chips"></div>
+                    <div class="cond-pickers">
+                        <label>Fill <input type="color" id="cond-fill" value="#fee2e2" oninput="updateCondSummary()"></label>
+                        <label>Text <input type="color" id="cond-text" value="#991b1b" oninput="updateCondSummary()"></label>
+                    </div>
+                </div>
+                <div id="cond-scale-box" class="form-group hidden">
+                    <label>Heatmap colors (tap a ready-made one, or pick your own)</label>
+                    <div id="cond-scales" class="cond-chips"></div>
+                    <div class="cond-pickers">
+                        <label>Lowest <input type="color" id="cond-c1" value="#bbf7d0" oninput="updateCondSummary()"></label>
+                        <label>Middle <input type="color" id="cond-c2" value="#fef9c3" oninput="updateCondSummary()"></label>
+                        <label>Highest <input type="color" id="cond-c3" value="#fecaca" oninput="updateCondSummary()"></label>
+                    </div>
+                </div>
+                <div class="form-group" id="cond-row-wrap" style="flex-direction: row; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="cond-entire-row" onchange="updateCondSummary()" style="width: 20px; height: 20px;">
                     <label for="cond-entire-row" style="cursor: pointer;">Entire row highlighting</label>
                 </div>
                 <div class="form-group">
-                    <label>Rule Preset</label>
-                    <select id="cond-preset">
-                        <option value="less_than_red">Soft Alert: Less than 60 (Red)</option>
-                        <option value="status_in_progress">Warning Amber: Status equals "In Progress"</option>
-                        <option value="top_10_percent">Top 10% Highest Values (Green)</option>
-                        <option value="zebra">Zebra Striping (=MOD(ROW(),2)=0)</option>
-                    </select>
+                    <label>Rules on this sheet <small style="font-weight: 400; color: #64748b;">(later rules paint over earlier ones)</small></label>
+                    <div id="cond-rule-list"></div>
+                </div>
+                <div class="cond-live">
+                    <span id="cond-sample" class="cond-sample">Sample</span>
+                    <div id="cond-summary"></div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button onclick="closeCondFormatting()">Cancel</button>
-                <button class="primary" onclick="applyConditionalFormatting()">Apply Rule</button>
+                <button onclick="closeCondFormatting()">Close</button>
+                <button class="primary" id="cond-add-btn" onclick="applyConditionalFormatting()">Add Rule</button>
             </div>
         </div>
     </div>
@@ -1729,8 +1795,8 @@
                     i += m[0].length;
                     continue;
                 }
-                if ((m = /^\$?[A-Za-z]{1,3}\$?\d+(?![A-Za-z0-9_(])/.exec(rest))) {
-                    tokens.push({ t: 'ref', v: m[0].replace(/\$/g, '').toUpperCase() });
+                if ((m = /^(\$?)([A-Za-z]{1,3})(\$?)(\d+)(?![A-Za-z0-9_(])/.exec(rest))) {
+                    tokens.push({ t: 'ref', v: (m[2] + m[4]).toUpperCase(), ca: m[1] === '$', ra: m[3] === '$' });
                     i += m[0].length;
                     continue;
                 }
@@ -1818,9 +1884,9 @@
                     if (isOp(':') && tokens[p + 1] && tokens[p + 1].t === 'ref') {
                         p++;
                         const end = tokens[p++];
-                        return { t: 'range', a: tok.v, b: end.v };
+                        return { t: 'range', a: tok.v, b: end.v, ca1: tok.ca, ra1: tok.ra, ca2: end.ca, ra2: end.ra };
                     }
-                    return { t: 'ref', v: tok.v };
+                    return { t: 'ref', v: tok.v, ca: tok.ca, ra: tok.ra };
                 }
                 if (tok.t === 'id') {
                     if (isOp('(')) {
@@ -2072,16 +2138,19 @@
             return new RangeVal(maxR - minR + 1, maxC - minC + 1, values);
         }
 
+        // While a conditional-formatting formula is evaluated (cfShift is set), unlocked references move with the cell being formatted
+        const shiftCoord = (co, ca, ra) => cfShift ? { r: ra ? co.r : co.r + cfShift.dr, c: ca ? co.c : co.c + cfShift.dc } : co;
+
         function rangeValues(n) {
-            const a = parseCellCoord(n.a), b = parseCellCoord(n.b);
+            const a = shiftCoord(parseCellCoord(n.a), n.ca1, n.ra1), b = shiftCoord(parseCellCoord(n.b), n.ca2, n.ra2);
             return rangeFromBounds(Math.min(a.r, b.r), Math.min(a.c, b.c), Math.max(a.r, b.r), Math.max(a.c, b.c));
         }
 
         // Bounds of a reference node (A1 or A1:B5), for functions that need the cells themselves (OFFSET, CELL, ISBLANK)
         function nodeBounds(node) {
-            if (node.t === 'ref') { const c = parseCellCoord(node.v); return { minR: c.r, minC: c.c, maxR: c.r, maxC: c.c }; }
+            if (node.t === 'ref') { const c = shiftCoord(parseCellCoord(node.v), node.ca, node.ra); return { minR: c.r, minC: c.c, maxR: c.r, maxC: c.c }; }
             if (node.t === 'range') {
-                const a = parseCellCoord(node.a), b = parseCellCoord(node.b);
+                const a = shiftCoord(parseCellCoord(node.a), node.ca1, node.ra1), b = shiftCoord(parseCellCoord(node.b), node.ca2, node.ra2);
                 return { minR: Math.min(a.r, b.r), minC: Math.min(a.c, b.c), maxR: Math.max(a.r, b.r), maxC: Math.max(a.c, b.c) };
             }
             return null;
@@ -2358,6 +2427,34 @@
                     const run = { 1: 'AVERAGE', 2: 'COUNT', 3: 'COUNTA', 4: 'MAX', 5: 'MIN', 6: 'PRODUCT', 9: 'SUM' }[code];
                     if (!run) throw new FormulaError('#VALUE!');
                     return FUNCTIONS[run].fn(rest);
+                }
+            },
+
+            MOD: {
+                fn: args => {
+                    const n = toNumber(args[0]), d = toNumber(args[1]);
+                    if (d === 0) throw new FormulaError('#DIV/0!');
+                    return n - d * Math.floor(n / d);
+                }
+            },
+            ROW: {
+                lazy: true,
+                fn: (nodes, ev, curR) => {
+                    if (nodes.length > 1) throw new FormulaError('#VALUE!');
+                    if (!nodes.length || nodes[0].t === 'empty') return curR + 1;
+                    const b = nodeBounds(nodes[0]);
+                    if (!b) throw new FormulaError('#VALUE!');
+                    return b.minR + 1;
+                }
+            },
+            COLUMN: {
+                lazy: true,
+                fn: (nodes, ev, curR, curC) => {
+                    if (nodes.length > 1) throw new FormulaError('#VALUE!');
+                    if (!nodes.length || nodes[0].t === 'empty') return curC + 1;
+                    const b = nodeBounds(nodes[0]);
+                    if (!b) throw new FormulaError('#VALUE!');
+                    return b.minC + 1;
                 }
             },
 
@@ -2843,7 +2940,7 @@
         const ARG_LIMITS = {
             SUM: [1, Infinity], AVERAGE: [1, Infinity], COUNT: [1, Infinity], COUNTA: [1, Infinity], MIN: [1, Infinity], MAX: [1, Infinity],
             MEDIAN: [1, Infinity], PRODUCT: [1, Infinity], CONCAT: [1, Infinity],
-            ABS: [1, 1], ROUND: [1, 2], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], NOT: [1, 1],
+            ABS: [1, 1], MOD: [2, 2], ROUND: [1, 2], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], NOT: [1, 1],
             LEFT: [1, 2], RIGHT: [1, 2], LEN: [1, 1], TRIM: [1, 1], CLEAN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], PROPER: [1, 1],
             YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], TODAY: [0, 0], NOW: [0, 0], INDIRECT: [1, 1]
         };
@@ -2854,8 +2951,12 @@
                 case 'str':
                 case 'bool':
                     return n.v;
-                case 'ref':
-                    return refValue(n.v);
+                case 'ref': {
+                    if (!cfShift) return refValue(n.v);
+                    const co = shiftCoord(parseCellCoord(n.v), n.ca, n.ra);
+                    if (co.r < 0 || co.c < 0) throw new FormulaError('#REF!');
+                    return refValue(getCellId(co.r, co.c));
+                }
                 case 'range':
                     return shrink(rangeValues(n));
                 case 'empty':
@@ -3384,6 +3485,10 @@
             { name: 'FILTER', cat: 'Lookups & References', desc: 'Returns only the rows that pass a test. Results spread into the cells below.', kw: 'rows condition where extract dynamic array spill', args: [wa('array', 'The data to filter', 'A2:C20', { t: 'range', rng: true }), wa('include', 'A test for each row, for example B2:B20>50', 'B2:B20>50'), wa('if_empty', 'What to show if no row passes (blank = #CALC!)', '"None"', { t: 'val', opt: true })] },
             { name: 'SORT', cat: 'Lookups & References', desc: 'Returns a sorted copy of a range. Results spread into the cells below.', kw: 'order ascending descending dynamic array spill', args: [wa('array', 'The data to sort', 'A2:C20', { t: 'range', rng: true }), wa('sort_index', 'Which column to sort by (blank = 1)', '2', { t: 'num', opt: true, def: '1' }), wa('sort_order', '1 = low to high, -1 = high to low (blank = 1)', '-1', { t: 'num', opt: true, def: '1' }), wa('by_col', 'TRUE to sort across columns instead of down rows (blank = FALSE)', 'FALSE', { t: 'num', opt: true, def: 'FALSE' })] },
             { name: 'UNIQUE', cat: 'Lookups & References', desc: 'Returns the list with duplicates removed. Results spread into the cells below.', kw: 'distinct duplicates remove dedupe dynamic array spill', args: [wa('array', 'The data', 'A2:A20', { t: 'range', rng: true }), wa('by_col', 'TRUE to compare columns instead of rows (blank = FALSE)', 'FALSE', { t: 'num', opt: true, def: 'FALSE' }), wa('exactly_once', 'TRUE to keep only items that appear once (blank = FALSE)', 'FALSE', { t: 'num', opt: true, def: 'FALSE' })] }
+            ,
+            { name: 'MOD', cat: 'Math & Aggregation', desc: 'The remainder after dividing one number by another. Handy for every-other-row rules.', kw: 'remainder modulo divide even odd', args: [wa('number', 'The number to divide', '10', { t: 'num' }), wa('divisor', 'The number to divide by', '3', { t: 'num' })] },
+            { name: 'ROW', cat: 'Lookups & References', desc: 'The row number of a cell (blank = the cell the formula is in).', kw: 'row number position', args: [wa('reference', 'The cell to ask about (blank = this cell)', 'B7', { t: 'range', opt: true })] },
+            { name: 'COLUMN', cat: 'Lookups & References', desc: 'The column number of a cell (A = 1; blank = the cell the formula is in).', kw: 'column number position', args: [wa('reference', 'The cell to ask about (blank = this cell)', 'C1', { t: 'range', opt: true })] }
         ];
 
         let wizardRepeats = 0; // how many extra argument groups ("+ Add") are showing
@@ -3594,64 +3699,392 @@
             closeWizard();
         }
 
-        // Conditional Formatting
-        function openCondFormatting() { document.getElementById('cond-modal').classList.remove('hidden'); }
-        function closeCondFormatting() { document.getElementById('cond-modal').classList.add('hidden'); }
+        // ===== Conditional Formatting =====
+        // Rule types: gt, lt, eq, between, text (highlight cells) | top, bottom, topPct, bottomPct, above, below | scale | formula
+        // A rule looks like { type, range:'A2:A20', entireRow, v1, v2, n, formula, fill, color, scale:[c1,c2,c3] }.
+        // Rules are drawn in list order, so a later rule paints over an earlier one.
+        const CF_PALETTES = [
+            { name: 'Soft Red', fill: '#fee2e2', color: '#991b1b' },
+            { name: 'Soft Green', fill: '#dcfce7', color: '#166534' },
+            { name: 'Warning Amber', fill: '#fef3c7', color: '#92400e' }
+        ];
+        const CF_SCALES = [
+            { name: 'Green → Yellow → Red', colors: ['#bbf7d0', '#fef9c3', '#fecaca'] },
+            { name: 'Red → Yellow → Green', colors: ['#fecaca', '#fef9c3', '#bbf7d0'] },
+            { name: 'Blue → White → Red', colors: ['#bfdbfe', '#ffffff', '#fecaca'] }
+        ];
+        const CF_TYPES = [
+            { group: 'Highlight cells', items: [['gt', 'Greater than'], ['lt', 'Less than'], ['eq', 'Equal to'], ['between', 'Between'], ['text', 'Text contains']] },
+            { group: 'Top / bottom', items: [['top', 'Top items'], ['bottom', 'Bottom items'], ['topPct', 'Top percent'], ['bottomPct', 'Bottom percent'], ['above', 'Above average'], ['below', 'Below average']] },
+            { group: 'Color scale', items: [['scale', '3-color scale (heatmap)']] },
+            { group: 'Custom', items: [['formula', 'Custom formula']] }
+        ];
+        // While a custom-formula rule is evaluated, cell references move with the cell being formatted (unless locked with $)
+        let cfShift = null;
+        const CF_CALC = { done: { has: () => true, add: () => {} }, busy: new Set(), spilled: false }; // everything is already calculated: just read stored values
+
+        // Rules saved by earlier versions used a preset name
+        function normalizeRule(rule) {
+            if (!rule) return null;
+            if (rule.type) return rule;
+            const red = CF_PALETTES[0], green = CF_PALETTES[1], amber = CF_PALETTES[2];
+            const base = { range: rule.range, entireRow: !!rule.entireRow };
+            switch (rule.preset) {
+                case 'less_than_red': return { ...base, type: 'lt', v1: '60', fill: red.fill, color: red.color };
+                case 'status_in_progress': return { ...base, type: 'eq', v1: 'In Progress', fill: amber.fill, color: amber.color };
+                case 'zebra': return { ...base, type: 'formula', formula: 'MOD(ROW(),2)=1', fill: '#f8fafc', color: '' };
+                case 'top_10_percent': return { ...base, type: 'topPct', n: 10, fill: green.fill, color: green.color };
+                case 'above_average': return { ...base, type: 'above', fill: green.fill, color: green.color };
+                case 'heatmap': return { ...base, type: 'scale', scale: CF_SCALES[0].colors };
+            }
+            return null;
+        }
+
+        function parseRangeText(text) {
+            const m = /^([A-Z]{1,3})(\d+)(?::([A-Z]{1,3})(\d+))?$/.exec(String(text || '').trim().toUpperCase().replace(/\$/g, ''));
+            if (!m) return null;
+            const a = parseCellCoord(m[1] + m[2]), b = m[3] ? parseCellCoord(m[3] + m[4]) : a;
+            const bounds = { minR: Math.min(a.r, b.r), maxR: Math.max(a.r, b.r), minC: Math.min(a.c, b.c), maxC: Math.max(a.c, b.c) };
+            if (bounds.minR < 0 || bounds.minC < 0 || bounds.maxR >= ROWS || bounds.maxC >= COLS) return null;
+            return bounds;
+        }
+
+        const hexToRgb = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+        function mixColors(c1, c2, t) {
+            const a = hexToRgb(c1), b = hexToRgb(c2);
+            return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(', ')})`;
+        }
+
+        // Evaluates a custom formula for one cell; references are relative to the first cell of the range
+        function cfFormulaTrue(text, r, c, r0, c0) {
+            const saved = calcState;
+            calcState = CF_CALC;
+            cfShift = { dr: r - r0, dc: c - c0 };
+            try {
+                const res = evalFormulaCore('=' + String(text).trim().replace(/^=/, ''), r, c);
+                if (typeof res === 'boolean') return res;
+                if (typeof res === 'number') return res !== 0;
+                return typeof res === 'string' && res.toUpperCase() === 'TRUE';
+            } finally {
+                calcState = saved;
+                cfShift = null;
+            }
+        }
+
+        // The cells a rule colours right now: [{ r, c, fill, color }]
+        function computeRuleHits(rule) {
+            rule = normalizeRule(rule);
+            if (!rule) return [];
+            const b = parseRangeText(rule.range);
+            if (!b) return [];
+            const hits = [];
+            const cells = [];
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) cells.push({ r, c, v: getCellValue(getCellId(r, c)) });
+            const nonBlank = cell => !isBlank(cell.v);
+            const numbers = cells.filter(cell => typeof cell.v === 'number' && !isNaN(cell.v));
+            const hit = (cell, fill, color) => hits.push({ r: cell.r, c: cell.c, fill, color });
+            const asNum = x => (typeof x === 'number' ? x : (typeof x === 'string' && x.trim() !== '' && !isNaN(Number(x)) ? Number(x) : null));
+            const v1 = rule.v1 === undefined ? '' : String(rule.v1).trim();
+            const v2 = rule.v2 === undefined ? '' : String(rule.v2).trim();
+            const compare = (cell, test) => {
+                const x = asNum(cell.v), y = asNum(v1);
+                return x !== null && y !== null && test(x, y);
+            };
+            switch (rule.type) {
+                case 'gt': cells.filter(nonBlank).forEach(cell => { if (compare(cell, (x, y) => x > y)) hit(cell, rule.fill, rule.color); }); break;
+                case 'lt': cells.filter(nonBlank).forEach(cell => { if (compare(cell, (x, y) => x < y)) hit(cell, rule.fill, rule.color); }); break;
+                case 'eq':
+                    cells.filter(nonBlank).forEach(cell => {
+                        const x = asNum(cell.v), y = asNum(v1);
+                        const same = (x !== null && y !== null) ? x === y : String(cell.v).toLowerCase() === v1.toLowerCase();
+                        if (same) hit(cell, rule.fill, rule.color);
+                    });
+                    break;
+                case 'between': {
+                    let lo = asNum(v1), hi = asNum(v2);
+                    if (lo === null || hi === null) break;
+                    if (lo > hi) [lo, hi] = [hi, lo];
+                    numbers.forEach(cell => { if (cell.v >= lo && cell.v <= hi) hit(cell, rule.fill, rule.color); });
+                    break;
+                }
+                case 'text':
+                    if (v1 === '') break;
+                    cells.filter(nonBlank).forEach(cell => { if (String(cell.v).toLowerCase().includes(v1.toLowerCase())) hit(cell, rule.fill, rule.color); });
+                    break;
+                case 'top':
+                case 'bottom':
+                case 'topPct':
+                case 'bottomPct': {
+                    if (!numbers.length) break;
+                    const pct = rule.type.endsWith('Pct');
+                    const n = Math.floor(Number(rule.n));
+                    const count = pct ? Math.max(1, Math.floor(numbers.length * n / 100)) : Math.min(n, numbers.length);
+                    if (!(count > 0)) break;
+                    const isTop = rule.type.startsWith('top');
+                    const sorted = numbers.map(cell => cell.v).sort((x, y) => isTop ? y - x : x - y);
+                    const cut = sorted[count - 1];
+                    numbers.forEach(cell => { if (isTop ? cell.v >= cut : cell.v <= cut) hit(cell, rule.fill, rule.color); });
+                    break;
+                }
+                case 'above':
+                case 'below': {
+                    if (!numbers.length) break;
+                    const mean = numbers.reduce((a, cell) => a + cell.v, 0) / numbers.length;
+                    numbers.forEach(cell => { if (rule.type === 'above' ? cell.v > mean : cell.v < mean) hit(cell, rule.fill, rule.color); });
+                    break;
+                }
+                case 'scale': {
+                    if (!numbers.length) break;
+                    const [c1, c2, c3] = rule.scale;
+                    const sorted = numbers.map(cell => cell.v).sort((x, y) => x - y);
+                    const min = sorted[0], max = sorted[sorted.length - 1];
+                    const mid = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+                    numbers.forEach(cell => {
+                        let fill;
+                        if (max === min) fill = mixColors(c2, c2, 0);
+                        else if (cell.v <= mid) fill = mixColors(c1, c2, mid === min ? 1 : (cell.v - min) / (mid - min));
+                        else fill = mixColors(c2, c3, (cell.v - mid) / (max - mid));
+                        hit(cell, fill, '');
+                    });
+                    break;
+                }
+                case 'formula':
+                    if (!rule.formula || !String(rule.formula).trim()) break;
+                    cells.forEach(cell => { if (cfFormulaTrue(rule.formula, cell.r, cell.c, b.minR, b.minC)) hit(cell, rule.fill, rule.color); });
+                    break;
+            }
+            return hits;
+        }
+
+        function paintCell(r, c, fill, color) {
+            const id = getCellId(r, c);
+            const td = document.getElementById(`cell-${id}`);
+            const input = document.getElementById(`input-${id}`);
+            if (!td) return;
+            td.style.backgroundColor = fill;
+            if (color && input) input.style.color = color;
+            cfPaintedTds.push({ td, input });
+        }
+
+        function applyConditionalFormattingRules() {
+            // Cells a rule coloured go back to their own fill and text colour (never wipe what the user chose)
+            cfPaintedTds.forEach(({ td, input }) => {
+                const st = (data[td.id.slice(5)] && data[td.id.slice(5)].style) || {};
+                td.style.backgroundColor = st.bgColor || '';
+                if (input) input.style.color = st.color || '';
+            });
+            cfPaintedTds = [];
+            conditionalRules.forEach(raw => {
+                const rule = normalizeRule(raw);
+                if (!rule) return;
+                const rowsDone = new Set();
+                computeRuleHits(rule).forEach(h => {
+                    paintCell(h.r, h.c, h.fill, h.color);
+                    if (rule.entireRow && rule.type !== 'scale' && !rowsDone.has(h.r)) {
+                        rowsDone.add(h.r);
+                        for (let c = 0; c < COLS; c++) paintCell(h.r, c, h.fill, h.color);
+                    }
+                });
+            });
+        }
+
+        // ----- The rule builder -----
+        const condEl = id => document.getElementById(id);
+
+        function condPaletteName(fill) {
+            const p = CF_PALETTES.find(x => x.fill.toLowerCase() === String(fill).toLowerCase());
+            return p ? p.name : 'your custom colors';
+        }
+        function condScaleName(colors) {
+            const s = CF_SCALES.find(x => x.colors.join() === (colors || []).map(c => c.toLowerCase()).join());
+            return s ? s.name : 'your three colors';
+        }
+
+        function condPhrase(rule) {
+            const first = rule.range ? String(rule.range).split(':')[0].toUpperCase() : 'the first cell';
+            switch (rule.type) {
+                case 'gt': return `is greater than ${rule.v1}`;
+                case 'lt': return `is less than ${rule.v1}`;
+                case 'eq': return `equals ${rule.v1}`;
+                case 'between': return `is between ${rule.v1} and ${rule.v2}`;
+                case 'text': return `contains "${rule.v1}"`;
+                case 'top': return `is one of the ${rule.n} highest numbers`;
+                case 'bottom': return `is one of the ${rule.n} lowest numbers`;
+                case 'topPct': return `is in the top ${rule.n}% of the numbers`;
+                case 'bottomPct': return `is in the bottom ${rule.n}% of the numbers`;
+                case 'above': return 'is above the average of the numbers';
+                case 'below': return 'is below the average of the numbers';
+                case 'formula': return `makes the formula =${String(rule.formula).replace(/^=/, '')} true (cell references are relative to ${first}; a $ locks one)`;
+            }
+            return '';
+        }
+
+        // Plain-English description of a rule, with how many cells it colours right now
+        function describeCondRule(rule, withCount) {
+            rule = normalizeRule(rule);
+            const range = String(rule.range).toUpperCase();
+            let text;
+            if (rule.type === 'scale') {
+                text = `In ${range}, numbers are shaded from ${condScaleName(rule.scale)}: the first color for the lowest, the middle color for the middle value, the last for the highest.`;
+            } else {
+                const look = condPaletteName(rule.fill);
+                text = `In ${range}, any cell that ${condPhrase(rule)} ${rule.entireRow ? `turns its whole row ${look}` : `gets the ${look} look`}.`;
+            }
+            if (withCount) {
+                const hits = computeRuleHits(rule);
+                const rows = new Set(hits.map(h => h.r)).size;
+                if (!hits.length) text += ' Nothing matches right now.';
+                else if (rule.entireRow && rule.type !== 'scale') text += ` Right now ${hits.length} cell${hits.length === 1 ? '' : 's'} match, so ${rows} row${rows === 1 ? '' : 's'} get colored.`;
+                else text += ` Right now it colors ${hits.length} cell${hits.length === 1 ? '' : 's'}.`;
+            }
+            return text;
+        }
+
+        function openCondFormatting() {
+            const b = selBounds();
+            const multi = b.minR !== b.maxR || b.minC !== b.maxC;
+            const col = columnToLetter(activeCell.col);
+            condEl('cond-range').value = multi ? `${getCellId(b.minR, b.minC)}:${getCellId(b.maxR, b.maxC)}` : `${col}1:${col}${ROWS}`;
+            condEl('cond-type').innerHTML = CF_TYPES.map(g => `<optgroup label="${g.group}">${g.items.map(i => `<option value="${i[0]}">${i[1]}</option>`).join('')}</optgroup>`).join('');
+            condEl('cond-type').value = 'gt';
+            condEl('cond-entire-row').checked = false;
+            renderCondPalettes();
+            setCondPalette(0, true);
+            onCondTypeChange();
+            renderCondRuleList();
+            condEl('cond-modal').classList.remove('hidden');
+        }
+        function closeCondFormatting() { condEl('cond-modal').classList.add('hidden'); }
+
+        function renderCondPalettes() {
+            condEl('cond-palettes').innerHTML = CF_PALETTES.map((p, i) =>
+                `<button type="button" class="cond-chip" onclick="setCondPalette(${i})"><span class="cond-swatch" style="background:${p.fill}; color:${p.color};">Aa</span>${p.name}</button>`).join('');
+            condEl('cond-scales').innerHTML = CF_SCALES.map((s, i) =>
+                `<button type="button" class="cond-chip" onclick="setCondScale(${i})"><span class="cond-swatch scale" style="background:linear-gradient(90deg, ${s.colors.join(', ')});"></span>${s.name}</button>`).join('');
+        }
+        function setCondPalette(i, quiet) {
+            condEl('cond-fill').value = CF_PALETTES[i].fill;
+            condEl('cond-text').value = CF_PALETTES[i].color;
+            if (!quiet) updateCondSummary();
+        }
+        function setCondScale(i) {
+            ['cond-c1', 'cond-c2', 'cond-c3'].forEach((id, k) => { condEl(id).value = CF_SCALES[i].colors[k]; });
+            updateCondSummary();
+        }
+
+        function onCondTypeChange() {
+            const type = condEl('cond-type').value;
+            let html = '';
+            const field = (id, label, ph, extra = '') => `<div class="form-group"><label for="${id}">${label}</label><input type="text" id="${id}" placeholder="${ph}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="updateCondSummary()" ${extra}></div>`;
+            if (type === 'gt' || type === 'lt') html = field('cond-v1', 'Number', 'e.g. 60');
+            else if (type === 'eq') html = field('cond-v1', 'Value (a number or text)', 'e.g. 50 or In Progress');
+            else if (type === 'between') html = field('cond-v1', 'From', 'e.g. 30') + field('cond-v2', 'To', 'e.g. 60');
+            else if (type === 'text') html = field('cond-v1', 'Text to find', 'e.g. overdue');
+            else if (type === 'top' || type === 'bottom') html = field('cond-n', 'How many items', 'e.g. 10', 'inputmode="numeric"');
+            else if (type === 'topPct' || type === 'bottomPct') html = field('cond-n', 'Percent', 'e.g. 10', 'inputmode="numeric"');
+            else if (type === 'formula') html = field('cond-formula', 'Formula that is true for the cells to color', 'e.g. MOD(ROW(),2)=0') +
+                '<div class="wiz-tip">Write it for the first cell of the range; it adjusts for every other cell. Lock a column or row with $, for example <b>=$C2="Done"</b> colors by column C. Try <b>MOD(ROW(),2)=0</b> for zebra stripes.</div>';
+            condEl('cond-params').innerHTML = html;
+            const isScale = type === 'scale';
+            condEl('cond-scale-box').classList.toggle('hidden', !isScale);
+            condEl('cond-format-box').classList.toggle('hidden', isScale);
+            condEl('cond-row-wrap').classList.toggle('hidden', isScale);
+            if (isScale) setCondScale(0);
+            updateCondSummary();
+        }
+
+        // Reads the form into a rule; returns { rule } or { error }
+        function readCondRule() {
+            const type = condEl('cond-type').value;
+            const range = condEl('cond-range').value.trim().toUpperCase();
+            if (!parseRangeText(range)) return { error: 'Enter a range like A2:D20 (or one cell like B5).' };
+            const val = id => (condEl(id) ? condEl(id).value.trim() : '');
+            const rule = { type, range, entireRow: condEl('cond-entire-row').checked };
+            if (type === 'scale') {
+                rule.entireRow = false;
+                rule.scale = ['cond-c1', 'cond-c2', 'cond-c3'].map(id => condEl(id).value);
+            } else {
+                rule.fill = condEl('cond-fill').value;
+                rule.color = condEl('cond-text').value;
+            }
+            const isNum = s => s !== '' && !isNaN(Number(s));
+            if (type === 'gt' || type === 'lt') { rule.v1 = val('cond-v1'); if (!isNum(rule.v1)) return { error: 'Enter a number.' }; }
+            else if (type === 'eq' || type === 'text') { rule.v1 = val('cond-v1'); if (rule.v1 === '') return { error: type === 'text' ? 'Enter the text to find.' : 'Enter a value.' }; }
+            else if (type === 'between') { rule.v1 = val('cond-v1'); rule.v2 = val('cond-v2'); if (!isNum(rule.v1) || !isNum(rule.v2)) return { error: 'Enter two numbers.' }; }
+            else if (type === 'top' || type === 'bottom' || type === 'topPct' || type === 'bottomPct') {
+                const n = val('cond-n');
+                if (!isNum(n) || Number(n) < 1 || !Number.isInteger(Number(n))) return { error: 'Enter a whole number, 1 or more.' };
+                if (type.endsWith('Pct') && Number(n) > 100) return { error: 'Percent can be 1 to 100.' };
+                rule.n = Number(n);
+            } else if (type === 'formula') {
+                rule.formula = val('cond-formula').replace(/^=/, '');
+                if (!rule.formula) return { error: 'Enter a formula.' };
+                try { parseFormula(rule.formula); } catch (e) { return { error: 'That formula could not be read. Check the brackets and quotes.' }; }
+            }
+            return { rule };
+        }
+
+        function updateCondSummary() {
+            const out = condEl('cond-summary');
+            const sample = condEl('cond-sample');
+            const addBtn = condEl('cond-add-btn');
+            if (!out) return;
+            const type = condEl('cond-type').value;
+            if (type === 'scale') {
+                sample.style.background = `linear-gradient(90deg, ${['cond-c1', 'cond-c2', 'cond-c3'].map(id => condEl(id).value).join(', ')})`;
+                sample.style.color = '';
+                sample.innerText = '';
+            } else {
+                sample.style.background = condEl('cond-fill').value;
+                sample.style.color = condEl('cond-text').value;
+                sample.innerText = 'Sample';
+            }
+            const res = readCondRule();
+            if (res.error) {
+                out.innerText = res.error;
+                addBtn.disabled = true;
+                return;
+            }
+            addBtn.disabled = false;
+            out.innerText = describeCondRule(res.rule, true);
+        }
+
         function applyConditionalFormatting() {
-            const range = document.getElementById('cond-range').value;
-            const entireRow = document.getElementById('cond-entire-row').checked;
-            const preset = document.getElementById('cond-preset').value;
-            conditionalRules.push({ range, entireRow, preset });
+            const res = readCondRule();
+            if (res.error) { showToast(res.error); return; }
+            conditionalRules.push(res.rule);
             sheets[currentSheetIdx].conditionalRules = conditionalRules;
             applyConditionalFormattingRules();
             closeCondFormatting();
-            showToast("Conditional formatting applied");
-            recordHistory("Applied conditional formatting");
-        }
-        function applyConditionalFormattingRules() {
-            // Cells a rule coloured go back to their own fill colour (never wipe fills the user chose)
-            cfPaintedTds.forEach(td => {
-                const st = data[td.id.slice(5)] && data[td.id.slice(5)].style;
-                td.style.backgroundColor = (st && st.bgColor) || '';
-            });
-            cfPaintedTds = [];
-            conditionalRules.forEach(rule => {
-                let parts = rule.range.split(':');
-                if (parts.length !== 2) return;
-                let start = parseCellCoord(parts[0].trim());
-                let end = parseCellCoord(parts[1].trim());
-
-                for (let r = Math.min(start.r, end.r); r <= Math.max(start.r, end.r); r++) {
-                    for (let c = Math.min(start.c, end.c); c <= Math.max(start.c, end.c); c++) {
-                        let cellId = getCellId(r, c);
-                        let val = getCellValue(cellId);
-                        let td = document.getElementById(`cell-${cellId}`);
-                        if (!td) continue;
-
-                        let color = '';
-                        if (rule.preset === 'less_than_red' && val !== '' && !isNaN(val) && Number(val) < 60) {
-                            color = '#fee2e2';
-                        } else if (rule.preset === 'status_in_progress' && String(val).toLowerCase() === 'in progress') {
-                            color = '#fef3c7';
-                        } else if (rule.preset === 'zebra' && r % 2 === 0) {
-                            color = '#f8fafc';
-                        }
-                        if (!color) continue;
-
-                        td.style.backgroundColor = color;
-                        cfPaintedTds.push(td);
-                        if (rule.entireRow) {
-                            for (let colIdx = 0; colIdx < COLS; colIdx++) {
-                                let rowTd = document.getElementById(`cell-${getCellId(r, colIdx)}`);
-                                if (rowTd) { rowTd.style.backgroundColor = color; cfPaintedTds.push(rowTd); }
-                            }
-                        }
-                    }
-                }
-            });
+            showToast("Conditional formatting rule added");
+            recordHistory("Added conditional formatting rule");
         }
 
-        // Formatting & Cell Actions
+        function renderCondRuleList() {
+            const box = condEl('cond-rule-list');
+            if (!conditionalRules.length) {
+                box.innerHTML = '<div class="cond-empty">No rules on this sheet yet.</div>';
+                return;
+            }
+            box.innerHTML = conditionalRules.map((raw, i) => {
+                const rule = normalizeRule(raw);
+                const swatch = rule && rule.type === 'scale'
+                    ? `background:linear-gradient(90deg, ${rule.scale.join(', ')});`
+                    : `background:${rule ? rule.fill : '#fff'}; color:${rule ? rule.color : '#000'};`;
+                return `<div class="cond-rule"><span class="cond-swatch" style="${swatch}">${rule && rule.type === 'scale' ? '' : 'Aa'}</span><span class="cond-rule-text">${rule ? describeCondRule(rule, false) : 'Unknown rule'}</span><button type="button" onclick="removeCondRule(${i})" title="Remove this rule">Remove</button></div>`;
+            }).join('');
+        }
+
+        function removeCondRule(i) {
+            conditionalRules.splice(i, 1);
+            sheets[currentSheetIdx].conditionalRules = conditionalRules;
+            applyConditionalFormattingRules();
+            renderCondRuleList();
+            updateCondSummary();
+            showToast('Rule removed');
+            recordHistory('Removed conditional formatting rule');
+        }
+
         // Cell formatting lives in the cell's data (data[id].style) so it survives sheet switches, Time Travel and grid rebuilds.
         const STYLE_KEY = { fontFamily: 'fontFamily', color: 'color', bgColor: 'bgColor', align: 'textAlign' };
 

@@ -43,7 +43,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 
 13. ~~Formula functions (BQ-02/03): all except `SUM`, `AVERAGE`, `COUNT`, `MIN`, `MAX` (V2 also had `IF`). Includes SUMIF/SUMIFS, COUNTIF/COUNTIFS, AVERAGEIF/AVERAGEIFS, IFS/AND/OR/NOT/IFERROR, text, date, financial (PMT/FV/PV/NPV/IRR), info (ISBLANK etc., CELL), and lookups (XLOOKUP, VLOOKUP, HLOOKUP, INDEX, MATCH, OFFSET, INDIRECT, CHOOSE, FILTER, SORT, UNIQUE).~~ **Done — see Build Log 4.**
 14. ~~Nested formulas / real formula parser (arguments are currently split on commas).~~ **Done — see Build Log 4.**
-15. Conditional formatting: Top/Bottom rules, above/below average, 3-color heatmap, custom formula rules, entire-row toggle, preset palettes, plain-English rule summaries (BQ-05/06).
+15. ~~Conditional formatting: Top/Bottom rules, above/below average, 3-color heatmap, custom formula rules, entire-row toggle, preset palettes, plain-English rule summaries (BQ-05/06).~~ **Done — see Build Log 7.**
 16. ~~Formula Wizard: category/keyword search, per-function argument fields with descriptions (BQ-07).~~ **Done — see Build Log 5.**
 17. Smart guessing for `IF` (5+ signatures), `XLOOKUP`/`VLOOKUP`, and `PMT` headers (BQ-08.2).
 18. Time Travel: visual drawer, scrub forward/back, restore formatting/merges/rules (currently `alert()` restore of cell data only) (BQ-08.4).
@@ -133,4 +133,20 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **Spilled cells keep their formatting** when a spill is rebuilt or shrinks.
 - [x] **Time Travel no longer crashes** when you restore a checkpoint taken before a sheet was added (it lands on the last sheet that exists).
 - Not changed: sorting a table still leaves formatting where it is (it does not move with the rows); number formats are still not built (item 12).
+
+### Build Log 7 — Item 15: conditional formatting rules (BQ-05 / BQ-06)
+
+- [x] **Rule builder** (View / Insert → Cond. Formatting) with every rule type:
+  - **Highlight cells:** greater than, less than, equal to (numbers or text, any case), between (inclusive, either order), text contains.
+  - **Top / bottom:** top N, bottom N, top N %, bottom N % (ties at the cut-off are included; a small % still colors at least one), above average, below average. Only numbers are ranked.
+  - **3-color scale (heatmap):** smooth gradient from the lowest value through the median to the highest.
+  - **Custom formula:** any true/false formula, written for the first cell of the range and adjusted for every other cell (`$` locks a column or row, e.g. `=$C2="Done"` colors by column C). `MOD(ROW(),2)=0` gives zebra stripes.
+- [x] **Target range box** (e.g. `A5:D26`): pre-filled with your current selection, or the whole column of the active cell. Bad ranges are explained and block Add.
+- [x] **Entire-row toggle** works with every rule type except the heatmap (whole rows of gradient make no sense, so the toggle hides).
+- [x] **Ready-made looks (BQ-06):** Soft Red, Soft Green, Warning Amber for highlight rules and three subtle heatmaps (Green → Yellow → Red, Red → Yellow → Green, Blue → White → Red). Tapping one fills the color pickers, which you can still change. Rules color the fill and the text.
+- [x] **Plain-English live summary** pinned at the bottom of the dialog, with a sample swatch and how many cells the rule colors right now (e.g. "In A1:A10, any cell that is between 30 and 60 gets the Soft Red look. Right now it colors 4 cells.").
+- [x] **Rule list with Remove** on the same dialog (added so rules can be undone; later rules paint over earlier ones). Rules belong to their sheet and are part of Time Travel checkpoints. Rules made by older versions (preset names) still work.
+- [x] **New functions MOD, ROW, COLUMN** (needed for the `MOD(ROW(),2)=0` example in the spec); they are in the Formula Wizard too, so it now lists 70 functions.
+- [x] **Selection tint is see-through**, so fill colors and rule colors stay visible while cells are selected (before, the blue selection hid them).
+- Notes: blank cells are never colored by a rule; greater/less than compare numbers only; rules are redrawn after every edit (a rule over all 10,400 cells redraws in well under half a second).
 
