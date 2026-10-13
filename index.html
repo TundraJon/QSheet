@@ -588,6 +588,7 @@
             z-index: 41;
             touch-action: manipulation;
         }
+        .save-cue { font-weight: 600; color: #1d4ed8; }
         .save-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
         .save-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
         .save-dot.ok { background: #16a34a; }
@@ -740,7 +741,7 @@
 
     <!-- Top Header -->
     <!-- Save status (like the AutoSave strip in Excel) -->
-    <div class="save-status" id="save-status" role="button" tabindex="0" onclick="onSaveStatusTap()"><span class="save-label">AutoSave on</span><span class="save-state"><span class="save-dot ok"></span>Loading…</span></div>
+    <div class="save-status" id="save-status" role="button" tabindex="0" onclick="onSaveStatusTap()"><span class="save-label">AutoSave ON</span><span class="save-state"><span class="save-dot ok"></span>Loading…</span></div>
 
     <header>
         <div class="app-title">Spreadsheet Studio</div>
@@ -1313,15 +1314,18 @@
             let dot, text;
             if (s.failed) { dot = 'fail'; text = 'Save failed — tap to retry'; }
             else if (s.saving || (s.dirty && s.enabled)) { dot = 'busy'; text = 'Saving…'; }
-            else if (s.dirty) { dot = 'warn'; text = 'Unsaved changes — tap to save'; }
+            else if (s.dirty) { dot = 'warn'; text = 'Unsaved changes'; }
             else if (s.lastSaved) { dot = 'ok'; text = 'Saved ' + s.lastSaved.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
             else { dot = 'ok'; text = 'No changes yet'; }
-            el.innerHTML = `<span class="save-label">AutoSave ${s.enabled ? 'on' : 'off'}</span><span class="save-state"><span class="save-dot ${dot}"></span>${escapeHtml(text)}</span>`;
+            // "(💾 Save)" is only a label showing where to tap: the whole strip is the one tap target
+            const label = s.enabled ? 'AutoSave ON' : 'AutoSave OFF - <span class="save-cue">(💾 Save)</span>';
+            el.innerHTML = `<span class="save-label">${label}</span><span class="save-state"><span class="save-dot ${dot}"></span>${escapeHtml(text)}</span>`;
+            el.setAttribute('aria-label', `${s.enabled ? 'AutoSave on' : 'AutoSave off'}. ${text}. Tap to save now.`);
         }
 
+        // Tapping the strip always saves, even when nothing has changed
         function onSaveStatusTap() {
-            if (saveState.dirty || saveState.failed) saveWorkbookNow();
-            else showToast('Everything is saved');
+            saveWorkbookNow(true);
         }
 
         function markDirty() {
@@ -1334,10 +1338,11 @@
             renderSaveStatus();
         }
 
-        async function saveWorkbookNow() {
+        async function saveWorkbookNow(userTap) {
             clearTimeout(saveState.timer);
             clearTimeout(saveState.retry);
             if (saveState.loading) return;
+            if (userTap === true) saveState.notify = true; // a tap gets a brief "Saved" message
             if (saveState.saving) { saveState.again = true; return; }
             saveState.saving = true;
             saveState.dirty = false; // anything changed while the write is running marks it dirty again
@@ -1355,6 +1360,10 @@
                 saveState.retry = setTimeout(saveWorkbookNow, 5000);
             }
             saveState.saving = false;
+            if (saveState.notify) {
+                saveState.notify = false;
+                showToast(saveState.failed ? 'Save failed. It will keep retrying.' : 'Saved');
+            }
             if (saveState.again) { saveState.again = false; if (saveState.dirty && saveState.enabled && !saveState.failed) saveState.timer = setTimeout(saveWorkbookNow, AUTOSAVE_DELAY); }
             renderSaveStatus();
         }
