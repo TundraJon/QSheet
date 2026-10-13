@@ -170,4 +170,4 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **`AutoSave ON`** when AutoSave is on; **`AutoSave OFF - 💾 Save`** when it is off, where `💾 Save` is a small blue pill (rounded ends, no parentheses) showing where to tap; it is a look only, not a separate button (the whole strip is the one tap target).
 - [x] **The whole strip is the one tap target and always saves**, even when nothing has changed: it rewrites the save, updates the time (`Saved 3:31 PM`) and shows a brief "Saved" message. Works the same whether AutoSave is on or off.
 - [x] "Unsaved changes" no longer carries the "— tap to save" tail.
-
+- [x] **Save pill color shows the state (update to Build Log 9):** a duller blue when everything is saved, the bright blue when there are unsaved changes (also while a save is running or if it failed).

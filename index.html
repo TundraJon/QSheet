@@ -603,6 +603,7 @@
             line-height: 1;
             vertical-align: middle;
         }
+        .save-cue.clean { background: #6b84b4; }
         .save-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
         .save-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
         .save-dot.ok { background: #16a34a; }
@@ -1332,7 +1333,9 @@
             else if (s.lastSaved) { dot = 'ok'; text = 'Saved ' + s.lastSaved.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
             else { dot = 'ok'; text = 'No changes yet'; }
             // The 💾 Save pill only shows where to tap: the whole strip is the one tap target
-            const label = s.enabled ? 'AutoSave ON' : 'AutoSave OFF - <span class="save-cue">💾 Save</span>';
+            // Duller pill when everything is saved, bright blue when there is something to save (or a save is running / failing)
+            const clean = !(s.dirty || s.saving || s.failed);
+            const label = s.enabled ? 'AutoSave ON' : `AutoSave OFF - <span class="save-cue${clean ? ' clean' : ''}">💾 Save</span>`;
             el.innerHTML = `<span class="save-label">${label}</span><span class="save-state"><span class="save-dot ${dot}"></span>${escapeHtml(text)}</span>`;
             el.setAttribute('aria-label', `${s.enabled ? 'AutoSave on' : 'AutoSave off'}. ${text}. Tap to save now.`);
         }
