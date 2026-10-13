@@ -65,6 +65,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 ### F. Reported after Build Log 2
 
 27. ~~Freeze Panes: reported "on with no way to clear." Freeze defaults to 1 row + 1 column on every sheet, and the only control is the modal under View / Insert → Freeze Panes… (set both numbers to 0 to clear), which is easy to miss and always opens showing 1 / 1 instead of the current setting. Diagnosis only, not built: needs a visible Unfreeze/Clear control and the modal should show current values (related to item 10).~~ **Done — see Build Log 3.**
+28. ~~Cell formatting (bold, italic, underline, font, text color, fill, alignment) was kept only on the screen, not in the cell data. It was lost on sheet switch, on Time Travel restore, and on rebuilds; separately, every edit to any cell wiped all fill colors (the conditional-formatting redraw blanked every cell's background). Also: Time Travel could crash when restoring a checkpoint taken before a sheet was added.~~ **Done — see Build Log 6.**
 
 ## Build Log (completed)
 
@@ -124,4 +125,12 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **`&` text-join operator:** `=A1&" "&B1`, `="Total: "&SUM(A1:A3)`, `=INDIRECT("A"&2)`. Binds looser than `+ -` and tighter than comparisons, works on whole ranges.
 - [x] **Empty arguments** are now allowed, as in a spreadsheet: `=XLOOKUP(x,a,b,,-1)` skips if_not_found (keeps the `#N/A`).
 - Not done (not requested): percent literals such as `5%` in formulas (type `0.05`).
+
+### Build Log 6 — Item 28: formatting is no longer lost (sheet switch, Time Travel, edits)
+
+- [x] **Formatting is now stored with each cell** (`data[cell].style`) instead of only on screen, so it travels with the sheet. Bold / italic / underline / font / text color / fill color / alignment now survive switching sheets, Time Travel restores (each checkpoint carries its own formatting), Clear Sheet (wipes it, as intended), grid rebuilds, freeze / unfreeze, merging, and CSV import (existing formatting on a cell is kept when the import fills it).
+- [x] **Fill colors are no longer wiped by editing.** The conditional-formatting redraw used to blank every cell's background after every edit. It now only touches the cells a rule colored and puts each back to its own fill color when the rule stops applying; rule colors still show on top while they apply.
+- [x] **Spilled cells keep their formatting** when a spill is rebuilt or shrinks.
+- [x] **Time Travel no longer crashes** when you restore a checkpoint taken before a sheet was added (it lands on the last sheet that exists).
+- Not changed: sorting a table still leaves formatting where it is (it does not move with the rows); number formats are still not built (item 12).
 

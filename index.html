@@ -970,6 +970,7 @@
         let selectionRange = { startRow: 0, startCol: 0, endRow: 0, endCol: 0 };
         let highlightedTds = [];
         let frozenEls = []; // elements currently made sticky by the freeze panes
+        let cfPaintedTds = []; // cells currently coloured by a conditional-formatting rule
         let editingCell = null; // { row, col, original } while a cell is being typed into
         let pointerState = null; // current touch / mouse gesture on the grid
         let rangeDragMode = false;
@@ -1025,10 +1026,13 @@
             editingCell = null;
             highlightedTds = [];
             frozenEls = [];
+            cfPaintedTds = [];
             applyMerges();
             applyTableHeaders();
             layoutFreeze();
             recalculateAll();
+            applyAllStyles();
+            applyConditionalFormattingRules();
             highlightSelection();
         }
 
@@ -1993,10 +1997,17 @@
         }
 
         // Results that are blocks of cells (FILTER, SORT, UNIQUE, =A1:A5 ...) "spill" into the cells below / beside the formula
+        // A spilled cell goes away, but any formatting it was given stays behind
+        function dropSpillCell(id) {
+            const st = data[id].style;
+            if (st && Object.keys(st).length) data[id] = { style: st, value: '', formula: '' };
+            else delete data[id];
+        }
+
         function releaseSpill(anchorId) {
             const cell = data[anchorId];
             if (!cell || !cell.spillIds) return;
-            cell.spillIds.forEach(id => { if (data[id] && data[id].spillOf === anchorId) delete data[id]; });
+            cell.spillIds.forEach(id => { if (data[id] && data[id].spillOf === anchorId) dropSpillCell(id); });
             delete cell.spillIds;
         }
 
@@ -2019,7 +2030,7 @@
                     if (r === 0 && c === 0) continue;
                     const id = getCellId(anchor.r + r, anchor.c + c);
                     const v = rv.get(r, c);
-                    data[id] = { style: {}, value: isBlank(v) ? '' : v, formula: '', spillOf: anchorId };
+                    data[id] = { style: (data[id] && data[id].style) || {}, value: isBlank(v) ? '' : v, formula: '', spillOf: anchorId };
                     ids.push(id);
                 }
             }
@@ -2032,7 +2043,7 @@
             for (const id in data) {
                 const cell = data[id];
                 if (cell.spillOf) {
-                    delete data[id];
+                    dropSpillCell(id);
                     const inp = document.getElementById(`input-${id}`);
                     if (inp && document.activeElement !== inp) inp.value = '';
                 } else if (cell.spillIds) {
@@ -3598,7 +3609,12 @@
             recordHistory("Applied conditional formatting");
         }
         function applyConditionalFormattingRules() {
-            document.querySelectorAll('td').forEach(td => td.style.backgroundColor = '');
+            // Cells a rule coloured go back to their own fill colour (never wipe fills the user chose)
+            cfPaintedTds.forEach(td => {
+                const st = data[td.id.slice(5)] && data[td.id.slice(5)].style;
+                td.style.backgroundColor = (st && st.bgColor) || '';
+            });
+            cfPaintedTds = [];
             conditionalRules.forEach(rule => {
                 let parts = rule.range.split(':');
                 if (parts.length !== 2) return;
@@ -3623,10 +3639,11 @@
                         if (!color) continue;
 
                         td.style.backgroundColor = color;
+                        cfPaintedTds.push(td);
                         if (rule.entireRow) {
                             for (let colIdx = 0; colIdx < COLS; colIdx++) {
                                 let rowTd = document.getElementById(`cell-${getCellId(r, colIdx)}`);
-                                if (rowTd) rowTd.style.backgroundColor = color;
+                                if (rowTd) { rowTd.style.backgroundColor = color; cfPaintedTds.push(rowTd); }
                             }
                         }
                     }
@@ -3635,6 +3652,31 @@
         }
 
         // Formatting & Cell Actions
+        // Cell formatting lives in the cell's data (data[id].style) so it survives sheet switches, Time Travel and grid rebuilds.
+        const STYLE_KEY = { fontFamily: 'fontFamily', color: 'color', bgColor: 'bgColor', align: 'textAlign' };
+
+        function applyCellStyle(cellId) {
+            const st = (data[cellId] && data[cellId].style) || {};
+            const input = document.getElementById(`input-${cellId}`);
+            const td = document.getElementById(`cell-${cellId}`);
+            if (input) {
+                input.style.fontWeight = st.fontWeight || '';
+                input.style.fontStyle = st.fontStyle || '';
+                input.style.textDecoration = st.textDecoration || '';
+                input.style.fontFamily = st.fontFamily || '';
+                input.style.color = st.color || '';
+                input.style.textAlign = st.textAlign || '';
+            }
+            if (td) td.style.backgroundColor = st.bgColor || '';
+        }
+
+        function applyAllStyles() {
+            for (const id in data) {
+                const st = data[id].style;
+                if (st && Object.keys(st).length) applyCellStyle(id);
+            }
+        }
+
         function formatCell(type, value) {
             const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
             const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
@@ -3643,17 +3685,19 @@
 
             for (let r = minR; r <= maxR; r++) {
                 for (let c = minC; c <= maxC; c++) {
+                    if (type === 'numFormat') continue; // number formats are not built yet
                     const cellId = getCellId(r, c);
-                    const inputEl = document.getElementById(`input-${cellId}`);
-                    if (type === 'bold') inputEl.style.fontWeight = inputEl.style.fontWeight === 'bold' ? 'normal' : 'bold';
-                    else if (type === 'italic') inputEl.style.fontStyle = inputEl.style.fontStyle === 'italic' ? 'normal' : 'italic';
-                    else if (type === 'underline') inputEl.style.textDecoration = inputEl.style.textDecoration === 'underline' ? 'none' : 'underline';
-                    else if (type === 'fontFamily') inputEl.style.fontFamily = value;
-                    else if (type === 'color') inputEl.style.color = value;
-                    else if (type === 'bgColor') document.getElementById(`cell-${cellId}`).style.backgroundColor = value;
-                    else if (type === 'align') inputEl.style.textAlign = value;
+                    if (!data[cellId]) data[cellId] = { style: {}, value: '', formula: '' };
+                    if (!data[cellId].style) data[cellId].style = {};
+                    const st = data[cellId].style;
+                    if (type === 'bold') { if (st.fontWeight === 'bold') delete st.fontWeight; else st.fontWeight = 'bold'; }
+                    else if (type === 'italic') { if (st.fontStyle === 'italic') delete st.fontStyle; else st.fontStyle = 'italic'; }
+                    else if (type === 'underline') { if (st.textDecoration === 'underline') delete st.textDecoration; else st.textDecoration = 'underline'; }
+                    else if (STYLE_KEY[type]) st[STYLE_KEY[type]] = value;
+                    applyCellStyle(cellId);
                 }
             }
+            applyConditionalFormattingRules(); // rules are drawn on top of fill colours
             recordHistory("Formatted cells");
         }
 
@@ -3827,7 +3871,7 @@
                         if (val === '') return;
                         let cellId = getCellId(rowIdx, colIdx);
                         data[cellId] = {
-                            style: {},
+                            style: (data[cellId] && data[cellId].style) || {},
                             value: (val.trim() === '' || isNaN(val)) ? val : Number(val),
                             formula: val.startsWith('=') ? val : ''
                         };
@@ -3863,6 +3907,7 @@
 
         function restoreHistory(index) {
             sheets = JSON.parse(JSON.stringify(historyStack[index].snapshot));
+            currentSheetIdx = Math.min(currentSheetIdx, sheets.length - 1);
             switchSheet(currentSheetIdx);
             alert(`Time traveled back to checkpoint #${index + 1}: ${historyStack[index].name}`);
         }
