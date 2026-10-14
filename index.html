@@ -296,6 +296,10 @@
         table.spreadsheet th.table-header::after { content: " \25BE"; font-size: 0.75em; opacity: 0.85; }
         table.spreadsheet th.table-header.filtered::after { content: " \25BC"; color: #fbbf24; opacity: 1; }
 
+        .cm-name-row { display: flex; gap: 8px; }
+        .cm-name-row input { flex: 1; min-width: 0; min-height: 44px; }
+        .cm-name-row button { min-height: 44px; }
+        .cm-hint { font-size: 0.75rem; color: #64748b; word-break: break-word; }
         .cm-sort { display: flex; gap: 8px; }
         .cm-sort button { flex: 1; min-height: 44px; font-size: 0.9rem; }
         .cm-tools { display: flex; gap: 8px; align-items: center; }
@@ -1045,6 +1049,14 @@
                 <button onclick="closeColumnMenu()">&times;</button>
             </div>
             <div class="modal-body">
+                <div class="form-group">
+                    <label for="cm-table-name">Table name</label>
+                    <div class="cm-name-row">
+                        <input type="text" id="cm-table-name" maxlength="30" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" onkeydown="if (event.key === 'Enter') { event.preventDefault(); colMenuRename(); }">
+                        <button onclick="colMenuRename()">Rename</button>
+                    </div>
+                    <div class="cm-hint" id="cm-ref-hint"></div>
+                </div>
                 <div class="cm-sort">
                     <button onclick="colMenuSort(true)">Sort A &rarr; Z</button>
                     <button onclick="colMenuSort(false)">Sort Z &rarr; A</button>
@@ -1522,6 +1534,7 @@
         function cleanTable(t) {
             if (!t || typeof t !== 'object') return null;
             const out = { startR: cleanInt(t.startR, 0, ROWS - 1, -1), endR: cleanInt(t.endR, 0, ROWS - 1, -1), startC: cleanInt(t.startC, 0, COLS - 1, -1), endC: cleanInt(t.endC, 0, COLS - 1, -1) };
+            if (typeof t.name === 'string') out.name = cleanText(t.name, 30);
             if (t.hide && typeof t.hide === 'object' && !Array.isArray(t.hide)) {
                 const hide = {};
                 Object.keys(t.hide).slice(0, COLS).forEach(k => {
@@ -1612,6 +1625,7 @@
             if (!rec || rec.app !== 'QSheet' || !Array.isArray(rec.sheets) || !rec.sheets.length) throw new Error('This is not a QSheet workbook.');
             if (typeof rec.version !== 'number' || rec.version > SAVE_VERSION) throw new Error('This workbook was saved by a newer version of the app.');
             const decoded = rec.sheets.slice(0, 50).map(decodeSheet);
+            assignTableNames(decoded);
             return { sheets: decoded, current: cleanInt(rec.current, 0, decoded.length - 1, 0), savedAt: rec.savedAt };
         }
 
@@ -2864,6 +2878,7 @@
             });
             setCellContent(cellId, value);
             autoDateFormat(cellId);
+            growTableFor(cellId, value);
         }
 
         // Stores a value / formula and recalculates (runs on every keystroke while typing in a cell)
@@ -2923,6 +2938,22 @@
                 }
                 const rest = src.slice(i);
                 let m;
+                // Table references: Sales[Amount] (the column's data cells), Sales[@Amount] (this row), Sales[@[Unit Price]] / Sales[Unit Price] (names with spaces)
+                if ((m = /^([A-Za-z_][A-Za-z0-9_.]*)\[/.exec(rest))) {
+                    let depth = 0, k = m[1].length;
+                    for (; k < rest.length; k++) {
+                        if (rest[k] === '[') depth++;
+                        else if (rest[k] === ']') { depth--; if (depth === 0) break; }
+                    }
+                    if (depth !== 0) throw new FormulaError('#ERROR!');
+                    let inner = rest.slice(m[1].length + 1, k).trim(), row = false;
+                    if (inner.startsWith('@')) { row = true; inner = inner.slice(1).trim(); }
+                    if (inner.startsWith('[') && inner.endsWith(']')) inner = inner.slice(1, -1).trim();
+                    if (inner === '' || /[\[\]]/.test(inner)) throw new FormulaError('#ERROR!');
+                    tokens.push({ t: 'sref', table: m[1], col: inner, row });
+                    i += k + 1;
+                    continue;
+                }
                 if ((m = /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(rest))) {
                     tokens.push({ t: 'num', v: parseFloat(m[0]) });
                     i += m[0].length;
@@ -3025,6 +3056,7 @@
                 if (!tok) throw new FormulaError('#ERROR!');
                 if (tok.t === 'num') return { t: 'num', v: tok.v };
                 if (tok.t === 'str') return { t: 'str', v: tok.v };
+                if (tok.t === 'sref') return { t: 'sref', table: tok.table, col: tok.col, row: tok.row };
                 if (tok.t === 'ref') {
                     if (isOp(':') && tokens[p + 1] && tokens[p + 1].t === 'ref') {
                         p++;
@@ -3297,6 +3329,11 @@
         // Bounds of a reference node (A1 or A1:B5), for functions that need the cells themselves (OFFSET, CELL, ISBLANK)
         function nodeBounds(node) {
             if (node.t === 'ref') { const c = shiftCoord(parseCellCoord(node.v), node.ca, node.ra); return { minR: c.r, minC: c.c, maxR: c.r, maxC: c.c }; }
+            if (node.t === 'sref' && !node.row) {
+                const t = findTableByName(node.table), c = t ? tableColumnIndex(t, node.col) : -1;
+                if (c < 0 || t.endR <= t.startR) return null;
+                return { minR: t.startR + 1, minC: c, maxR: t.endR, maxC: c };
+            }
             if (node.t === 'range') {
                 const a = shiftCoord(parseCellCoord(node.a), node.ca1, node.ra1), b = shiftCoord(parseCellCoord(node.b), node.ca2, node.ra2);
                 return { minR: Math.min(a.r, b.r), minC: Math.min(a.c, b.c), maxR: Math.max(a.r, b.r), maxC: Math.max(a.c, b.c) };
@@ -4427,6 +4464,32 @@
             YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], TODAY: [0, 0], NOW: [0, 0], INDIRECT: [1, 1]
         };
 
+        // ----- Tables: Sales[Amount], Sales[@Amount] -----
+        const findTableByName = name => tableObjects.find(t => t.name && t.name.toLowerCase() === String(name).toLowerCase());
+        function tableColumnIndex(t, colName) {
+            const want = String(colName).trim().toLowerCase();
+            for (let c = t.startC; c <= t.endC; c++) {
+                const h = data[getCellId(t.startR, c)];
+                if (h && String(displayValue(h.value)).trim().toLowerCase() === want) return c;
+            }
+            return -1;
+        }
+        // A column's data cells (always a block, even for one row) or, for [@Column], the cell of the row being calculated
+        function structuredValue(n, curR) {
+            const t = findTableByName(n.table);
+            if (!t) throw new FormulaError('#REF!');
+            const c = tableColumnIndex(t, n.col);
+            if (c < 0) throw new FormulaError('#REF!');
+            if (n.row) {
+                if (curR <= t.startR || curR > t.endR) throw new FormulaError('#VALUE!');
+                const rv = new RangeVal(1, 1, [refValue(getCellId(curR, c))]);
+                rv.origin = { r: curR, c };
+                return rv;
+            }
+            if (t.endR <= t.startR) { const empty = new RangeVal(0, 1, []); empty.origin = { r: t.startR + 1, c }; return empty; }
+            return rangeFromBounds(t.startR + 1, c, t.endR, c);
+        }
+
         // A single cell passed to a function: a range of one that remembers where it is (so the visible-only functions can skip a hidden row)
         function refArg(a, curR, curC) {
             const rv = new RangeVal(1, 1, [evalNode(a, curR, curC)]);
@@ -4449,6 +4512,8 @@
                 }
                 case 'range':
                     return shrink(rangeValues(n));
+                case 'sref':
+                    return shrink(structuredValue(n, curR));
                 case 'empty':
                     return '';
                 case 'unary': {
@@ -4466,7 +4531,7 @@
                     const lim = ARG_LIMITS[n.name];
                     if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!');
                     // A single cell passed to a function counts as a cell (like a range of one): text in it is skipped by SUM, AVERAGE, ...
-                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'ref' ? refArg(a, curR, curC) : evalNode(a, curR, curC)));
+                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'sref' ? structuredValue(a, curR) : (a.t === 'ref' ? refArg(a, curR, curC) : evalNode(a, curR, curC))));
                     return def.fn(args, curR, curC, n);
                 }
             }
@@ -4754,12 +4819,73 @@
         }
 
         // Official Tables (Ctrl + T) & Sort
+        // Table names are used in formulas (Sales[Amount]), so they are unique across the workbook: letters, numbers and underscores, starting with a letter
+        const allTables = () => sheets.reduce((all, sh) => all.concat(sh.tableObjects || []), []);
+        function nextTableName(taken) {
+            const used = taken || new Set(allTables().map(t => (t.name || '').toLowerCase()));
+            let n = 1;
+            while (used.has(`table${n}`)) n++;
+            return `Table${n}`;
+        }
+        function tableNameProblem(name, except) {
+            if (!name) return 'Type a name for the table';
+            if (name.length > 30) return 'Table names can be up to 30 characters';
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return 'Use letters, numbers and underscores only, and start with a letter';
+            if (/^[A-Za-z]{1,3}\d+$/.test(name)) return `${name} looks like a cell address. Try another name`;
+            if (/^(true|false)$/i.test(name)) return 'Try another name';
+            if (allTables().some(t => t !== except && t.name && t.name.toLowerCase() === name.toLowerCase())) return 'Another table already uses that name';
+            return '';
+        }
+        // Gives every table a valid, unique name (older saves have none)
+        function assignTableNames(sheetList) {
+            const seen = new Set();
+            const tables = sheetList.reduce((all, sh) => all.concat(sh.tableObjects || []), []);
+            tables.forEach(t => {
+                const ok = t.name && /^[A-Za-z_][A-Za-z0-9_]*$/.test(t.name) && !/^[A-Za-z]{1,3}\d+$/.test(t.name) && !/^(true|false)$/i.test(t.name) && !seen.has(t.name.toLowerCase());
+                if (ok) seen.add(t.name.toLowerCase()); else delete t.name;
+            });
+            tables.forEach(t => { if (!t.name) { t.name = nextTableName(seen); seen.add(t.name.toLowerCase()); } });
+        }
+        // Renaming a table updates the formulas that use it (text inside quotes is left alone)
+        function rewriteTableName(oldName, newName) {
+            const re = new RegExp('(^|[^A-Za-z0-9_.])' + oldName + '(?=\\[)', 'gi');
+            let count = 0;
+            sheets.forEach(sh => {
+                for (const id in sh.data) {
+                    const cell = sh.data[id];
+                    if (!cell.formula || !cell.formula.startsWith('=')) continue;
+                    const parts = cell.formula.split(/("(?:[^"]|"")*")/);
+                    const next = parts.map((part, i) => (i % 2 ? part : part.replace(re, (m, pre) => pre + newName))).join('');
+                    if (next !== cell.formula) { cell.formula = next; count++; }
+                }
+            });
+            return count;
+        }
+        // Typing next to a table makes it bigger: in the cell right under its last row (a new row) or in the header cell right after its last column (a new column)
+        function growTableFor(cellId, value) {
+            if (String(value).trim() === '') return;
+            const co = parseCellCoord(cellId);
+            if (tableObjects.some(t => co.r >= t.startR && co.r <= t.endR && co.c >= t.startC && co.c <= t.endC)) return;
+            for (const t of tableObjects) {
+                let msg = '';
+                if (co.r === t.endR + 1 && co.c >= t.startC && co.c <= t.endC && t.endR + 1 < ROWS) { t.endR++; msg = `${t.name} grew to include row ${t.endR + 1}`; }
+                else if (co.r === t.startR && co.c === t.endC + 1 && t.endC + 1 < COLS) { t.endC++; msg = `${t.name} grew to include column ${columnToLetter(t.endC)}`; }
+                if (!msg) continue;
+                applyTableHeaders();
+                recalculateAll();
+                updateStats();
+                showToast(msg);
+                return;
+            }
+        }
+
         function createOfficialTable() {
             const b = selBounds();
-            tableObjects.push({ startR: b.minR, endR: b.maxR, startC: b.minC, endC: b.maxC });
+            const name = nextTableName();
+            tableObjects.push({ name, startR: b.minR, endR: b.maxR, startC: b.minC, endC: b.maxC });
             sheets[currentSheetIdx].tableObjects = tableObjects;
             applyTableHeaders();
-            showToast("Official Table created successfully! Tap a column header to sort or filter.");
+            showToast(`Table created: ${name}. Tap a column letter to rename, sort or filter.`);
             recordHistory("Created Official Table");
         }
 
@@ -4800,8 +4926,30 @@
             const name = data[head] && data[head].value !== '' && data[head].value !== undefined ? ` - ${displayValue(data[head].value)}` : '';
             document.getElementById('cm-title').textContent = `Column ${columnToLetter(colIdx)}${name}`;
             document.getElementById('cm-search').value = '';
+            document.getElementById('cm-table-name').value = table.name || '';
+            colMenuRefHint();
             renderColMenuList();
             document.getElementById('colmenu-modal').classList.remove('hidden');
+        }
+        function colMenuRefHint() {
+            const { table, colIdx } = colMenu;
+            const h = data[getCellId(table.startR, colIdx)];
+            const head = h && String(displayValue(h.value)).trim();
+            document.getElementById('cm-ref-hint').textContent = head ? `In formulas: ${table.name}[${head}] or ${table.name}[@${head}]` : `${table.name}: give this column a header to use it in formulas`;
+        }
+        function colMenuRename() {
+            const { table } = colMenu;
+            const name = document.getElementById('cm-table-name').value.trim();
+            if (name === table.name) { showToast('That is already its name'); return; }
+            const problem = tableNameProblem(name, table);
+            if (problem) { showToast(problem); return; }
+            const old = table.name;
+            const changed = rewriteTableName(old, name);
+            table.name = name;
+            recalculateAll();
+            colMenuRefHint();
+            showToast(changed ? `Renamed to ${name}. ${changed} formula${changed === 1 ? '' : 's'} updated` : `Renamed to ${name}`);
+            recordHistory('Renamed table');
         }
         function closeColumnMenu() { document.getElementById('colmenu-modal').classList.add('hidden'); colMenu = null; }
 

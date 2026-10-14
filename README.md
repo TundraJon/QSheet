@@ -48,7 +48,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 17. Smart guessing for `IF` (5+ signatures), `XLOOKUP`/`VLOOKUP`, and `PMT` headers (BQ-08.2).
 18. Time Travel: visual drawer, scrub forward/back, restore formatting/merges/rules (currently `alert()` restore of cell data only) (BQ-08.4).
 19. ~~Sort & Filter header dropdowns, value checklist filtering with search, view masking in aggregates (BQ-09.2).~~ **Done — see Build Log 12.**
-20. Structured table references (`=SUM(Sales[Amount])`) and auto-expanding tables (BQ-09.1).
+20. ~~Structured table references (`=SUM(Sales[Amount])`) and auto-expanding tables (BQ-09.1).~~ **Done — see Build Log 19.**
 21. Data validation: date rule, touch picker sheets, integrity toasts (BQ-09.3).
 22. Flash Fill and custom-delimiter Text to Columns (BQ-09.4).
 
@@ -260,3 +260,14 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] In `SENTENCE`, a standalone `i` always becomes `I`: `"i think i can"` -> `I think I can`, `"so do i."` -> `So do I.`, and its contractions (`i'm`, `i'll`, `i've`, `i'd`, also with the curly apostrophe) -> `I'm`, `I'll`, `I've`, `I'd`. Works after spaces, commas, quotes and brackets, and before `, ; : ! ? . ) "`.
 - [x] **`i.e.` is left alone** (`"use a tool, i.e. a hammer"` -> `Use a tool, i.e. a hammer`). Letters inside words are never touched (`ice`, `hi`, `pi`, `taxi`), nor are `i/o`, `x-i-y` or `3i`; `i-beam` becomes `I-beam`.
 - The Wizard description for SENTENCE now mentions it.
+
+### Build Log 19 — Item 20: table names, structured references, auto-growing tables
+
+- [x] **Every table has a name** (`Table1`, `Table2`, ... the next free one when you make a table; the toast tells you). Rename it in the **column menu** (tap a column letter of the table): a Table name box with a Rename button, plus a hint showing how to use it (`In formulas: Table1[Unit Price] or Table1[@Unit Price]`). Names are unique across the whole workbook; letters, numbers and underscores, starting with a letter, up to 30 characters; not a cell address (`A1`, `Q1`) or TRUE / FALSE. Older saved workbooks get names automatically when opened.
+- [x] **Renaming updates your formulas** (all sheets). Text inside quotes is left alone. It is a Time Travel step. (A decision beyond the spec, so a rename never breaks formulas.)
+- [x] **`Sales[Amount]`** = the data cells of the column whose header says "Amount" (header row excluded), usable anywhere a range is: `=SUM(Sales[Amount])`, `COUNTIF`, `SUMIFS`, `XLOOKUP`, `INDEX`, `LARGE`, `SUMV`, `SUBTOTAL`... Capitals do not matter. Headers with spaces work: `Sales[Unit Price]`, `Sales[[Unit Price]]`. A whole column alone (`=Sales[Team]`) spills down the sheet.
+- [x] **`Sales[@Amount]`** = this row's Amount (also `Sales[@[Unit Price]]` and `Sales[@Unit Price]`), for per-row math such as `=Sales[@Price]*Sales[@Qty]`. It works from any cell in a data row of the table (or beside it); outside the data rows it gives `#VALUE!`.
+- [x] **Errors:** `#REF!` for an unknown table or column name (also a table on another sheet, which a formula cannot reach), `#ERROR!` for a broken reference like `Sales[` or `Sales[]`. **Renaming a header does not rewrite formulas**, so formulas using the old header show `#REF!` (decided).
+- [x] **Tables grow when you type next to them:** typing in the cell right under the last row adds that row; typing in the header cell right after the last column adds a column (a value or a formula; blank does nothing). The reference ranges follow automatically, so totals include the new row at once. Typing anywhere else near a table does nothing. Filters are not re-applied to the new row until you tap Apply, so a row you are typing stays visible.
+- [x] A table with only a header row works (`SUM(Table3[solo])` is 0 until it has data). Table names are saved with the workbook and kept by Time Travel.
+- Not done (decided): `[#Headers]`, `[#Totals]`, `[#All]` forms; several columns in one reference; automatic rewrite of formulas when a header is renamed; conditional-formatting rules are not rewritten on a table rename.
