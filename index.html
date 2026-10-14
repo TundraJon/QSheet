@@ -706,6 +706,13 @@
             padding: 4px;
             background: #f8fafc;
         }
+        .wiz-cat-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .wiz-fav-toggle { min-height: 40px; padding: 0 12px; font-size: 0.85rem; }
+        .wiz-fav-toggle.on { background: #fef3c7; border-color: #f59e0b; color: #92400e; font-weight: 600; }
+        .wizard-item { display: flex; gap: 4px; align-items: stretch; }
+        .wizard-item .wizard-result { flex: 1; min-width: 0; width: auto; }
+        .wiz-star { flex: none; width: 44px; min-height: 48px; padding: 0; font-size: 1.3rem; line-height: 1; display: flex; align-items: center; justify-content: center; background: transparent; border: none; color: #94a3b8; }
+        .wiz-star.on { color: #f59e0b; }
         .wizard-result {
             display: grid;
             grid-template-columns: auto 1fr;
@@ -900,7 +907,10 @@
                     <input type="text" id="wizard-search" placeholder="e.g. loan, lookup, sum if, join text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="filterWizardFunctions()">
                 </div>
                 <div class="form-group">
-                    <label for="wizard-category">Category</label>
+                    <div class="wiz-cat-row">
+                        <label for="wizard-category">Category</label>
+                        <button type="button" id="wizard-fav-toggle" class="wiz-fav-toggle" aria-pressed="false" onclick="toggleWizardFavOnly()">&#10025; Favorites</button>
+                    </div>
                     <select id="wizard-category" onchange="filterWizardFunctions()"></select>
                 </div>
                 <div id="wizard-count" class="wiz-count"></div>
@@ -1732,6 +1742,7 @@
         // Runs at startup: loads settings and the saved workbook, if there is one
         async function restoreSavedWorkbook() {
             await loadLists();
+            await loadFavorites();
             try { applySettings(await kvGet('settings')); } catch (e) {}
             let rec;
             try { rec = await kvGet('workbook'); } catch (e) { rec = undefined; }
@@ -1825,6 +1836,21 @@
                 showToast('Could not save your lists (storage is full or blocked).');
                 return false;
             }
+        }
+
+        // ----- Formula Wizard favorites (saved with the app, not the workbook) -----
+        let wizFavs = new Set();
+        let wizFavOnly = false;
+        async function loadFavorites() {
+            try {
+                const rec = await kvGet('wizard-favs');
+                const names = rec && Array.isArray(rec.names) ? rec.names : [];
+                wizFavs = new Set(names.filter(n => typeof n === 'string' && WIZARD_CATALOG.some(f => f.name === n)).slice(0, 200));
+            } catch (e) { wizFavs = new Set(); }
+        }
+        async function persistFavorites() {
+            try { await kvSet('wizard-favs', { version: 1, names: [...wizFavs] }); return true; }
+            catch (e) { showToast('Could not save your favorites (storage is full or blocked).'); return false; }
         }
 
         function findList(id) { return myLists.find(l => l.id === id); }
@@ -5145,6 +5171,7 @@
                 catSel.innerHTML = '<option value="all">All categories</option>' + WIZ_CATS.map(c => `<option value="${c}">${c}</option>`).join('');
             }
             catSel.value = 'all';
+            wizFavOnly = false;
             document.getElementById('wizard-search').value = '';
             document.getElementById('wizard-function').value = '';
             wizardRepeats = 0;
@@ -5159,6 +5186,7 @@
             const cat = document.getElementById('wizard-category').value;
             const chosen = document.getElementById('wizard-function').value;
             let list = WIZARD_CATALOG.filter(f => cat === 'all' || f.cat === cat);
+            if (wizFavOnly) list = list.filter(f => wizFavs.has(f.name));
             if (q) {
                 const terms = q.split(/\s+/);
                 list = list.filter(f => {
@@ -5170,13 +5198,36 @@
             } else {
                 list.sort((a, b) => a.name.localeCompare(b.name));
             }
-            document.getElementById('wizard-count').innerText = list.length ? `${list.length} function${list.length === 1 ? '' : 's'}` : 'No functions match. Try another word or category.';
+            const toggle = document.getElementById('wizard-fav-toggle');
+            toggle.innerHTML = `${wizFavOnly ? '\u2B50' : '\u2729'} Favorites`;
+            toggle.classList.toggle('on', wizFavOnly);
+            toggle.setAttribute('aria-pressed', String(wizFavOnly));
+            const none = wizFavOnly && !wizFavs.size ? 'No favorites yet. Turn Favorites off and tap the \u2729 beside a function to add it.' : 'No functions match. Try another word or category.';
+            document.getElementById('wizard-count').innerText = list.length ? `${list.length} function${list.length === 1 ? '' : 's'}` : none;
             document.getElementById('wizard-results').innerHTML = list.map(f => `
-                <button type="button" class="wizard-result${f.name === chosen ? ' selected' : ''}" data-fn="${f.name}" onclick="selectWizardFunction('${f.name}')">
-                    <span class="wr-name">${f.name}</span>
-                    <span class="wr-cat">${f.cat}</span>
-                    <span class="wr-desc">${f.desc}</span>
-                </button>`).join('');
+                <div class="wizard-item">
+                    <button type="button" class="wizard-result${f.name === chosen ? ' selected' : ''}" data-fn="${f.name}" onclick="selectWizardFunction('${f.name}')">
+                        <span class="wr-name">${f.name}</span>
+                        <span class="wr-cat">${f.cat}</span>
+                        <span class="wr-desc">${f.desc}</span>
+                    </button>
+                    <button type="button" class="wiz-star${wizFavs.has(f.name) ? ' on' : ''}" data-star="${f.name}" aria-pressed="${wizFavs.has(f.name)}" aria-label="${wizFavs.has(f.name) ? 'Remove ' + f.name + ' from favorites' : 'Add ' + f.name + ' to favorites'}" onclick="toggleWizardFavorite('${f.name}')">${wizFavs.has(f.name) ? '\u2B50' : '\u2729'}</button>
+                </div>`).join('');
+        }
+
+        function toggleWizardFavOnly() {
+            wizFavOnly = !wizFavOnly;
+            filterWizardFunctions();
+        }
+
+        function toggleWizardFavorite(name) {
+            if (!WIZARD_CATALOG.some(f => f.name === name)) return;
+            if (wizFavs.has(name)) wizFavs.delete(name); else wizFavs.add(name);
+            const box = document.getElementById('wizard-results');
+            const top = box.scrollTop;
+            filterWizardFunctions();
+            box.scrollTop = top;
+            persistFavorites();
         }
 
         function selectWizardFunction(name) {
