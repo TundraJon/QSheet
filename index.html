@@ -547,6 +547,9 @@
             transition: opacity 0.3s ease;
         }
         .toast.hidden { opacity: 0; pointer-events: none; }
+        /* With the keyboard open the cell-actions bar sits right above it and the toast just above that bar */
+        body.kb-open .cell-dock { bottom: calc(var(--kb, 0px) + 10px); }
+        body.kb-open .toast { bottom: calc(var(--kb, 0px) + 64px); }
 
         /* Status Bar */
         .status-bar {
@@ -1235,11 +1238,28 @@
         let activeRibbonTab = 'home';
         let lastRibbonTab = 'home';
 
+        // Messages with a formula in them stay a little longer so they can be read; a new message restarts the clock
+        let toastTimer = null;
         function showToast(msg) {
             const toast = document.getElementById('app-toast');
             toast.innerText = msg;
             toast.classList.remove('hidden');
-            setTimeout(() => toast.classList.add('hidden'), 3000);
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toast.classList.add('hidden'), /=|^Smart /.test(msg) ? 5000 : 3000);
+        }
+
+        // The on-screen keyboard slides over the bottom of the page without resizing it, so anything pinned to the bottom would be hidden.
+        // --kb is the height of the keyboard (0 when it is closed); the toast and the cell-actions bar ride above it.
+        function updateKeyboardInset() {
+            const vv = window.visualViewport;
+            const inset = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+            const open = inset > 80; // a smaller change is just the browser's own bars
+            document.documentElement.style.setProperty('--kb', (open ? inset : 0) + 'px');
+            document.body.classList.toggle('kb-open', open);
+        }
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', updateKeyboardInset);
+            window.visualViewport.addEventListener('scroll', updateKeyboardInset);
         }
 
         // ===== Number formats =====
