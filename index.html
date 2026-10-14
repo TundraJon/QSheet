@@ -292,6 +292,23 @@
             background-color: #334155 !important;
         }
 
+        /* Table column headers show a drop-down arrow; amber when that column is filtered */
+        table.spreadsheet th.table-header::after { content: " \25BE"; font-size: 0.75em; opacity: 0.85; }
+        table.spreadsheet th.table-header.filtered::after { content: " \25BC"; color: #fbbf24; opacity: 1; }
+
+        .cm-sort { display: flex; gap: 8px; }
+        .cm-sort button { flex: 1; min-height: 44px; font-size: 0.9rem; }
+        .cm-tools { display: flex; gap: 8px; align-items: center; }
+        .cm-tools button { min-height: 40px; }
+        .cm-count { margin-left: auto; color: #64748b; font-size: 0.8rem; }
+        .cm-list { max-height: 34vh; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; }
+        .cm-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+        .cm-row:last-child { border-bottom: none; }
+        .cm-row input { width: 22px; height: 22px; flex: none; }
+        .cm-row .cm-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cm-row .cm-n { color: #94a3b8; font-size: 0.75rem; }
+        .cm-empty { padding: 14px; color: #64748b; text-align: center; }
+
         .cell-input {
             width: 100%;
             height: 100%;
@@ -1009,6 +1026,37 @@
         </div>
     </div>
 
+    <!-- Table column menu: sort + filter -->
+    <div class="modal-overlay hidden" id="colmenu-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span id="cm-title">Column</span>
+                <button onclick="closeColumnMenu()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="cm-sort">
+                    <button onclick="colMenuSort(true)">Sort A &rarr; Z</button>
+                    <button onclick="colMenuSort(false)">Sort Z &rarr; A</button>
+                </div>
+                <div class="form-group">
+                    <label>Filter: show rows with these values</label>
+                    <input type="text" id="cm-search" placeholder="Search values" autocomplete="off" oninput="colMenuSearch(this.value)">
+                </div>
+                <div class="cm-tools">
+                    <button onclick="colMenuSelectShown(true)">Select all</button>
+                    <button onclick="colMenuSelectShown(false)">Clear</button>
+                    <span class="cm-count" id="cm-count"></span>
+                </div>
+                <div class="cm-list" id="cm-list" onchange="colMenuToggle(event)"></div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="colMenuClearAll()">Clear filters</button>
+                <button onclick="closeColumnMenu()">Cancel</button>
+                <button class="primary" onclick="colMenuApply()">Apply</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Text to Columns Modal -->
     <div class="modal-overlay hidden" id="ttc-modal">
         <div class="modal">
@@ -1125,6 +1173,7 @@
         let conditionalRules = sheets[0].conditionalRules;
         let validationRules = sheets[0].validationRules;
         let tableObjects = sheets[0].tableObjects;
+        let filteredRows = new Set(); // rows hidden by a table filter (SUBTOTAL, the stats strip and the insights skip them)
         let merges = sheets[0].merges;
         let freezeRows = sheets[0].freezeRows;
         let freezeCols = sheets[0].freezeCols;
@@ -1444,6 +1493,21 @@
         const cleanInt = (v, lo, hi, dflt) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : dflt; };
         const CF_TYPE_IDS = ['gt', 'lt', 'eq', 'between', 'text', 'top', 'bottom', 'topPct', 'bottomPct', 'above', 'below', 'scale', 'formula'];
 
+        // A table's filters: { columnIndex: [values to hide] }, kept only for columns inside the table
+        function cleanTable(t) {
+            if (!t || typeof t !== 'object') return null;
+            const out = { startR: cleanInt(t.startR, 0, ROWS - 1, -1), endR: cleanInt(t.endR, 0, ROWS - 1, -1), startC: cleanInt(t.startC, 0, COLS - 1, -1), endC: cleanInt(t.endC, 0, COLS - 1, -1) };
+            if (t.hide && typeof t.hide === 'object' && !Array.isArray(t.hide)) {
+                const hide = {};
+                Object.keys(t.hide).slice(0, COLS).forEach(k => {
+                    const c = cleanInt(k, out.startC, out.endC, -1);
+                    if (c >= 0 && Array.isArray(t.hide[k]) && t.hide[k].length) hide[c] = t.hide[k].slice(0, ROWS).map(v => cleanText(v, 200));
+                });
+                if (Object.keys(hide).length) out.hide = hide;
+            }
+            return out;
+        }
+
         function cleanRule(r) {
             if (!r || typeof r !== 'object' || !parseRangeText(r.range)) return null;
             const out = { range: cleanText(r.range, 30).toUpperCase(), entireRow: !!r.entireRow };
@@ -1508,7 +1572,7 @@
                 data,
                 conditionalRules: (Array.isArray(es.cf) ? es.cf : []).map(cleanRule).filter(Boolean),
                 validationRules: (Array.isArray(es.dv) ? es.dv : []).filter(v => v && parseRangeText(v.range) && (v.type === 'list' || v.type === 'number')).map(v => ({ range: cleanText(v.range, 30).toUpperCase(), type: v.type, options: (Array.isArray(v.options) ? v.options : []).map(o => cleanText(o, 100)), ...(v.listId ? { listId: cleanText(v.listId, 40), listName: cleanText(v.listName, 40) } : {}) })),
-                tableObjects: (Array.isArray(es.tb) ? es.tb : []).map(t => t && ({ startR: cleanInt(t.startR, 0, ROWS - 1, -1), endR: cleanInt(t.endR, 0, ROWS - 1, -1), startC: cleanInt(t.startC, 0, COLS - 1, -1), endC: cleanInt(t.endC, 0, COLS - 1, -1) })).filter(t => t && t.startR >= 0 && t.endR >= t.startR && t.startC >= 0 && t.endC >= t.startC),
+                tableObjects: (Array.isArray(es.tb) ? es.tb : []).map(cleanTable).filter(t => t && t.startR >= 0 && t.endR >= t.startR && t.startC >= 0 && t.endC >= t.startC),
                 merges: (Array.isArray(es.mg) ? es.mg : []).map(m => m && ({ r: cleanInt(m.r, 0, ROWS - 1, -1), c: cleanInt(m.c, 0, COLS - 1, -1), rows: cleanInt(m.rows, 1, ROWS, 1), cols: cleanInt(m.cols, 1, COLS, 1) })).filter(m => m && m.r >= 0 && m.c >= 0 && m.r + m.rows <= ROWS && m.c + m.cols <= COLS && (m.rows > 1 || m.cols > 1)),
                 freezeRows: cleanInt(es.fr, 0, 50, 0),
                 freezeCols: cleanInt(es.fc, 0, 10, 0)
@@ -2092,6 +2156,7 @@
             highlightedTds = [];
             frozenEls = [];
             cfPaintedTds = [];
+            filteredRows = new Set();
             applyMerges();
             applyTableHeaders();
             layoutFreeze();
@@ -2099,6 +2164,11 @@
             applyAllStyles();
             applyConditionalFormattingRules();
             highlightSelection();
+            // Filters need the calculated values, so they are applied last
+            if (filtersActive()) {
+                applyFilterVisibility();
+                recalculateAll();
+            }
         }
 
         // ===== Freeze Panes =====
@@ -3157,7 +3227,9 @@
                     values.push(refValue(getCellId(r, c)));
                 }
             }
-            return new RangeVal(maxR - minR + 1, maxC - minC + 1, values);
+            const rv = new RangeVal(maxR - minR + 1, maxC - minC + 1, values);
+            rv.origin = { r: minR, c: minC };
+            return rv;
         }
 
         // While a conditional-formatting formula is evaluated (cfShift is set), unlocked references move with the cell being formatted
@@ -3179,6 +3251,19 @@
         }
 
         // ----- Shared helpers for the function library -----
+        // SUBTOTAL leaves out the rows a table filter is hiding (SUM and the others still count them, like Excel)
+        function skipFilteredRows(a) {
+            if (!isRange(a) || !a.origin || !filteredRows.size) return a;
+            const vals = [];
+            let rows = 0;
+            for (let r = 0; r < a.rows; r++) {
+                if (filteredRows.has(a.origin.r + r)) continue;
+                rows++;
+                for (let c = 0; c < a.cols; c++) vals.push(a.get(r, c));
+            }
+            return new RangeVal(rows, a.cols, vals);
+        }
+
         function collectNumbers(args) {
             const out = [];
             args.forEach(a => {
@@ -3431,7 +3516,7 @@
                 fn: args => {
                     if (args.length < 2) throw new FormulaError('#VALUE!');
                     const code = toNumber(args[0]) % 100;
-                    const rest = args.slice(1);
+                    const rest = args.slice(1).map(skipFilteredRows);
                     const run = { 1: 'AVERAGE', 2: 'COUNT', 3: 'COUNTA', 4: 'MAX', 5: 'MIN', 6: 'PRODUCT', 9: 'SUM' }[code];
                     if (!run) throw new FormulaError('#VALUE!');
                     return FUNCTIONS[run].fn(rest);
@@ -4079,6 +4164,7 @@
             const b = selBounds();
 
             for (let r = b.minR; r <= b.maxR; r++) {
+                if (filteredRows.has(r)) continue;
                 for (let c = b.minC; c <= b.maxC; c++) {
                     count++;
                     let val = getCellValue(getCellId(r, c));
@@ -4104,6 +4190,7 @@
 
             let nums = [];
             for (let r = minR; r <= maxR; r++) {
+                if (filteredRows.has(r)) continue;
                 for (let c = minC; c <= maxC; c++) {
                     let v = Number(getCellValue(getCellId(r, c)));
                     if (!isNaN(v) && getCellValue(getCellId(r, c)) !== '') nums.push(v);
@@ -4251,13 +4338,13 @@
             tableObjects.push({ startR: b.minR, endR: b.maxR, startC: b.minC, endC: b.maxC });
             sheets[currentSheetIdx].tableObjects = tableObjects;
             applyTableHeaders();
-            showToast("Official Table created successfully! Tap a column header to sort.");
+            showToast("Official Table created successfully! Tap a column header to sort or filter.");
             recordHistory("Created Official Table");
         }
 
         function applyTableHeaders() {
             document.querySelectorAll('#spreadsheet-head th.table-header').forEach(th => {
-                th.classList.remove('table-header');
+                th.classList.remove('table-header', 'filtered');
                 th.removeAttribute('title');
             });
             tableObjects.forEach(t => {
@@ -4265,18 +4352,110 @@
                     const th = document.getElementById(`col-th-${c}`);
                     if (th) {
                         th.classList.add('table-header');
-                        th.title = "Tap to Sort";
+                        if (t.hide && t.hide[c]) th.classList.add('filtered');
+                        th.title = "Tap to sort or filter";
                     }
                 }
             });
         }
 
+        // ----- Column menu: sort + value-checklist filter for an Official Table column -----
+        let colMenu = null;
+        const filterKey = id => (data[id] ? String(cellDisplayText(data[id])) : '');
+        const filtersActive = () => tableObjects.some(t => t.hide);
+
         function openSortFilterModal(colIdx, table) {
-            let colLetter = columnToLetter(colIdx);
-            let action = prompt(`Table Column [${colLetter}] Actions:\n1. Sort Ascending (A-Z)\n2. Sort Descending (Z-A)\nEnter 1 or 2:`, "1");
-            if (action === "1" || action === "2") {
-                sortTableColumn(colIdx, table, action === "1");
+            if (table.startR + 1 > table.endR) { showToast('Table has no data rows'); return; }
+            const counts = new Map();
+            for (let r = table.startR + 1; r <= table.endR; r++) {
+                const k = filterKey(getCellId(r, colIdx));
+                counts.set(k, (counts.get(k) || 0) + 1);
             }
+            const items = [...counts.entries()].map(([key, n]) => ({ key, n, label: key === '' ? '(Blanks)' : key }));
+            items.sort((a, b) => (a.key === '') - (b.key === '') || a.label.localeCompare(b.label, undefined, { numeric: true }));
+            const hidden = new Set((table.hide && table.hide[colIdx]) || []);
+            colMenu = { table, colIdx, items, checked: new Set(items.filter(i => !hidden.has(i.key)).map(i => i.key)), search: '' };
+            const head = getCellId(table.startR, colIdx);
+            const name = data[head] && data[head].value !== '' && data[head].value !== undefined ? ` - ${displayValue(data[head].value)}` : '';
+            document.getElementById('cm-title').textContent = `Column ${columnToLetter(colIdx)}${name}`;
+            document.getElementById('cm-search').value = '';
+            renderColMenuList();
+            document.getElementById('colmenu-modal').classList.remove('hidden');
+        }
+        function closeColumnMenu() { document.getElementById('colmenu-modal').classList.add('hidden'); colMenu = null; }
+
+        function colMenuShown() {
+            const q = colMenu.search.trim().toLowerCase();
+            return colMenu.items.filter(i => !q || i.label.toLowerCase().includes(q));
+        }
+        function renderColMenuList() {
+            const shown = colMenuShown();
+            document.getElementById('cm-list').innerHTML = shown.length ? shown.map(i =>
+                `<label class="cm-row"><input type="checkbox" data-k="${colMenu.items.indexOf(i)}"${colMenu.checked.has(i.key) ? ' checked' : ''}><span class="cm-label">${escapeHtml(i.label)}</span><span class="cm-n">${i.n}</span></label>`
+            ).join('') : '<div class="cm-empty">No matching values</div>';
+            document.getElementById('cm-count').textContent = `${colMenu.checked.size} of ${colMenu.items.length} selected`;
+        }
+        function colMenuSearch(v) { colMenu.search = v; renderColMenuList(); }
+        function colMenuToggle(e) {
+            const box = e.target;
+            if (!box.dataset || box.dataset.k === undefined) return;
+            const item = colMenu.items[Number(box.dataset.k)];
+            if (!item) return;
+            if (box.checked) colMenu.checked.add(item.key); else colMenu.checked.delete(item.key);
+            document.getElementById('cm-count').textContent = `${colMenu.checked.size} of ${colMenu.items.length} selected`;
+        }
+        function colMenuSelectShown(on) {
+            colMenuShown().forEach(i => { if (on) colMenu.checked.add(i.key); else colMenu.checked.delete(i.key); });
+            renderColMenuList();
+        }
+        function colMenuSort(ascending) {
+            const { table, colIdx } = colMenu;
+            closeColumnMenu();
+            sortTableColumn(colIdx, table, ascending);
+        }
+        function colMenuApply() {
+            const { table, colIdx, items, checked } = colMenu;
+            if (!checked.size) { showToast('Tick at least one value to show'); return; }
+            const hidden = items.filter(i => !checked.has(i.key)).map(i => i.key);
+            if (hidden.length) { table.hide = table.hide || {}; table.hide[colIdx] = hidden; }
+            else if (table.hide) { delete table.hide[colIdx]; if (!Object.keys(table.hide).length) delete table.hide; }
+            closeColumnMenu();
+            finishFilterChange(`Filtered column ${columnToLetter(colIdx)}`);
+        }
+        function colMenuClearAll() {
+            const { table } = colMenu;
+            if (!table.hide) { showToast('No filters on this table'); return; }
+            delete table.hide;
+            closeColumnMenu();
+            finishFilterChange('Cleared table filters');
+        }
+        function finishFilterChange(label) {
+            applyFilterVisibility();
+            recalculateAll();
+            updateStats();
+            updateInsights();
+            let total = 0;
+            tableObjects.forEach(t => { total += t.endR - t.startR; });
+            showToast(filteredRows.size ? `Showing ${total - filteredRows.size} of ${total} rows` : 'Showing all rows');
+            recordHistory(label);
+        }
+
+        // Hides the rows that fail a table's filters (the table's first row is its header and is never hidden)
+        function applyFilterVisibility() {
+            const next = new Set();
+            tableObjects.forEach(t => {
+                if (!t.hide) return;
+                const cols = Object.keys(t.hide).map(k => [Number(k), new Set(t.hide[k])]);
+                for (let r = t.startR + 1; r <= t.endR; r++) {
+                    if (cols.some(([c, set]) => set.has(filterKey(getCellId(r, c))))) next.add(r);
+                }
+            });
+            const rowEl = r => { const th = document.getElementById(`row-th-${r}`); return th && th.parentElement; };
+            filteredRows.forEach(r => { if (!next.has(r)) { const tr = rowEl(r); if (tr) tr.style.display = ''; } });
+            next.forEach(r => { if (!filteredRows.has(r)) { const tr = rowEl(r); if (tr) tr.style.display = 'none'; } });
+            filteredRows = next;
+            applyTableHeaders();
+            if (freezeRows || freezeCols) layoutFreeze();
         }
 
         // Sorts the table's data rows (the first row of the table is its header) by one column.
@@ -4291,11 +4470,14 @@
             let flattened = false;
             for (let r = firstDataRow; r <= table.endR; r++) {
                 const vals = [];
+                const styles = [];
                 for (let c = table.startC; c <= table.endC; c++) {
                     const id = getCellId(r, c);
                     if (data[id] && data[id].formula) flattened = true;
                     vals.push(getCellValue(id));
+                    styles.push(data[id] && data[id].style ? { ...data[id].style } : {});
                 }
+                vals.styles = styles; // the formatting travels with the row
                 rowsData.push(vals);
             }
             const k = colIdx - table.startC;
@@ -4319,8 +4501,12 @@
                     if (!data[id]) data[id] = { style: {} };
                     data[id].value = v;
                     data[id].formula = '';
+                    data[id].style = vals.styles[i];
+                    applyCellStyle(id);
                 });
             });
+            applyConditionalFormattingRules();
+            if (filtersActive()) applyFilterVisibility();
             recalculateAll();
             updateStats();
             showToast(flattened ? `Sorted by column ${columnToLetter(colIdx)} (formulas in sorted rows became values)` : `Table sorted by column ${columnToLetter(colIdx)}`);

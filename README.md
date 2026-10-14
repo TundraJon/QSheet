@@ -47,7 +47,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 16. ~~Formula Wizard: category/keyword search, per-function argument fields with descriptions (BQ-07).~~ **Done — see Build Log 5.**
 17. Smart guessing for `IF` (5+ signatures), `XLOOKUP`/`VLOOKUP`, and `PMT` headers (BQ-08.2).
 18. Time Travel: visual drawer, scrub forward/back, restore formatting/merges/rules (currently `alert()` restore of cell data only) (BQ-08.4).
-19. Sort & Filter header dropdowns, value checklist filtering with search, view masking in aggregates (BQ-09.2).
+19. ~~Sort & Filter header dropdowns, value checklist filtering with search, view masking in aggregates (BQ-09.2).~~ **Done — see Build Log 12.**
 20. Structured table references (`=SUM(Sales[Amount])`) and auto-expanding tables (BQ-09.1).
 21. Data validation: date rule, touch picker sheets, integrity toasts (BQ-09.3).
 22. Flash Fill and custom-delimiter Text to Columns (BQ-09.4).
@@ -136,7 +136,7 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **Fill colors are no longer wiped by editing.** The conditional-formatting redraw used to blank every cell's background after every edit. It now only touches the cells a rule colored and puts each back to its own fill color when the rule stops applying; rule colors still show on top while they apply.
 - [x] **Spilled cells keep their formatting** when a spill is rebuilt or shrinks.
 - [x] **Time Travel no longer crashes** when you restore a checkpoint taken before a sheet was added (it lands on the last sheet that exists).
-- Not changed: sorting a table still leaves formatting where it is (it does not move with the rows); number formats are still not built (item 12).
+- Not changed: sorting a table still leaves formatting where it is (it does not move with the rows) [fixed in Build Log 12]; number formats are still not built (item 12).
 
 ### Build Log 7 — Item 15: conditional formatting rules (BQ-05 / BQ-06)
 
@@ -193,3 +193,13 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **Date formulas** (DATE, TODAY, NOW, EOMONTH, and date +/- days) pick a date format automatically when entered, unless you already chose a format (a chosen General is kept). Older saved workbooks get the same treatment when opened.
 - [x] **Side effect:** a formula argument that is a single cell (e.g. `SUM(A1)`) now skips text in that cell, like Excel. Text in A1 gives 0.
 - [x] Formats are saved with the workbook; imported style data is whitelisted.
+
+### Build Log 12 — Item 19: sort & filter
+
+- [x] **Tap an Official Table column letter** (A, B, C…) and a column menu opens (it replaces the old pop-up box): **Sort A → Z**, **Sort Z → A**, then a **filter** with a search box and a checklist of that column's values (with a count beside each, and "(Blanks)" last). **Select all** / **Clear** act on the values the search is showing. 44px rows, fits a Pixel 7 screen.
+- [x] **Apply** hides the table rows whose value is unticked (the table's header row never hides). **Clear filters** shows everything again. At least one value must stay ticked. Filters on several columns combine (a row must pass all of them). A toast says "Showing 3 of 6 rows".
+- [x] **Table column letters show a ▾ arrow**; it turns amber ▼ on a filtered column.
+- [x] **Totals work like Excel:** `SUM`, `AVERAGE`, `COUNT`… still count hidden rows; `SUBTOTAL` (9, 109, 103, …) skips rows hidden by a filter; the **Count / Sum / Average strip and the Insights panel skip hidden rows**.
+- [x] **Filters are saved with the workbook** and come back after a restart; Time Travel restores them too. Imported filter data is checked and shown as plain text.
+- [x] **Sorting now moves the formatting with the rows** (fill, bold, number format…). That fixes the backlog bug. A filter is re-applied after a sort. As before, formulas in sorted rows become plain values.
+- Notes: a filter is applied when you press Apply, not live: editing a cell so it no longer matches does not hide its row until you re-apply (like Excel). Row numbers are not renumbered. Arrow keys do not skip hidden rows.
