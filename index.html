@@ -300,6 +300,9 @@
         .cm-name-row input { flex: 1; min-width: 0; min-height: 44px; }
         .cm-name-row button { min-height: 44px; }
         .cm-hint { font-size: 0.75rem; color: #64748b; word-break: break-word; }
+        .ttc-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 0.85rem; color: #475569; }
+        .ttc-check input { width: 22px; height: 22px; flex: none; }
+        #ttc-other.hidden { display: none; }
         .cm-sort { display: flex; gap: 8px; }
         .cm-sort button { flex: 1; min-height: 44px; font-size: 0.9rem; }
         .cm-tools { display: flex; gap: 8px; align-items: center; }
@@ -714,13 +717,10 @@
         /* Plain tappable text (no box): the padding is an invisible tap area that is cancelled by the negative margin, so the Category line does not grow */
         .wiz-fav-toggle { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font: inherit; line-height: 1; font-weight: 500; color: #475569; padding: 12px 16px; margin: -12px -16px; cursor: pointer; }
         .wiz-fav-toggle.on { color: #92400e; }
-        .wizard-item { display: flex; gap: 4px; align-items: stretch; }
-        .wizard-item .wizard-result { flex: 1; min-width: 0; width: auto; }
-        .wiz-star { flex: none; width: 44px; min-height: 48px; padding: 0; font-size: 1.3rem; line-height: 1; display: flex; align-items: center; justify-content: center; background: transparent; border: none; color: #94a3b8; }
-        .wiz-star.on { color: #f59e0b; }
+        /* One box per function: name, category and star share the first line; the description spans the whole box underneath */
         .wizard-result {
             display: grid;
-            grid-template-columns: auto 1fr;
+            grid-template-columns: auto 1fr auto;
             column-gap: 8px;
             align-items: baseline;
             text-align: left;
@@ -728,8 +728,19 @@
             padding: 6px 10px;
             border-radius: 6px;
             width: 100%;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            font-size: 0.8rem;
+            color: var(--text-main);
+            cursor: pointer;
+            flex-shrink: 0;
         }
+        .wizard-result:hover { background: #f1f5f9; border-color: #94a3b8; }
         .wizard-result.selected { border-color: var(--accent-color); background: #e0e9ff; }
+        /* The star is small text on the line; its padding is an invisible tap area cancelled by the negative margin, so the line does not grow */
+        .wiz-star { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font-size: 0.85rem; line-height: 1; padding: 8px 15px; margin: -8px -13px; color: #94a3b8; cursor: pointer; }
+        .wiz-star:hover { background: none; border: none; }
+        .wiz-star.on { color: #f59e0b; }
         .wr-name { font-weight: 700; color: #0f172a; }
         .wr-cat { font-size: 0.7rem; color: #64748b; justify-self: end; }
         .wr-desc { grid-column: 1 / -1; font-size: 0.75rem; color: #475569; font-weight: 400; }
@@ -1090,19 +1101,27 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label>Source Column (e.g. A)</label>
-                    <input type="text" id="ttc-col" value="A">
+                    <input type="text" id="ttc-col" value="A" oninput="ttcInfo()" autocapitalize="characters" autocomplete="off">
+                    <div class="cm-hint" id="ttc-info"></div>
                 </div>
                 <div class="form-group">
-                    <label>Delimiter</label>
-                    <select id="ttc-delimiter">
+                    <label for="ttc-delimiter">Delimiter</label>
+                    <select id="ttc-delimiter" onchange="ttcDelimiterChanged()">
                         <option value=",">Comma (,)</option>
                         <option value=" ">Space ( )</option>
                         <option value="-">Hyphen (-)</option>
+                        <option value=";">Semicolon (;)</option>
+                        <option value="&#9;">Tab</option>
+                        <option value="|">Pipe (|)</option>
+                        <option value="/">Slash (/)</option>
+                        <option value="other">Other...</option>
                     </select>
+                    <input type="text" id="ttc-other" class="hidden" placeholder="Type the character(s) to split on" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
                 </div>
+                <label class="ttc-check"><input type="checkbox" id="ttc-merge"> Treat repeated delimiters as one</label>
                 <div class="form-group">
                     <label>Target Destination Start Column (e.g. B)</label>
-                    <input type="text" id="ttc-dest" value="B">
+                    <input type="text" id="ttc-dest" value="B" autocapitalize="characters" autocomplete="off">
                 </div>
             </div>
             <div class="modal-footer">
@@ -2458,6 +2477,7 @@
                         <button class="primary" onclick="createOfficialTable()">Table (Ctrl+T)</button>
                         <button onclick="openDataValidation()">Validation</button>
                         <button onclick="openTextToColumns()">Text to Columns</button>
+                        <button onclick="runFlashFill()">Flash Fill</button>
                         <button onclick="rerollRandoms()">&#127922; Re&#8209;roll</button>
                     </div>
                     <div class="ribbon-group">
@@ -5109,34 +5129,276 @@
         }
 
         // Text to Columns
-        function openTextToColumns() { document.getElementById('ttc-modal').classList.remove('hidden'); }
+        // Text to Columns: splits the text of one column across the columns to its right. It starts from your selection:
+        // a block of cells in one column splits just those rows, otherwise every row with text in the column is split.
+        let ttcSel = null;
+        function openTextToColumns() {
+            const b = selBounds();
+            const multi = b.minR !== b.maxR || b.minC !== b.maxC;
+            ttcSel = multi ? { r1: b.minR, r2: b.maxR, c: b.minC } : null;
+            document.getElementById('ttc-col').value = columnToLetter(b.minC);
+            document.getElementById('ttc-dest').value = b.minC + 1 < COLS ? columnToLetter(b.minC + 1) : '';
+            document.getElementById('ttc-merge').checked = false;
+            ttcInfo();
+            ttcDelimiterChanged();
+            document.getElementById('ttc-modal').classList.remove('hidden');
+        }
         function closeTextToColumns() { document.getElementById('ttc-modal').classList.add('hidden'); }
+        function ttcInfo() {
+            const c = letterToColumn(document.getElementById('ttc-col').value.trim().toUpperCase());
+            const info = document.getElementById('ttc-info');
+            if (ttcSel && c === ttcSel.c) info.textContent = `Splits ${getCellId(ttcSel.r1, c)}:${getCellId(ttcSel.r2, c)} (your selection)`;
+            else info.textContent = `Splits every row with text in column ${columnToLetter(Math.max(0, c))}`;
+        }
+        function ttcDelimiterChanged() {
+            const other = document.getElementById('ttc-other');
+            other.classList.toggle('hidden', document.getElementById('ttc-delimiter').value !== 'other');
+        }
+        const escapeRegex = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         function executeTextToColumns() {
-            let srcColLetter = document.getElementById('ttc-col').value.toUpperCase();
+            const srcC = letterToColumn(document.getElementById('ttc-col').value.trim().toUpperCase());
+            const destC = letterToColumn(document.getElementById('ttc-dest').value.trim().toUpperCase());
+            if (!(srcC >= 0 && srcC < COLS)) { showToast('Type the source column as a letter, like B'); return; }
+            if (!(destC >= 0 && destC < COLS)) { showToast('Type the destination column as a letter, like C'); return; }
             let delim = document.getElementById('ttc-delimiter').value;
-            let destColLetter = document.getElementById('ttc-dest').value.toUpperCase();
-            let srcC = letterToColumn(srcColLetter);
-            let destC = letterToColumn(destColLetter);
-
-            for (let r = 0; r < ROWS; r++) {
-                let srcVal = String(getCellValue(getCellId(r, srcC)));
-                if (srcVal && srcVal.includes(delim)) {
-                    let parts = srcVal.split(delim);
-                    parts.forEach((part, idx) => {
-                        let targetC = destC + idx;
-                        if (targetC < COLS) {
-                            let targetCellId = getCellId(r, targetC);
-                            if (!data[targetCellId]) data[targetCellId] = {};
-                            data[targetCellId].value = isNaN(part.trim()) ? part.trim() : Number(part.trim());
-                            data[targetCellId].formula = '';
-                        }
-                    });
-                }
+            if (delim === 'other') {
+                delim = document.getElementById('ttc-other').value;
+                if (delim === '') { showToast('Type the character(s) to split on'); return; }
             }
+            const merge = document.getElementById('ttc-merge').checked;
+            const splitter = merge ? new RegExp('(?:' + escapeRegex(delim) + ')+') : delim;
+            const useSel = ttcSel && ttcSel.c === srcC;
+            const r1 = useSel ? ttcSel.r1 : 0, r2 = useSel ? ttcSel.r2 : ROWS - 1;
+            // Work out every split first, so the source column can safely be part of the destination
+            const jobs = [];
+            let widest = 0, clipped = false;
+            for (let r = r1; r <= r2; r++) {
+                const cell = data[getCellId(r, srcC)];
+                const text = cell ? String(cellDisplayText(cell)) : '';
+                if (!text || !text.includes(delim)) continue;
+                let parts = text.split(splitter).map(t => t.trim());
+                if (destC + parts.length > COLS) { parts = parts.slice(0, COLS - destC); clipped = true; }
+                jobs.push({ r, parts });
+                widest = Math.max(widest, parts.length);
+            }
+            if (!jobs.length) { showToast('Nothing to split: no text contains that delimiter'); return; }
+            let occupied = 0;
+            jobs.forEach(j => j.parts.forEach((part, k) => {
+                const t = data[getCellId(j.r, destC + k)];
+                if (t && ((t.value !== '' && t.value !== undefined && t.value !== null) || t.formula)) occupied++;
+            }));
+            if (occupied && !confirm(`${occupied} cell${occupied === 1 ? '' : 's'} where the pieces go already ${occupied === 1 ? 'holds' : 'hold'} something. Replace ${occupied === 1 ? 'it' : 'them'}?`)) return;
+            jobs.forEach(j => j.parts.forEach((part, k) => {
+                const id = getCellId(j.r, destC + k);
+                if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
+                if (!data[id].style) data[id].style = {};
+                delete data[id].spillOf;
+                data[id].formula = '';
+                data[id].value = parseTypedValue(part, data[id].style);
+            }));
             recalculateAll();
             closeTextToColumns();
-            showToast(`Text split successfully starting at ${destColLetter}`);
+            selectionRange = { startRow: jobs[0].r, startCol: destC, endRow: jobs[jobs.length - 1].r, endCol: destC + widest - 1 };
+            setActiveCell(jobs[0].r, destC);
+            updateStats();
+            showToast(`Split ${jobs.length} cell${jobs.length === 1 ? '' : 's'} into ${widest} column${widest === 1 ? '' : 's'} starting at ${columnToLetter(destC)}${clipped ? ' (the rest did not fit)' : ''}`);
             recordHistory("Executed Text to Columns");
+        }
+
+        // ===== Flash Fill =====
+        // Type one or two examples of what you want in a column next to your data, then tap Flash Fill: the app works out the
+        // pattern (a word, a piece before or after a character, initials, a case change, text added around it, two columns joined...)
+        // and fills the empty cells below. A pattern is a short recipe of up to three pieces taken from the neighbouring columns plus fixed text.
+        const FF_CASES = [
+            { k: 'none', cost: 0, label: '', f: t => t },
+            { k: 'upper', cost: 0.5, label: ' in UPPERCASE', f: t => t.toUpperCase() },
+            { k: 'lower', cost: 0.5, label: ' in lowercase', f: t => t.toLowerCase() },
+            { k: 'proper', cost: 0.5, label: ' in Proper Case', f: t => properCase(t) }
+        ];
+        const FF_MAX_PIECES = 3, FF_NODE_LIMIT = 400000;
+        const ffWords = t => t.trim().split(/\s+/).filter(Boolean);
+        const ffNth = n => ['first', 'second', 'third', 'fourth', 'fifth', 'sixth'][n - 1];
+
+        // Every way of cutting a piece out of one cell's text (null when it does not apply to a text)
+        function ffExtractors(samples) {
+            const list = [];
+            const add = (cost, label, f) => list.push({ cost, label, f });
+            add(0, 'the text', t => t.trim());
+            for (let i = 1; i <= 6; i++) add(1 + 0.01 * i, `the ${ffNth(i)} word`, t => { const w = ffWords(t); return w[i - 1] !== undefined ? w[i - 1] : null; });
+            [['last', 1], ['second-to-last', 2], ['third-to-last', 3]].forEach(([name, i]) => add(1.05 * (i === 1 ? 0.9 : i), `the ${name} word`, t => { const w = ffWords(t); return w[w.length - i] !== undefined ? w[w.length - i] : null; }));
+            const delims = [];
+            samples.forEach(t => { for (const ch of t) if (!/[A-Za-z0-9À-ɏ\s]/.test(ch) && !delims.includes(ch) && delims.length < 5) delims.push(ch); });
+            delims.forEach(d => {
+                for (let i = 1; i <= 6; i++) add(1 + 0.01 * i, `part ${i} when split at "${d}"`, t => { if (!t.includes(d)) return null; const parts = t.split(d); return parts[i - 1] !== undefined ? parts[i - 1].trim() : null; });
+                [1, 2].forEach(i => add(i === 1 ? 0.95 : 1.1, i === 1 ? `the last part when split at "${d}"` : `the second-to-last part when split at "${d}"`, t => { if (!t.includes(d)) return null; const parts = t.split(d); return parts[parts.length - i] !== undefined ? parts[parts.length - i].trim() : null; }));
+                add(2, `the text before "${d}"`, t => { const x = t.indexOf(d); return x < 0 ? null : t.slice(0, x).trim(); });
+                add(2, `the text after "${d}"`, t => { const x = t.indexOf(d); return x < 0 ? null : t.slice(x + d.length).trim(); });
+                add(2, `the text before the last "${d}"`, t => { const x = t.lastIndexOf(d); return x < 0 ? null : t.slice(0, x).trim(); });
+                add(2, `the text after the last "${d}"`, t => { const x = t.lastIndexOf(d); return x < 0 ? null : t.slice(x + d.length).trim(); });
+            });
+            [['(', ')'], ['[', ']'], ['{', '}'], ['<', '>'], ['"', '"'], ["'", "'"]].forEach(([o, c]) => {
+                if (!samples.some(t => t.includes(o))) return;
+                add(2, `the text inside ${o}${c}`, t => { const a = t.indexOf(o); if (a < 0) return null; const z = t.indexOf(c, a + 1); return z < 0 ? null : t.slice(a + 1, z).trim(); });
+            });
+            for (let n = 1; n <= 12; n++) {
+                add(3.3, `the first ${n} character${n === 1 ? '' : 's'}`, t => { const x = t.trim(); return x.length >= n ? x.slice(0, n) : null; });
+                add(3.3, `the last ${n} character${n === 1 ? '' : 's'}`, t => { const x = t.trim(); return x.length >= n ? x.slice(x.length - n) : null; });
+                if (n >= 2) add(3.3, `everything from character ${n}`, t => { const x = t.trim(); return x.length >= n ? x.slice(n - 1) : null; });
+                add(3.3, `all but the last ${n} character${n === 1 ? '' : 's'}`, t => { const x = t.trim(); return x.length > n ? x.slice(0, x.length - n) : null; });
+            }
+            for (let k = 2; k <= 12; k++) for (let n = 1; n <= 12; n++) add(3.6, `characters ${k} to ${k + n - 1}`, t => { const x = t.trim(); return x.length >= k + n - 1 ? x.slice(k - 1, k + n - 1) : null; });
+            add(3, 'the digits', t => { const x = t.replace(/\D/g, ''); return x === '' ? null : x; });
+            add(3, 'the letters', t => { const x = t.replace(/[^A-Za-zÀ-ɏ]/g, ''); return x === '' ? null : x; });
+            add(3, 'the initials', t => { const x = ffWords(t).map(w => w[0]).join(''); return x === '' ? null : x; });
+            for (let i = 1; i <= 4; i++) add(2, `the initial of the ${ffNth(i)} word`, t => { const w = ffWords(t); return w[i - 1] !== undefined ? w[i - 1][0] : null; });
+            add(2, 'the initial of the last word', t => { const w = ffWords(t); return w.length ? w[w.length - 1][0] : null; });
+            return list;
+        }
+
+        // rows: [{ src: [text per source column], out: the example result }]. Returns the cheapest recipe that gives every example, or null.
+        function flashFillSolve(rows, nSources, others) {
+            const samples = [];
+            rows.forEach(r => r.src.forEach(t => samples.push(t)));
+            const extractors = ffExtractors(samples);
+            const first = rows[0].out;
+            const unique = new Map();
+            const rest = (others || []).slice(0, 60);
+            for (let si = 0; si < nSources; si++) {
+                extractors.forEach(e => {
+                    const base = rows.map(r => e.f(r.src[si]));
+                    if (base.some(v => v === null || v === '')) return;
+                    const baseRest = rest.map(src => e.f(src[si]));
+                    // A piece that does not even apply to the other rows is less likely to be the pattern you meant
+                    const miss = baseRest.filter(v => v === null || v === '').length;
+                    const penalty = rest.length ? 6 * miss / rest.length : 0;
+                    FF_CASES.forEach(c => {
+                        const outs = base.map(c.f);
+                        if (first.indexOf(outs[0]) < 0) return;
+                        const cost = e.cost + c.cost + si * 0.01 + penalty;
+                        // Pieces that give the same text on the examples are told apart by what they do to the other rows
+                        const key = outs.join('\u0001') + '\u0002' + baseRest.map(v => (v === null || v === '' ? '\u0003' : c.f(v))).join('\u0001');
+                        const old = unique.get(key);
+                        if (!old || cost < old.cost) unique.set(key, { si, e, c, cost, outs });
+                    });
+                });
+            }
+            const pieces = [...unique.values()];
+            let best = null, nodes = 0;
+            const consider = (chosen, consts) => {
+                for (let r = 0; r < rows.length; r++) {
+                    let t = consts[0];
+                    for (let k = 0; k < chosen.length; k++) t += chosen[k].outs[r] + consts[k + 1];
+                    if (t !== rows[r].out) return;
+                }
+                let cost = chosen.length * 0.3;
+                chosen.forEach(p => { cost += p.cost; });
+                // Fixed text costs more the more letters and digits it has (those are usually pieces of the data, not fixed text)
+                consts.forEach(x => { if (x) cost += 0.4 + 0.05 * x.length + 3 * (x.match(/[A-Za-z0-9\u00C0-\u024F]/g) || []).length; });
+                if (!best || cost < best.cost) best = { pieces: chosen.slice(), consts: consts.slice(), cost };
+            };
+            const dfs = (chosen, consts, pos) => {
+                if (nodes++ > FF_NODE_LIMIT) return;
+                if (chosen.length) consider(chosen, [...consts, first.slice(pos)]);
+                if (chosen.length === FF_MAX_PIECES) return;
+                for (const p of pieces) {
+                    const idx = first.indexOf(p.outs[0], pos);
+                    if (idx < 0) continue;
+                    chosen.push(p); consts.push(first.slice(pos, idx));
+                    dfs(chosen, consts, idx + p.outs[0].length);
+                    chosen.pop(); consts.pop();
+                }
+            };
+            dfs([], [], 0);
+            return best;
+        }
+        function flashFillApply(program, srcTexts) {
+            let t = program.consts[0];
+            for (let k = 0; k < program.pieces.length; k++) {
+                const p = program.pieces[k];
+                const v = p.e.f(srcTexts[p.si]);
+                if (v === null || v === '') return null;
+                t += p.c.f(v) + program.consts[k + 1];
+            }
+            return t;
+        }
+        function flashFillDescribe(program, srcLetters) {
+            const several = new Set(program.pieces.map(p => p.si)).size > 1;
+            const parts = [];
+            program.consts.forEach((x, k) => {
+                if (x) parts.push(`"${x}"`);
+                const p = program.pieces[k];
+                if (p) parts.push(`${several ? srcLetters[p.si] + ': ' : ''}${p.e.label}${p.c.label}`);
+            });
+            return parts.join(' + ');
+        }
+
+        function runFlashFill() {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            const outC = activeCell.col;
+            const multi = b.maxR > b.minR;
+            const typed = r => { const c = data[getCellId(r, outC)]; return c && !c.formula && !c.spillOf && c.value !== '' && c.value !== undefined && c.value !== null; };
+            const empty = r => { const c = data[getCellId(r, outC)]; return !c || (!c.formula && !c.spillOf && (c.value === '' || c.value === undefined || c.value === null)); };
+            const textOf = (r, c) => { const cell = data[getCellId(r, c)]; return cell ? String(cellDisplayText(cell)) : ''; };
+            // Rows to work on: the selected rows, or from the top to the last row of the neighbouring data
+            let r1 = multi ? b.minR : 0, r2 = multi ? b.maxR : ROWS - 1;
+            if (!multi) {
+                let last = -1;
+                for (let c = Math.max(0, outC - 3); c <= Math.min(COLS - 1, outC + 3); c++) {
+                    if (c === outC) continue;
+                    for (let r = ROWS - 1; r >= 0; r--) if (textOf(r, c) !== '') { last = Math.max(last, r); break; }
+                }
+                if (last < 0) { showToast('Flash Fill needs data in the columns next to this one, on the same rows as your examples'); return; }
+                r2 = last;
+            }
+            // The examples are the typed cells at the top of the column (one after another); typed cells further down are left alone
+            const exRows = [];
+            let firstTyped = -1;
+            for (let r = r1; r <= r2; r++) if (typed(r)) { firstTyped = r; break; }
+            if (firstTyped >= 0) for (let r = firstTyped; r <= r2 && typed(r); r++) exRows.push(r);
+            if (!exRows.length) { showToast('Type an example or two in this column first, then tap Flash Fill'); return; }
+            // Source columns: the nearest ones with text on every example row (left side first)
+            const order = [];
+            for (let d = 1; d <= 3; d++) if (outC - d >= 0) order.push(outC - d);
+            for (let d = 1; d <= 3; d++) if (outC + d < COLS) order.push(outC + d);
+            const srcCols = order.filter(c => exRows.every(r => textOf(r, c) !== '')).slice(0, 4);
+            if (!srcCols.length) { showToast('Flash Fill needs data in the columns next to this one, on the same rows as your examples'); return; }
+            const mk = rowsList => rowsList.map(r => ({ src: srcCols.map(c => textOf(r, c)), out: String(data[getCellId(r, outC)].value) }));
+            const others = [];
+            for (let r = r1; r <= r2 && others.length < 60; r++) {
+                if (!empty(r)) continue;
+                const t = srcCols.map(c => textOf(r, c));
+                if (t.some(x => x !== '')) others.push(t);
+            }
+            let program = flashFillSolve(mk(exRows), srcCols.length, others);
+            // The first typed cell may be a heading, not an example
+            if (!program && exRows.length > 1 && exRows[0] === r1) program = flashFillSolve(mk(exRows.slice(1)), srcCols.length, others);
+            if (!program) { showToast(exRows.length > 1 ? 'Your examples do not follow one pattern. Check them, or try fewer' : 'Could not see a pattern. Try giving a second example'); return; }
+            const filled = [];
+            let skipped = 0;
+            for (let r = r1; r <= r2; r++) {
+                if (!empty(r)) continue;
+                const srcTexts = srcCols.map(c => textOf(r, c));
+                if (srcTexts.every(t => t === '')) continue;
+                const out = flashFillApply(program, srcTexts);
+                if (out === null) { skipped++; continue; }
+                filled.push([r, out]);
+            }
+            if (!filled.length) { showToast(skipped ? 'The pattern does not fit the other rows' : 'Nothing to fill: every cell next to your data already has something'); return; }
+            filled.forEach(([r, out]) => {
+                const id = getCellId(r, outC);
+                if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
+                if (!data[id].style) data[id].style = {};
+                data[id].formula = '';
+                data[id].value = parseTypedValue(out, data[id].style);
+            });
+            recalculateAll();
+            selectionRange = { startRow: filled[0][0], startCol: outC, endRow: filled[filled.length - 1][0], endCol: outC };
+            setActiveCell(filled[0][0], outC);
+            updateStats();
+            const how = flashFillDescribe(program, srcCols.map(c => columnToLetter(c)));
+            showToast(`Flash Fill: filled ${filled.length} cell${filled.length === 1 ? '' : 's'} (${how})${skipped ? `. ${skipped} row${skipped === 1 ? '' : 's'} did not fit` : ''}`);
+            recordHistory('Flash Fill');
         }
 
         // ===== Formula Wizard (guided function builder) =====
@@ -5379,13 +5641,11 @@
             const none = wizFavOnly && !wizFavs.size ? 'No favorites yet. Turn Favorites off and tap the \u2729 beside a function to add it.' : 'No functions match. Try another word or category.';
             document.getElementById('wizard-count').innerText = list.length ? `${list.length} function${list.length === 1 ? '' : 's'}` : none;
             document.getElementById('wizard-results').innerHTML = list.map(f => `
-                <div class="wizard-item">
-                    <button type="button" class="wizard-result${f.name === chosen ? ' selected' : ''}" data-fn="${f.name}" onclick="selectWizardFunction('${f.name}')">
-                        <span class="wr-name">${f.name}</span>
-                        <span class="wr-cat">${f.cat}</span>
-                        <span class="wr-desc">${f.desc}</span>
-                    </button>
-                    <button type="button" class="wiz-star${wizFavs.has(f.name) ? ' on' : ''}" data-star="${f.name}" aria-pressed="${wizFavs.has(f.name)}" aria-label="${wizFavs.has(f.name) ? 'Remove ' + f.name + ' from favorites' : 'Add ' + f.name + ' to favorites'}" onclick="toggleWizardFavorite('${f.name}')">${wizFavs.has(f.name) ? '\u2B50' : '\u2729'}</button>
+                <div class="wizard-result${f.name === chosen ? ' selected' : ''}" role="button" tabindex="0" data-fn="${f.name}" onclick="selectWizardFunction('${f.name}')" onkeydown="if (event.target === this && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectWizardFunction('${f.name}'); }">
+                    <span class="wr-name">${f.name}</span>
+                    <span class="wr-cat">${f.cat}</span>
+                    <button type="button" class="wiz-star${wizFavs.has(f.name) ? ' on' : ''}" data-star="${f.name}" aria-pressed="${wizFavs.has(f.name)}" aria-label="${wizFavs.has(f.name) ? 'Remove ' + f.name + ' from favorites' : 'Add ' + f.name + ' to favorites'}" onclick="event.stopPropagation(); toggleWizardFavorite('${f.name}')">${wizFavs.has(f.name) ? '\u2B50' : '\u2729'}</button>
+                    <span class="wr-desc">${f.desc}</span>
                 </div>`).join('');
         }
 
