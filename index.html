@@ -3566,8 +3566,11 @@
             });
         }
         // SENTENCE: the first letter is a capital and everything else is lowercase (leading spaces, quotes and brackets are skipped; a text that starts with a digit gets no capital)
+        // A lone "i" is always a capital (i think i can -> I think I can; i'm, i'll, i've, i'd too), but i.e. is left alone
         function sentenceCase(text) {
-            return text.toLowerCase().replace(/^([^A-Za-z0-9À-ɏ]*)([A-Za-zÀ-ɏ])/, (m, lead, c) => lead + c.toUpperCase());
+            return text.toLowerCase()
+                .replace(/^([^A-Za-z0-9À-ɏ]*)([A-Za-zÀ-ɏ])/, (m, lead, c) => lead + c.toUpperCase())
+                .replace(/(^|[\s("“\[{])i(?=$|[\s,;:!?)\]}"”]|\.(?!e(?![A-Za-zÀ-ɏ]))|['’](?:m|ll|ve|d)(?![A-Za-zÀ-ɏ]))/g, '$1I');
         }
 
         // ----- Helpers for TEXT, VALUE, SEARCH and friends -----
@@ -5111,7 +5114,7 @@
             { name: 'CLEAN', cat: 'Text & String', desc: 'Removes hidden non-printing characters.', kw: 'invisible strip', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
             { name: 'UPPER', cat: 'Text & String', desc: 'Makes text ALL CAPS.', kw: 'capital uppercase', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
             { name: 'LOWER', cat: 'Text & String', desc: 'Makes text all lowercase.', kw: 'lowercase', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
-            { name: 'SENTENCE', cat: 'Text & String', desc: 'Capitalizes the first letter and lowercases the rest: "the LOST mines" becomes "The lost mines". QSheet only.', kw: 'capitalize first letter sentence case', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'SENTENCE', cat: 'Text & String', desc: 'Capitalizes the first letter and lowercases the rest: "the LOST mines" becomes "The lost mines". A lone i always becomes I (i.e. is left alone). QSheet only.', kw: 'capitalize first letter sentence case', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
             { name: 'PROPER', cat: 'Text & String', desc: 'Capitalizes The First Letter Of Each Word and lowercases the rest. Apostrophes are handled: don\'t becomes Don\'t, o\'brien becomes O\'Brien.', kw: 'title case names', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
             { name: 'SUBSTITUTE', cat: 'Text & String', desc: 'Swaps some text for other text inside a string.', kw: 'replace find', args: [wa('text', 'The text to change', 'A2', { t: 'val' }), wa('old_text', 'The text to find', '"-"', { t: 'val' }), wa('new_text', 'What to put in its place', '" "', { t: 'val' }), wa('instance_num', 'Only change this occurrence (blank = all of them)', '1', { t: 'num', opt: true })] },
 
