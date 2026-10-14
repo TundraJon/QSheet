@@ -1313,12 +1313,26 @@
             try { return exprFormat(parseFormula(String(formula).substring(1).trim()), lookup); } catch (e) { return null; }
         }
 
+        // =RNDBETWEEN(low, high, 2) shows its two places (6.00), so the cell takes the Decimal format
+        function rndbetweenPlaces(formula) {
+            try {
+                const n = parseFormula(String(formula).substring(1).trim());
+                if (n.t === 'call' && n.name === 'RNDBETWEEN' && n.args.length >= 3 && n.args[2].t === 'num') {
+                    const d = Math.trunc(n.args[2].v);
+                    if (d >= 1 && d <= MAX_DECIMALS) return d;
+                }
+            } catch (e) { /* not a formula that picks a format */ }
+            return 0;
+        }
+
         // Done when an entry is committed, so a half-typed formula does not pick a format
         function autoDateFormat(cellId) {
             const cell = data[cellId];
             if (!cell || !cell.formula) return;
             const st = cell.style || (cell.style = {});
             if (st.numFormat !== undefined) return;
+            const places = rndbetweenPlaces(cell.formula);
+            if (places) { st.numFormat = 'decimal'; st.decimals = places; applyCellStyle(cellId); renderCellDisplay(cellId); syncNumberFormatSelect(); return; }
             const f = dateFormatForFormula(cell.formula, id => (data[id] && data[id].style ? data[id].style.numFormat : undefined));
             if (f) { st.numFormat = f; applyCellStyle(cellId); renderCellDisplay(cellId); syncNumberFormatSelect(); }
         }
@@ -1474,7 +1488,7 @@
                 if (!hasFormula && si === undefined) cells[id] = value;
                 else {
                     const o = {};
-                    if (hasFormula) o.f = cell.formula; else if (hasValue) o.v = value;
+                    if (hasFormula) { o.f = cell.formula; if (hasRolls(cell)) o.r = cell.rolls.map(v => (typeof v === 'number' ? v : null)); } else if (hasValue) o.v = value;
                     if (si !== undefined) o.s = si;
                     cells[id] = o;
                 }
@@ -1555,6 +1569,10 @@
                 if (c !== null && typeof c === 'object') {
                     const st = (c.s !== undefined) ? cleanStyle(styles[c.s]) : {};
                     data[id] = { style: st, value: c.v !== undefined ? c.v : '', formula: typeof c.f === 'string' && c.f.startsWith('=') ? c.f : '' };
+                    if (data[id].formula && Array.isArray(c.r)) {
+                        const rolls = c.r.slice(0, 20).map(v => (typeof v === 'number' && v >= 0 && v < 1 ? v : null));
+                        if (rolls.some(v => v !== null)) data[id].rolls = rolls;
+                    }
                 } else if (typeof c === 'string' || typeof c === 'number' || typeof c === 'boolean') {
                     data[id] = { style: {}, value: c, formula: '' };
                 }
@@ -2399,6 +2417,7 @@
                         <button class="primary" onclick="createOfficialTable()">Table (Ctrl+T)</button>
                         <button onclick="openDataValidation()">Validation</button>
                         <button onclick="openTextToColumns()">Text to Columns</button>
+                        <button onclick="rerollRandoms()">&#127922; Re&#8209;roll</button>
                     </div>
                     <div class="ribbon-group">
                         <button onclick="exportCSV()">Export CSV</button>
@@ -2828,9 +2847,11 @@
             if (!cell.style) cell.style = {};
             delete cell.spillOf; // typing over a spilled cell takes it over
             if (value.startsWith('=') && cell.style.numFormat !== 'text') {
+                if (cell.formula !== value) delete cell.rolls; // a changed formula rolls afresh; the same text keeps its rolls
                 cell.formula = value;
                 cell.value = evaluateFormula(value, coord.r, coord.c);
             } else {
+                delete cell.rolls;
                 cell.formula = '';
                 cell.value = parseTypedValue(value, cell.style);
             }
@@ -2906,10 +2927,13 @@
             return tokens;
         }
 
+        const HELD_RANDOM = new Set(['RND', 'RNDBETWEEN']);
         function parseFormula(src) {
             if (astCache.has(src)) return astCache.get(src);
             const tokens = tokenizeFormula(src);
             let p = 0;
+            let slots = 0; // each RND / RNDBETWEEN call in the formula gets its own number, so its roll can be held
+            const mkCall = (name, args) => (HELD_RANDOM.has(name) ? { t: 'call', name, args, slot: slots++ } : { t: 'call', name, args });
             const peek = () => tokens[p];
             const isOp = (v) => tokens[p] && tokens[p].t === 'op' && tokens[p].v === v;
 
@@ -2986,7 +3010,7 @@
                     if (isOp('(')) {
                         p++;
                         const args = [];
-                        if (isOp(')')) { p++; return { t: 'call', name: tok.v, args }; }
+                        if (isOp(')')) { p++; return mkCall(tok.v, args); }
                         while (true) {
                             // an empty argument (as in XLOOKUP(a,b,c,,1)) means "use the default"
                             if (isOp(',') || isOp(')')) args.push({ t: 'empty' });
@@ -2995,7 +3019,7 @@
                             if (isOp(')')) { p++; break; }
                             throw new FormulaError('#ERROR!');
                         }
-                        return { t: 'call', name: tok.v, args };
+                        return mkCall(tok.v, args);
                     }
                     if (tok.v === 'TRUE') return { t: 'bool', v: true };
                     if (tok.v === 'FALSE') return { t: 'bool', v: false };
@@ -3138,6 +3162,8 @@
             if (calcState.done.has(id)) return;
             if (calcState.busy.has(id)) throw new FormulaError('#CIRC!');
             calcState.busy.add(id);
+            const outerCell = rollCell;
+            rollCell = id;
             try {
                 const coord = parseCellCoord(id);
                 const result = evalFormulaCore(cell.formula, coord.r, coord.c);
@@ -3149,6 +3175,7 @@
                     cell.value = result;
                 }
             } finally {
+                rollCell = outerCell;
                 calcState.busy.delete(id);
                 calcState.done.add(id);
             }
@@ -3473,6 +3500,27 @@
             return (lo + hi) / 2;
         }
 
+        // ----- Random numbers -----
+        // RAND / RANDBETWEEN pick new numbers every recalculation (like Excel). RND / RNDBETWEEN keep theirs: the
+        // roll (a number from 0 up to 1) is stored on the cell, one per call in the formula, until the user re-rolls.
+        let rollCell = null; // the cell whose formula is being calculated
+        function heldRoll(slot) {
+            const cell = rollCell && data[rollCell];
+            if (!cell || !cell.formula || slot === undefined) return Math.random();
+            if (!Array.isArray(cell.rolls)) cell.rolls = [];
+            let u = cell.rolls[slot];
+            if (typeof u !== 'number' || !(u >= 0 && u < 1)) { u = Math.random(); cell.rolls[slot] = u; }
+            return u;
+        }
+        const hasRolls = cell => Array.isArray(cell.rolls) && cell.rolls.some(v => typeof v === 'number');
+        // A roll u (0 up to 1) becomes one of the values low, low + step ... high, each equally likely
+        function betweenFromRoll(u, low, high, decimals) {
+            const p = Math.pow(10, decimals);
+            const lo = Math.ceil(low * p - 1e-9), hi = Math.floor(high * p + 1e-9);
+            if (hi < lo) throw new FormulaError('#NUM!');
+            return (lo + Math.floor(u * (hi - lo + 1))) / p;
+        }
+
         // ----- Function registry -----
         // fn(args, curR, curC): args are already evaluated (ranges arrive as RangeVal).
         // { lazy: true } functions get (nodes, evaluate, curR, curC) so they can skip or catch errors in arguments.
@@ -3512,6 +3560,16 @@
             ROUND: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'half') },
             ROUNDUP: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'up') },
             ROUNDDOWN: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'down') },
+            RAND: { fn: () => Math.random() },
+            RANDBETWEEN: { fn: args => betweenFromRoll(Math.random(), toNumber(args[0]), toNumber(args[1]), 0) },
+            RND: { fn: (args, r, c, node) => heldRoll(node && node.slot) },
+            RNDBETWEEN: {
+                fn: (args, r, c, node) => {
+                    const d = args.length > 2 && !isBlank(unwrap(args[2])) ? Math.trunc(toNumber(args[2])) : 0;
+                    if (d < 0 || d > MAX_DECIMALS) throw new FormulaError('#NUM!');
+                    return betweenFromRoll(heldRoll(node && node.slot), toNumber(args[0]), toNumber(args[1]), d);
+                }
+            },
             // Visible-only versions: the same as SUM, AVERAGE ... but leave out rows a table filter is hiding (QSheet only)
             SUMV: { fn: args => FUNCTIONS.SUM.fn(args.map(skipFilteredRows)) },
             AVERAGEV: { fn: args => FUNCTIONS.AVERAGE.fn(args.map(skipFilteredRows)) },
@@ -4041,6 +4099,7 @@
         const ARG_LIMITS = {
             SUM: [1, Infinity], AVERAGE: [1, Infinity], COUNT: [1, Infinity], COUNTA: [1, Infinity], MIN: [1, Infinity], MAX: [1, Infinity],
             MEDIAN: [1, Infinity], PRODUCT: [1, Infinity], CONCAT: [1, Infinity],
+            RAND: [0, 0], RANDBETWEEN: [2, 2], RND: [0, 0], RNDBETWEEN: [2, 3],
             SUMV: [1, Infinity], AVERAGEV: [1, Infinity], COUNTV: [1, Infinity], COUNTAV: [1, Infinity], MAXV: [1, Infinity], MINV: [1, Infinity], PRODUCTV: [1, Infinity],
             ABS: [1, 1], MOD: [2, 2], ROUND: [1, 2], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], NOT: [1, 1],
             LEFT: [1, 2], RIGHT: [1, 2], LEN: [1, 1], TRIM: [1, 1], CLEAN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], PROPER: [1, 1],
@@ -4087,7 +4146,7 @@
                     if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!');
                     // A single cell passed to a function counts as a cell (like a range of one): text in it is skipped by SUM, AVERAGE, ...
                     const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'ref' ? refArg(a, curR, curC) : evalNode(a, curR, curC)));
-                    return def.fn(args, curR, curC);
+                    return def.fn(args, curR, curC, n);
                 }
             }
             throw new FormulaError('#ERROR!');
@@ -4348,6 +4407,30 @@
         // Settings Modal
         function openSettingsModal() { document.getElementById('settings-modal').classList.remove('hidden'); }
         function closeSettingsModal() { document.getElementById('settings-modal').classList.add('hidden'); }
+
+        // Re-roll: gives the RND / RNDBETWEEN cells new numbers (the selected cells, or the whole sheet when one cell is selected)
+        function rerollRandoms() {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            const single = b.minR === b.maxR && b.minC === b.maxC;
+            let n = 0;
+            for (const id in data) {
+                const cell = data[id];
+                if (!hasRolls(cell)) continue;
+                if (!single) {
+                    const co = parseCellCoord(id);
+                    if (co.r < b.minR || co.r > b.maxR || co.c < b.minC || co.c > b.maxC) continue;
+                }
+                delete cell.rolls;
+                n++;
+            }
+            if (!n) { showToast(single ? 'No RND or RNDBETWEEN cells on this sheet' : 'No RND or RNDBETWEEN cells in the selection'); return; }
+            recalculateAll();
+            updateStats();
+            applyConditionalFormattingRules();
+            showToast(`Re-rolled ${n} cell${n === 1 ? '' : 's'}`);
+            recordHistory('Re-rolled');
+        }
 
         // Official Tables (Ctrl + T) & Sort
         function createOfficialTable() {
@@ -4610,6 +4693,10 @@
             wizAgg('MAX', 'The largest number.', 'highest maximum biggest'),
             wizAgg('MEDIAN', 'The middle value when the numbers are put in order.', 'middle'),
             wizAgg('PRODUCT', 'Multiplies the numbers together.', 'multiply times'),
+            { name: 'RAND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1. A new number every time the sheet recalculates.', kw: 'random dice chance', args: [] },
+            { name: 'RANDBETWEEN', cat: 'Math & Aggregation', desc: 'A random whole number between two numbers, both included. A new number every time the sheet recalculates.', kw: 'random dice roll', args: [wa('bottom', 'The lowest number it can give', '1', { t: 'num' }), wa('top', 'The highest number it can give', '6', { t: 'num' })] },
+            { name: 'RND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1 that keeps its value until you tap Re-roll (Data tab). QSheet only.', kw: 'random dice held keep', args: [] },
+            { name: 'RNDBETWEEN', cat: 'Math & Aggregation', desc: 'A random number between two numbers, both included, that keeps its value until you tap Re-roll (Data tab). Give decimals for numbers like 3.47. QSheet only.', kw: 'random dice roll held keep', args: [wa('low', 'The lowest number it can give', '1', { t: 'num' }), wa('high', 'The highest number it can give', '6', { t: 'num' }), wa('decimals', 'Decimal places. 0 or blank gives whole numbers', '0', { t: 'num', opt: true })] },
             // Visible-only (rows hidden by a table filter are left out)
             wizAgg('SUMV', 'Adds up the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(109, range).', 'total add filtered hidden visible'),
             wizAgg('AVERAGEV', 'Average of the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(101, range).', 'mean filtered hidden visible'),
