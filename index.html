@@ -2772,7 +2772,14 @@
                 input.blur();
             }
             if (commit) {
-                if (String(val) !== String(original)) onCellInput(cellId, val);
+                if (String(val) !== String(original)) {
+                    const sm = smartEntry(row, col, val);
+                    if (sm) {
+                        const f = applySmartEntry(sm, original);
+                        if (f === null) setCellContent(cellId, String(original)); // nothing sensible to put in: the cell goes back to what it held
+                        else onCellInput(cellId, f);
+                    } else onCellInput(cellId, val);
+                }
             } else {
                 setCellContent(cellId, String(original));
             }
@@ -2828,6 +2835,12 @@
                 if (!val.startsWith('=')) {
                     val = parseNaturalLanguageShorthand(val, activeCell.row, activeCell.col);
                 }
+                const sm = smartEntry(activeCell.row, activeCell.col, val);
+                if (sm) {
+                    const f = applySmartEntry(sm, '');
+                    if (f === null) { e.target.value = cellEditText(cellId); return; }
+                    val = f;
+                }
                 const inputEl = document.getElementById(`input-${cellId}`);
                 inputEl.value = val;
                 onCellInput(cellId, val);
@@ -2856,6 +2869,252 @@
                 return rangeStr ? `=MIN(${rangeStr})` : `=MIN(${guessNeighborhoodRange(r, c)})`;
             }
             return text;
+        }
+
+        // ===== Smart guessing =====
+        // Typing just a function's name (=IF, =PROPER, =SUMIF, =XLOOKUP, =PMT ...) fills in the arguments from the cells around it,
+        // and opening the Formula Wizard on one of them pre-fills its boxes the same way. The guess looks at the cell to the left, the
+        // headings above it, and the data near it. When nothing sensible is found a message says why instead.
+        const sgCell = (r, c) => (r >= 0 && c >= 0 && c < COLS ? data[getCellId(r, c)] : undefined);
+        const sgBlank = v => v === '' || v === undefined || v === null;
+        const sgIsNum = v => typeof v === 'number' && isFinite(v);
+        const sgAbs = (c, r1, r2) => `$${columnToLetter(c)}$${r1 + 1}:$${columnToLetter(c)}$${r2 + 1}`;
+        const sgRef = (r, c) => getCellId(r, c);
+        // The first heading (a text cell) above a cell, lower case
+        function sgHeader(r, c) {
+            for (let k = r - 1; k >= 0; k--) {
+                const cell = sgCell(k, c);
+                if (cell && typeof cell.value === 'string' && cell.value.trim() !== '' && !cell.formula) return cell.value.trim().toLowerCase();
+            }
+            return '';
+        }
+        // The run of filled cells in a column around a row, without a text heading on top of numbers
+        function sgBlock(c, r) {
+            let r1 = r, r2 = r;
+            while (r1 > 0 && sgCell(r1 - 1, c) && !sgBlank(sgCell(r1 - 1, c).value)) r1--;
+            while (r2 < ROWS - 1 && sgCell(r2 + 1, c) && !sgBlank(sgCell(r2 + 1, c).value)) r2++;
+            const top = sgCell(r1, c), next = sgCell(r1 + 1, c);
+            if (r1 < r2 && top && typeof top.value === 'string') {
+                // The top cell is a heading when it is text and the data under it (here or in the columns beside it) has numbers
+                if (next && sgIsNum(next.value)) r1++;
+                else {
+                    let rowAllText = true, belowNumbers = false;
+                    for (let k = Math.max(0, c - 3); k <= Math.min(COLS - 1, c + 3); k++) {
+                        const a = sgCell(r1, k), b = sgCell(r1 + 1, k);
+                        if (a && !sgBlank(a.value) && sgIsNum(a.value)) rowAllText = false;
+                        if (b && sgIsNum(b.value)) belowNumbers = true;
+                    }
+                    if (rowAllText && belowNumbers) r1++;
+                }
+            }
+            return { r1, r2 };
+        }
+        const sgCountNums = (c, r1, r2) => { let n = 0; for (let r = r1; r <= r2; r++) { const x = sgCell(r, c); if (x && sgIsNum(x.value)) n++; } return n; };
+        // The cell a one-cell function should work on: the one to the left, or else the one above
+        function sgArgCell(r, c) {
+            if (c > 0 && sgCell(r, c - 1) && !sgBlank(sgCell(r, c - 1).value)) return { r, c: c - 1 };
+            if (r > 0 && sgCell(r - 1, c) && !sgBlank(sgCell(r - 1, c).value)) return { r: r - 1, c };
+            return null;
+        }
+        // The column of the sheet (a table first, then the nearest) that holds a given value, and the rows its data covers
+        function sgFindColumnWith(value, avoidCol, c) {
+            const want = String(displayValue(value)).trim().toLowerCase();
+            if (!want) return null;
+            const hits = [];
+            for (const id in data) {
+                const cell = data[id];
+                if (sgBlank(cell.value) || cell.formula) continue;
+                const co = parseCellCoord(id);
+                if (co.c === avoidCol || String(cellDisplayText(cell)).trim().toLowerCase() !== want) continue;
+                const table = tableObjects.find(t => co.r > t.startR && co.r <= t.endR && co.c >= t.startC && co.c <= t.endC) || null;
+                if (!table && tableObjects.some(t => co.r === t.startR && co.c >= t.startC && co.c <= t.endC)) continue;
+                hits.push({ col: co.c, row: co.r, table });
+            }
+            if (!hits.length) return null;
+            hits.sort((a, b) => (b.table ? 1 : 0) - (a.table ? 1 : 0) || Math.abs(a.col - c) - Math.abs(b.col - c) || a.col - b.col || a.row - b.row);
+            const h = hits[0];
+            if (h.table) return { col: h.col, r1: h.table.startR + 1, r2: h.table.endR, table: h.table };
+            const blk = sgBlock(h.col, h.row);
+            return { col: h.col, r1: blk.r1, r2: blk.r2, table: null };
+        }
+        // The column of numbers beside a lookup column (the same table, or the nearest neighbours)
+        function sgNumberColumn(f) {
+            const cols = [];
+            if (f.table) for (let k = f.table.startC; k <= f.table.endC; k++) cols.push(k);
+            else [1, -1, 2, -2].forEach(d => cols.push(f.col + d));
+            const ordered = cols.filter(k => k !== f.col && k >= 0 && k < COLS).sort((a, b) => Math.abs(a - f.col) - Math.abs(b - f.col) || b - a);
+            let best = -1, bestN = 0;
+            ordered.forEach(k => { const n = sgCountNums(k, f.r1, f.r2); if (n > bestN) { best = k; bestN = n; } });
+            return best;
+        }
+        function sgNextColumn(f) {
+            const lo = f.table ? f.table.startC : 0, hi = f.table ? f.table.endC : COLS - 1;
+            const filled = k => { for (let r = f.r1; r <= f.r2; r++) { const x = sgCell(r, k); if (x && !sgBlank(x.value)) return true; } return false; };
+            if (f.col + 1 <= hi && (f.table || filled(f.col + 1))) return f.col + 1;
+            if (f.col - 1 >= lo && (f.table || filled(f.col - 1))) return f.col - 1;
+            return -1;
+        }
+
+        // ---- IF: the patterns, first one that fits wins ----
+        function smartIf(r, c) {
+            if (c < 1) return null;
+            const lc = c - 1, L = sgCell(r, lc), lv = L ? L.value : '', st = (L && L.style) || {};
+            const lref = sgRef(r, lc), num = sgIsNum(lv), header = sgHeader(r, lc);
+            const word = typeof lv === 'string' ? lv.trim() : '';
+            const make = (note, ...args) => ({ args, note });
+            if (num && (DATE_FORMATS.includes(st.numFormat) || /\b(date|due|deadline|expires?)\b/.test(header))) return make('a date: overdue or upcoming', `${lref}<TODAY()`, '"Overdue"', '"Upcoming"');
+            if (num && lv < 0) return make('a negative number: over budget', `${lref}<0`, '"Over Budget"', '"On Track"');
+            if (word && /^(done|complete|completed|paid|shipped|finished|closed|delivered)$/i.test(word)) return make('a status word', `${lref}="${word}"`, '"Closed"', '"Active"');
+            if (word && /progress|complete/i.test(word + ' ' + header) || (word && /status/.test(header))) return make('a status column', `${lref}="Completed"`, '"Closed"', '"Active"');
+            if (num && /score|grade|mark|points|exam|test|quiz/.test(header)) return make('a score: pass or fail at 60', `${lref}>=60`, '"Pass"', '"Fail"');
+            if (num && st.numFormat === 'percent') return make('a percentage: on target at 50%', `${lref}>=0.5`, '"On Target"', '"Behind"');
+            if (sgBlank(lv) && r > 0 && sgCell(r - 1, lc) && !sgBlank(sgCell(r - 1, lc).value)) return make('an empty cell: missing or OK', `${lref}=""`, '"Missing"', '"OK"');
+            const L2 = c > 1 ? sgCell(r, c - 2) : null;
+            if (num && L2 && sgIsNum(L2.value)) {
+                const isTarget = h => /target|budget|goal|plan|quota|expected|limit/.test(h);
+                const h1 = header, h2 = sgHeader(r, c - 2);
+                let actual = c - 2, target = c - 1;
+                if (isTarget(h2) && !isTarget(h1)) { actual = c - 1; target = c - 2; }
+                return make('two numbers: met or short', `${sgRef(r, actual)}>=${sgRef(r, target)}`, '"Met"', '"Short"');
+            }
+            if (num) {
+                const b = sgBlock(lc, r);
+                if (sgCountNums(lc, b.r1, b.r2) >= 3) return make('a number: above or below the column average', `${lref}>AVERAGE(${sgAbs(lc, b.r1, b.r2)})`, '"Above"', '"Below"');
+            }
+            if (!sgBlank(lv)) return { args: [`${lref}<>""`, '"Yes"', '"No"'], note: 'no clear pattern, so this is only a starting point', starting: true };
+            return null;
+        }
+
+        // ---- PMT: reads nearby labels (Rate, Term, Amount) ----
+        function smartPmt(r, c) {
+            const found = {};
+            const cands = [];
+            for (let nr = Math.max(0, r - 4); nr <= r + 4; nr++) {
+                for (let nc = Math.max(0, c - 5); nc <= Math.min(COLS - 1, c + 2); nc++) {
+                    if (nr === r && nc === c) continue;
+                    const cell = sgCell(nr, nc);
+                    if (!cell || !sgIsNum(cell.value)) continue;
+                    const left = sgCell(nr, nc - 1), up = sgCell(nr - 1, nc);
+                    const text = x => (x && typeof x.value === 'string' && !x.formula ? x.value.trim().toLowerCase() : '');
+                    const label = text(left) || text(up);
+                    if (label) cands.push({ nr, nc, cell, label, d: Math.abs(nr - r) + Math.abs(nc - c) });
+                }
+            }
+            cands.sort((a, b) => a.d - b.d);
+            const take = (key, re) => { const hit = cands.find(x => re.test(x.label) && !x.used); if (hit) { hit.used = true; found[key] = hit; } };
+            take('term', /term|year|yr|month|nper|period|length|duration/);
+            take('rate', /rate|interest|apr|apy|%/);
+            take('amount', /amount|loan|principal|price|balance|borrow|financ|mortgage|debt|\bpv\b|value/);
+            const missing = ['rate', 'term', 'amount'].filter(k => !found[k]);
+            if (missing.length) return { why: `Could not find a ${missing.map(k => k[0].toUpperCase() + k.slice(1)).join(', ')} label with a number beside it near this cell` };
+            const ref = x => sgRef(x.nr, x.nc);
+            const rv = found.rate.cell.value;
+            const rate = /month/.test(found.rate.label) ? ref(found.rate) : ((found.rate.cell.style && found.rate.cell.style.numFormat === 'percent') || rv < 1 ? `${ref(found.rate)}/12` : `${ref(found.rate)}/100/12`);
+            const tv = found.term.cell.value;
+            const nper = /month/.test(found.term.label) ? ref(found.term) : (/year|yr/.test(found.term.label) || tv <= 50 ? `${ref(found.term)}*12` : ref(found.term));
+            return { args: [rate, nper, ref(found.amount)], negate: true, note: 'monthly payment shown as a positive number; the rate and term are converted to months' };
+        }
+
+        // ---- every smart function ----
+        const SG_TEXT1 = ['PROPER', 'SENTENCE', 'UPPER', 'LOWER', 'TRIM', 'CLEAN', 'LEN', 'VALUE'];
+        const SG_NUM1 = ['INT', 'ABS', 'SQRT', 'ISEVEN', 'ISODD', 'YEAR', 'MONTH', 'DAY'];
+        const SG_AGG = ['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'MEDIAN'];
+        const SG_CRIT = ['COUNTIF', 'SUMIF', 'AVERAGEIF', 'MAXIFS', 'MINIFS'];
+        const SMART_NAMES = new Set([...SG_TEXT1, ...SG_NUM1, ...SG_AGG, ...SG_CRIT, 'LEFT', 'RIGHT', 'SUBSTITUTE', 'ROUND', 'ROUNDUP', 'ROUNDDOWN', 'EOMONTH', 'TEXT', 'LARGE', 'SMALL', 'RANK', 'IF', 'XLOOKUP', 'VLOOKUP', 'PMT']);
+
+        function smartGuess(name, r, c) {
+            name = String(name).toUpperCase();
+            if (!SMART_NAMES.has(name)) return null;
+            if (name === 'IF') { const g = smartIf(r, c); return g || { why: 'Put the value to test in the cell to the left first' }; }
+            if (name === 'PMT') return smartPmt(r, c);
+            const nothing = 'There is nothing next to this cell to use. Fill the cell to its left first';
+            // functions on one cell
+            const oneCell = SG_TEXT1.includes(name) || SG_NUM1.includes(name) || ['LEFT', 'RIGHT', 'SUBSTITUTE', 'ROUND', 'ROUNDUP', 'ROUNDDOWN', 'EOMONTH', 'TEXT'].includes(name);
+            if (oneCell) {
+                const a = sgArgCell(r, c);
+                if (!a) return { why: nothing };
+                const cell = sgCell(a.r, a.c), ref = sgRef(a.r, a.c);
+                const needsNumber = SG_NUM1.includes(name) || ['ROUND', 'ROUNDUP', 'ROUNDDOWN', 'EOMONTH'].includes(name);
+                if (needsNumber && !sgIsNum(cell.value)) return { why: `${ref} is not a number, so ${name} has nothing to work on` };
+                if (['ROUND', 'ROUNDUP', 'ROUNDDOWN'].includes(name)) return { args: [ref, '2'] };
+                if (name === 'EOMONTH') return { args: [ref, '0'] };
+                if (name === 'LEFT' || name === 'RIGHT') return { args: [ref, '3'] };
+                if (name === 'SUBSTITUTE') {
+                    const t = String(cellDisplayText(cell));
+                    const d = ['-', '/', ',', '_', '.', ' '].find(x => t.includes(x)) || '-';
+                    return { args: [ref, `"${d}"`, d === ' ' ? '""' : '" "'] };
+                }
+                if (name === 'TEXT') {
+                    const nf = (cell.style && cell.style.numFormat) || '';
+                    const fmt = { date_mdy: '"mm/dd/yyyy"', date_ymd: '"yyyy/mm/dd"', datetime: '"mm/dd/yyyy h:mm AM/PM"', currency: '"$#,##0.00"', percent: '"0.00%"', decimal: '"#,##0.00"' }[nf]
+                        || (sgIsNum(cell.value) ? (Number.isInteger(cell.value) ? '"#,##0"' : '"#,##0.00"') : '"@"');
+                    return { args: [ref, fmt] };
+                }
+                return { args: [ref] };
+            }
+            // functions on a run of numbers above or to the left
+            if (SG_AGG.includes(name) || name === 'LARGE' || name === 'SMALL') {
+                const rng = guessNeighborhoodRange(r, c);
+                const [a, b] = rng.split(':').map(parseCellCoord);
+                let n = 0;
+                for (let rr = Math.min(a.r, b.r); rr <= Math.max(a.r, b.r); rr++) for (let cc = Math.min(a.c, b.c); cc <= Math.max(a.c, b.c); cc++) {
+                    const x = sgCell(rr, cc);
+                    if (x && (name === 'COUNTA' ? !sgBlank(x.value) : sgIsNum(x.value))) n++;
+                }
+                if (!n || (a.r >= r && a.c >= c)) return { why: name === 'COUNTA' ? 'No filled cells found above or to the left of this cell' : 'No numbers found above or to the left of this cell' };
+                return { args: (name === 'LARGE' || name === 'SMALL') ? [rng, '1'] : [rng] };
+            }
+            if (name === 'RANK') {
+                const a = sgArgCell(r, c);
+                if (!a || a.r !== r || !sgIsNum(sgCell(a.r, a.c).value)) return { why: 'RANK needs a number in the cell to the left, inside a list of numbers' };
+                const b = sgBlock(a.c, a.r);
+                if (sgCountNums(a.c, b.r1, b.r2) < 2) return { why: `${sgRef(a.r, a.c)} is not part of a list of numbers` };
+                return { args: [sgRef(a.r, a.c), sgAbs(a.c, b.r1, b.r2)] };
+            }
+            // criteria and lookups: the value in the cell to the left is searched for in the rest of the sheet
+            const a = c > 0 && sgCell(r, c - 1) && !sgBlank(sgCell(r, c - 1).value) ? { r, c: c - 1 } : null;
+            if (!a) return { why: 'Put the value to look for in the cell to the left first' };
+            const cell = sgCell(a.r, a.c), ref = sgRef(a.r, a.c);
+            const f = sgFindColumnWith(cell.value, a.c, c);
+            if (!f) return { why: `No other column on this sheet contains "${String(cellDisplayText(cell))}"` };
+            if (name === 'COUNTIF') return { args: [sgAbs(f.col, f.r1, f.r2), ref] };
+            if (SG_CRIT.includes(name)) {
+                const sc = sgNumberColumn(f);
+                if (sc < 0) return { why: `Found "${String(cellDisplayText(cell))}" in column ${columnToLetter(f.col)}, but no column of numbers beside it` };
+                const crit = sgAbs(f.col, f.r1, f.r2), sum = sgAbs(sc, f.r1, f.r2);
+                return { args: (name === 'SUMIF' || name === 'AVERAGEIF') ? [crit, ref, sum] : [sum, crit, ref] };
+            }
+            if (name === 'XLOOKUP' || name === 'VLOOKUP') {
+                const nx = sgNextColumn(f);
+                if (nx < 0) return { why: `Found "${String(cellDisplayText(cell))}" in column ${columnToLetter(f.col)}, but there is no column beside it to return` };
+                if (name === 'XLOOKUP') return { args: [ref, sgAbs(f.col, f.r1, f.r2), sgAbs(nx, f.r1, f.r2), '"Not found"'] };
+                const lo = Math.min(f.col, nx), hi = f.table && nx > f.col ? f.table.endC : Math.max(f.col, nx);
+                if (nx < f.col) return { why: 'VLOOKUP needs the answer column to the right of the lookup column' };
+                return { args: [ref, `$${columnToLetter(f.col)}$${f.r1 + 1}:$${columnToLetter(hi)}$${f.r2 + 1}`, '2', 'FALSE'] };
+            }
+            return null;
+        }
+        const smartFormula = (name, g) => `=${g.negate ? '-' : ''}${String(name).toUpperCase()}(${g.args.join(',')})`;
+
+        // A bare name typed into a cell (=IF  =sumif  =PMT()). Returns null when it is not one, otherwise { formula, note } or { why, name }
+        const SMART_BARE = /^=\s*([A-Za-z][A-Za-z0-9.]*)\s*(?:\(\s*\))?\s*$/;
+        function smartEntry(r, c, text) {
+            const m = SMART_BARE.exec(String(text).trim());
+            if (!m || !SMART_NAMES.has(m[1].toUpperCase())) return null;
+            const name = m[1].toUpperCase();
+            const g = smartGuess(name, r, c);
+            if (g && g.args) return { formula: smartFormula(name, g), note: g.note || '', starting: !!g.starting, name };
+            return { why: g && g.why ? g.why : 'Nothing to guess from here', name };
+        }
+        // Handles the result of smartEntry for a typed cell. Returns the formula to store, or null when nothing should be stored.
+        function applySmartEntry(sm, original) {
+            if (sm.formula) {
+                showToast(`Smart ${sm.name}: ${sm.formula}${sm.note ? ` (${sm.note})` : ''}`);
+                return sm.formula;
+            }
+            showToast(`Smart ${sm.name}: ${sm.why}`);
+            setTimeout(() => { openWizard(); selectWizardFunction(sm.name); }, 0);
+            return null;
         }
 
         function guessNeighborhoodRange(r, c) {
@@ -4600,14 +4859,9 @@
         }
 
         function generateSmartIfScenario(r, c) {
-            let leftVal = c > 0 ? getCellValue(getCellId(r, c - 1)) : '';
-            if (!isNaN(leftVal) && Number(leftVal) < 0) {
-                return `IF(${getCellId(r, c-1)}<0, "Over Budget", "On Track")`;
-            }
-            if (String(leftVal).toLowerCase().includes('progress') || String(leftVal).toLowerCase().includes('complete')) {
-                return `IF(${getCellId(r, c-1)}="Completed", "Closed", "Active")`;
-            }
-            return `IF(A${r+1}>100, "High", "Normal")`;
+            const g = smartIf(r, c);
+            if (g) return `IF(${g.args.join(',')})`;
+            return 'IF(TRUE,"Yes","No")';
         }
 
         function getCellValue(cellId) {
@@ -5665,6 +5919,8 @@
         }
 
         function selectWizardFunction(name) {
+            // A different function starts with fresh boxes (so the pre-filled guesses are its own, not leftovers from the last one)
+            if (document.getElementById('wizard-function').value !== name) document.getElementById('wizard-args-container').innerHTML = '';
             document.getElementById('wizard-function').value = name;
             wizardRepeats = 0;
             renderWizardArguments(true);
@@ -5700,6 +5956,10 @@
                 const sel = wizardSelectionText();
                 const first = rows.findIndex(r => r.def.rng);
                 if (sel && first >= 0 && rows[first].def.t === 'range') document.getElementById(`wiz-arg-${first}`).value = sel;
+                else if (!sel) {
+                    const g = smartGuess(fn.name, activeCell.row, activeCell.col);
+                    if (g && g.args) g.args.forEach((a, i) => { const el = document.getElementById(`wiz-arg-${i}`); if (el && !el.value) el.value = a; });
+                }
             }
             let buttons = '';
             if (fn.rep) {
