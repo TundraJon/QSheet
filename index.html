@@ -707,8 +707,9 @@
             background: #f8fafc;
         }
         .wiz-cat-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-        .wiz-fav-toggle { min-height: 40px; padding: 0 12px; font-size: 0.85rem; }
-        .wiz-fav-toggle.on { background: #fef3c7; border-color: #f59e0b; color: #92400e; font-weight: 600; }
+        /* Plain tappable text (no box): the padding is an invisible tap area that is cancelled by the negative margin, so the Category line does not grow */
+        .wiz-fav-toggle { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font: inherit; line-height: 1; font-weight: 500; color: #475569; padding: 12px 16px; margin: -12px -16px; cursor: pointer; }
+        .wiz-fav-toggle.on { color: #92400e; }
         .wizard-item { display: flex; gap: 4px; align-items: stretch; }
         .wizard-item .wizard-result { flex: 1; min-width: 0; width: auto; }
         .wiz-star { flex: none; width: 44px; min-height: 48px; padding: 0; font-size: 1.3rem; line-height: 1; display: flex; align-items: center; justify-content: center; background: transparent; border: none; color: #94a3b8; }
@@ -3547,6 +3548,28 @@
             return (lo + Math.floor(u * (hi - lo + 1))) / p;
         }
 
+        // ----- Capitalizing text -----
+        // PROPER: each word starts with a capital and the rest is lowercase. A letter after an apostrophe inside a word stays lowercase
+        // (don't -> Don't), unless a single letter comes before the apostrophe (o'brien -> O'Brien); I, Y and o'clock are the exceptions (I'll, y'all, o'clock).
+        function properCase(text) {
+            return text.toLowerCase().replace(/[A-Za-zÀ-ɏ]+(?:['’][A-Za-zÀ-ɏ]+)*/g, word => {
+                const parts = word.split(/['’]/);
+                const apostrophes = word.match(/['’]/g) || [];
+                const keepLower = /^o['’]clock$/.test(word);
+                let out = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+                for (let i = 1; i < parts.length; i++) {
+                    const before = parts[i - 1];
+                    const capital = !keepLower && before.length === 1 && before !== 'i' && before !== 'y';
+                    out += apostrophes[i - 1] + (capital ? parts[i].charAt(0).toUpperCase() + parts[i].slice(1) : parts[i]);
+                }
+                return out;
+            });
+        }
+        // SENTENCE: the first letter is a capital and everything else is lowercase (leading spaces, quotes and brackets are skipped; a text that starts with a digit gets no capital)
+        function sentenceCase(text) {
+            return text.toLowerCase().replace(/^([^A-Za-z0-9À-ɏ]*)([A-Za-zÀ-ɏ])/, (m, lead, c) => lead + c.toUpperCase());
+        }
+
         // ----- Helpers for TEXT, VALUE, SEARCH and friends -----
         const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -4041,9 +4064,8 @@
             CLEAN: { fn: args => toText(args[0]).replace(/[\x00-\x1F]/g, '') },
             UPPER: { fn: args => toText(args[0]).toUpperCase() },
             LOWER: { fn: args => toText(args[0]).toLowerCase() },
-            PROPER: {
-                fn: args => toText(args[0]).toLowerCase().replace(/(^|[^A-Za-zÀ-ɏ])([A-Za-zÀ-ɏ])/g, (m, p, c) => p + c.toUpperCase())
-            },
+            PROPER: { fn: args => properCase(toText(args[0])) },
+            SENTENCE: { fn: args => sentenceCase(toText(args[0])) },
             SUBSTITUTE: {
                 fn: args => {
                     if (args.length < 3) throw new FormulaError('#VALUE!');
@@ -4398,7 +4420,7 @@
             RAND: [0, 0], RANDBETWEEN: [2, 2], RND: [0, 0], RNDBETWEEN: [2, 3],
             SUMV: [1, Infinity], AVERAGEV: [1, Infinity], COUNTV: [1, Infinity], COUNTAV: [1, Infinity], MAXV: [1, Infinity], MINV: [1, Infinity], PRODUCTV: [1, Infinity],
             ABS: [1, 1], MOD: [2, 2], ROUND: [1, 2], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], NOT: [1, 1],
-            LEFT: [1, 2], RIGHT: [1, 2], LEN: [1, 1], TRIM: [1, 1], CLEAN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], PROPER: [1, 1],
+            LEFT: [1, 2], RIGHT: [1, 2], LEN: [1, 1], TRIM: [1, 1], CLEAN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], PROPER: [1, 1], SENTENCE: [1, 1],
             YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], TODAY: [0, 0], NOW: [0, 0], INDIRECT: [1, 1]
         };
 
@@ -5089,7 +5111,8 @@
             { name: 'CLEAN', cat: 'Text & String', desc: 'Removes hidden non-printing characters.', kw: 'invisible strip', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
             { name: 'UPPER', cat: 'Text & String', desc: 'Makes text ALL CAPS.', kw: 'capital uppercase', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
             { name: 'LOWER', cat: 'Text & String', desc: 'Makes text all lowercase.', kw: 'lowercase', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
-            { name: 'PROPER', cat: 'Text & String', desc: 'Capitalizes The First Letter Of Each Word.', kw: 'title case names', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'SENTENCE', cat: 'Text & String', desc: 'Capitalizes the first letter and lowercases the rest: "the LOST mines" becomes "The lost mines". QSheet only.', kw: 'capitalize first letter sentence case', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'PROPER', cat: 'Text & String', desc: 'Capitalizes The First Letter Of Each Word and lowercases the rest. Apostrophes are handled: don\'t becomes Don\'t, o\'brien becomes O\'Brien.', kw: 'title case names', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
             { name: 'SUBSTITUTE', cat: 'Text & String', desc: 'Swaps some text for other text inside a string.', kw: 'replace find', args: [wa('text', 'The text to change', 'A2', { t: 'val' }), wa('old_text', 'The text to find', '"-"', { t: 'val' }), wa('new_text', 'What to put in its place', '" "', { t: 'val' }), wa('instance_num', 'Only change this occurrence (blank = all of them)', '1', { t: 'num', opt: true })] },
 
             // Date & Time
