@@ -3521,6 +3521,158 @@
             return (lo + Math.floor(u * (hi - lo + 1))) / p;
         }
 
+        // ----- Helpers for TEXT, VALUE, SEARCH and friends -----
+        const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+        // TEXT(value, "format"): number formats (0.00  #,##0  0%  $#,##0.00  0.0#) and date / time formats (mm/dd/yyyy  dddd  h:mm AM/PM)
+        function formatWithPattern(v, fmt) {
+            v = unwrap(v);
+            fmt = toText(fmt);
+            if (fmt === '') return '';
+            if (typeof v === 'boolean') return toText(v);
+            if (typeof v === 'string') { if (isNumeric(v)) v = Number(v); else return v; }
+            if (isBlank(v)) v = 0;
+            const sections = fmt.split(';');
+            let section = sections[0], autoMinus = v < 0;
+            if (v < 0 && sections.length > 1) { section = sections[1]; autoMinus = false; }
+            else if (v === 0 && sections.length > 2) section = sections[2];
+            // Quoted text and \x escapes are set aside so their letters and digits are not read as format codes
+            const lits = [];
+            const stash = t => { lits.push(t); return '\u0001' + (lits.length - 1) + '\u0002'; };
+            section = section.replace(/"([^"]*)"/g, (m, t) => stash(t)).replace(/\\(.)/g, (m, c) => stash(c));
+            const restore = t => t.replace(/\u0001(\d+)\u0002/g, (m, i) => lits[Number(i)]);
+            if (/^general$/i.test(section.trim())) return String(v);
+            if (section.trim() === '@') return String(v);
+            if (/[ymdhs]|a\/p/i.test(section.replace(/\u0001\d+\u0002/g, ''))) return restore(formatDateTime(v, section));
+            const core = /[#0?,]+(\.[#0?]*)?/.exec(section);
+            if (!core) return restore(section);
+            const prefix = section.slice(0, core.index), suffix = section.slice(core.index + core[0].length);
+            const percent = (prefix + suffix).includes('%');
+            const [intPat, fracPat = ''] = core[0].split('.');
+            const minInt = (intPat.match(/0/g) || []).length;
+            const minDec = (fracPat.match(/0/g) || []).length, maxDec = fracPat.length;
+            let n = Math.abs(v) * (percent ? 100 : 1);
+            if (!isFinite(n)) throw new FormulaError('#NUM!');
+            n = roundTo(n, maxDec, 'half');
+            let [i, f = ''] = n.toFixed(maxDec).split('.');
+            while (f.length > minDec && f.endsWith('0')) f = f.slice(0, -1);
+            if (i.length < minInt) i = i.padStart(minInt, '0');
+            if (i === '0' && minInt === 0) i = '';
+            if (intPat.includes(',')) i = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            const negative = autoMinus && n !== 0;
+            return restore((negative ? '-' : '') + prefix + i + (f ? '.' + f : '') + suffix);
+        }
+
+        function formatDateTime(v, section) {
+            if (v < 0) throw new FormulaError('#VALUE!');
+            let day = Math.floor(v);
+            let secs = Math.round((v - day) * 86400);
+            if (secs >= 86400) { secs -= 86400; day += 1; }
+            const { y, m, d } = ymdFromSerial(day);
+            const h = Math.floor(secs / 3600), mi = Math.floor((secs % 3600) / 60), se = secs % 60;
+            const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+            const pad = n => String(n).padStart(2, '0');
+            const re = /yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d|hh|h|ss|s|AM\/PM|am\/pm|A\/P|a\/p/gi;
+            const parts = [];
+            let last = 0, mt;
+            while ((mt = re.exec(section))) {
+                if (mt.index > last) parts.push({ lit: section.slice(last, mt.index) });
+                parts.push({ tok: mt[0] });
+                last = mt.index + mt[0].length;
+            }
+            if (last < section.length) parts.push({ lit: section.slice(last) });
+            const twelve = parts.some(p => p.tok && /^(am\/pm|a\/p)$/i.test(p.tok));
+            const toks = parts.filter(p => p.tok);
+            return parts.map(p => {
+                if (p.lit !== undefined) return p.lit;
+                const t = p.tok.toLowerCase();
+                const at = toks.indexOf(p);
+                if (t === 'm' || t === 'mm') { // minutes when it follows hours or comes before seconds
+                    const prev = toks[at - 1], next = toks[at + 1];
+                    if ((prev && /^hh?$/i.test(prev.tok)) || (next && /^ss?$/i.test(next.tok))) return t === 'mm' ? pad(mi) : String(mi);
+                    return t === 'mm' ? pad(m) : String(m);
+                }
+                switch (t) {
+                    case 'yyyy': return String(y).padStart(4, '0');
+                    case 'yy': return pad(y % 100);
+                    case 'mmmm': return MONTH_NAMES[m - 1];
+                    case 'mmm': return MONTH_NAMES[m - 1].slice(0, 3);
+                    case 'dddd': return DAY_NAMES[weekday];
+                    case 'ddd': return DAY_NAMES[weekday].slice(0, 3);
+                    case 'dd': return pad(d);
+                    case 'd': return String(d);
+                    case 'hh': return pad(twelve ? (h % 12 || 12) : h);
+                    case 'h': return String(twelve ? (h % 12 || 12) : h);
+                    case 'ss': return pad(se);
+                    case 's': return String(se);
+                    case 'am/pm': { const x = h >= 12 ? 'PM' : 'AM'; return p.tok === p.tok.toLowerCase() ? x.toLowerCase() : x; }
+                    default: { const x = h >= 12 ? 'P' : 'A'; return p.tok === p.tok.toLowerCase() ? x.toLowerCase() : x; }
+                }
+            }).join('');
+        }
+
+        // VALUE("$1,234.50") -> 1234.5, VALUE("12%") -> 0.12, VALUE("(5)") -> -5, VALUE("03/15/2025") -> a date, VALUE("3:30 PM") -> a time
+        function valueFromText(v) {
+            v = unwrap(v);
+            if (typeof v === 'number') return v;
+            if (typeof v === 'boolean') throw new FormulaError('#VALUE!');
+            if (isBlank(v)) return 0;
+            const str = String(v).trim();
+            if (str === '') throw new FormulaError('#VALUE!');
+            let m;
+            if ((m = /^\((.+)\)$/.exec(str))) return -valueFromText(m[1]);
+            if ((m = /^(.+?)\s*%$/.exec(str))) return valueFromText(m[1]) / 100;
+            let t = str.replace(/^([-+]?)\$/, '$1');
+            if (/^[-+]?\d{1,3}(,\d{3})+(\.\d*)?$/.test(t)) t = t.replace(/,/g, '');
+            if (/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t)) return Number(t);
+            const date = (y, mo, d) => {
+                if (mo < 1 || mo > 12 || d < 1 || d > 31) throw new FormulaError('#VALUE!');
+                const serial = serialFromYMD(y, mo, d), back = ymdFromSerial(serial);
+                if (back.m !== mo || back.d !== d) throw new FormulaError('#VALUE!');
+                return serial;
+            };
+            if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(str))) return date(Number(m[3]), Number(m[1]), Number(m[2]));
+            if ((m = /^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/.exec(str))) return date(Number(m[1]), Number(m[2]), Number(m[3]));
+            if ((m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(str))) {
+                let h = Number(m[1]);
+                const mi = Number(m[2]), se = Number(m[3] || 0);
+                if (m[4]) { if (h < 1 || h > 12) throw new FormulaError('#VALUE!'); h = (h % 12) + (m[4].toUpperCase() === 'PM' ? 12 : 0); }
+                if (h > 23 || mi > 59 || se > 59) throw new FormulaError('#VALUE!');
+                return (h * 3600 + mi * 60 + se) / 86400;
+            }
+            throw new FormulaError('#VALUE!');
+        }
+
+        // SEARCH: the text to find may use ? (any one character) and * (any run); ~? and ~* mean a real ? or *
+        function searchRegex(pattern) {
+            let src = '';
+            for (let i = 0; i < pattern.length; i++) {
+                const c = pattern[i];
+                if (c === '~' && i + 1 < pattern.length) { src += pattern[++i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+                else if (c === '*') src += '[\\s\\S]*';
+                else if (c === '?') src += '[\\s\\S]';
+                else src += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+            return new RegExp(src, 'i');
+        }
+
+        // CEILING / FLOOR: round to a multiple of the significance (a ratio that is only off by float dust counts as whole)
+        function nearWhole(q) { const r = Math.round(q); return Math.abs(q - r) < 1e-9 ? r : q; }
+        function toMultiple(n, sig, up) {
+            if (sig === 0) { if (up) return 0; throw new FormulaError('#DIV/0!'); }
+            if (n > 0 && sig < 0) throw new FormulaError('#NUM!');
+            if (n < 0 && sig < 0) { const q = nearWhole(Math.abs(n) / Math.abs(sig)); return -(up ? Math.ceil(q) : Math.floor(q)) * Math.abs(sig); }
+            const q = nearWhole(n / sig);
+            return (up ? Math.ceil(q) : Math.floor(q)) * sig;
+        }
+
+        function switchEqual(a, b) {
+            if (isBlank(a) && isBlank(b)) return true;
+            if (typeof a === 'string' && typeof b === 'string') return a.toLowerCase() === b.toLowerCase();
+            return typeof a === typeof b && a === b;
+        }
+
         // ----- Function registry -----
         // fn(args, curR, curC): args are already evaluated (ranges arrive as RangeVal).
         // { lazy: true } functions get (nodes, evaluate, curR, curC) so they can skip or catch errors in arguments.
@@ -3568,6 +3720,121 @@
                     const d = args.length > 2 && !isBlank(unwrap(args[2])) ? Math.trunc(toNumber(args[2])) : 0;
                     if (d < 0 || d > MAX_DECIMALS) throw new FormulaError('#NUM!');
                     return betweenFromRoll(heldRoll(node && node.slot), toNumber(args[0]), toNumber(args[1]), d);
+                }
+            },
+            // Rounding and math
+            INT: { fn: args => Math.floor(toNumber(args[0])) },
+            SQRT: { fn: args => { const n = toNumber(args[0]); if (n < 0) throw new FormulaError('#NUM!'); return Math.sqrt(n); } },
+            POWER: {
+                fn: args => {
+                    const b = toNumber(args[0]), e = toNumber(args[1]);
+                    if (b === 0 && e < 0) throw new FormulaError('#DIV/0!');
+                    const r = Math.pow(b, e);
+                    if (isNaN(r)) throw new FormulaError('#NUM!');
+                    return r;
+                }
+            },
+            CEILING: { fn: args => toMultiple(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 1, true) },
+            FLOOR: { fn: args => toMultiple(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 1, false) },
+            // Ranking
+            LARGE: {
+                fn: args => {
+                    const n = collectNumbers([args[0]]).sort((a, b) => b - a);
+                    const k = Math.ceil(toNumber(args[1]));
+                    if (!n.length || k < 1 || k > n.length) throw new FormulaError('#NUM!');
+                    return n[k - 1];
+                }
+            },
+            SMALL: {
+                fn: args => {
+                    const n = collectNumbers([args[0]]).sort((a, b) => a - b);
+                    const k = Math.ceil(toNumber(args[1]));
+                    if (!n.length || k < 1 || k > n.length) throw new FormulaError('#NUM!');
+                    return n[k - 1];
+                }
+            },
+            RANK: {
+                fn: args => {
+                    const x = toNumber(args[0]);
+                    const n = collectNumbers([args[1]]);
+                    if (!n.includes(x)) throw new FormulaError('#N/A');
+                    const ascending = args.length > 2 && toNumber(args[2]) !== 0;
+                    return 1 + n.filter(v => (ascending ? v < x : v > x)).length;
+                }
+            },
+            MAXIFS: {
+                fn: args => {
+                    const vals = asRange(args[0]).values;
+                    const pairs = criteriaPairs(args, 1);
+                    pairs.push({ vals, test: () => true });
+                    const n = matchingIndexes(pairs).map(i => vals[i]).filter(v => typeof v === 'number');
+                    return n.length ? Math.max(...n) : 0;
+                }
+            },
+            MINIFS: {
+                fn: args => {
+                    const vals = asRange(args[0]).values;
+                    const pairs = criteriaPairs(args, 1);
+                    pairs.push({ vals, test: () => true });
+                    const n = matchingIndexes(pairs).map(i => vals[i]).filter(v => typeof v === 'number');
+                    return n.length ? Math.min(...n) : 0;
+                }
+            },
+            // Logic
+            SWITCH: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length < 3) throw new FormulaError('#VALUE!');
+                    const x = unwrap(ev(nodes[0]));
+                    const hasDefault = (nodes.length - 1) % 2 === 1;
+                    const pairsEnd = hasDefault ? nodes.length - 1 : nodes.length;
+                    for (let i = 1; i < pairsEnd; i += 2) {
+                        if (switchEqual(x, unwrap(ev(nodes[i])))) return ev(nodes[i + 1]);
+                    }
+                    if (hasDefault) return ev(nodes[nodes.length - 1]);
+                    throw new FormulaError('#N/A');
+                }
+            },
+            IFNA: {
+                lazy: true,
+                fn: (nodes, ev) => {
+                    if (nodes.length !== 2) throw new FormulaError('#VALUE!');
+                    try { return ev(nodes[0]); } catch (err) {
+                        if (err instanceof FormulaError && err.code === '#N/A') return ev(nodes[1]);
+                        throw err;
+                    }
+                }
+            },
+            ISEVEN: { fn: args => Math.abs(Math.trunc(toNumber(args[0]))) % 2 === 0 },
+            ISODD: { fn: args => Math.abs(Math.trunc(toNumber(args[0]))) % 2 === 1 },
+            // Text
+            TEXT: { fn: args => formatWithPattern(args[0], args[1]) },
+            VALUE: { fn: args => valueFromText(args[0]) },
+            FIND: {
+                fn: args => {
+                    const find = toText(args[0]), within = toText(args[1]);
+                    const start = args.length > 2 ? Math.trunc(toNumber(args[2])) : 1;
+                    if (start < 1 || start > within.length + (find === '' ? 1 : 0)) throw new FormulaError('#VALUE!');
+                    const at = within.indexOf(find, start - 1);
+                    if (at === -1) throw new FormulaError('#VALUE!');
+                    return at + 1;
+                }
+            },
+            SEARCH: {
+                fn: args => {
+                    const find = toText(args[0]), within = toText(args[1]);
+                    const start = args.length > 2 ? Math.trunc(toNumber(args[2])) : 1;
+                    if (start < 1 || start > within.length + (find === '' ? 1 : 0)) throw new FormulaError('#VALUE!');
+                    const m = searchRegex(find).exec(within.slice(start - 1));
+                    if (!m) throw new FormulaError('#VALUE!');
+                    return m.index + start;
+                }
+            },
+            REPT: {
+                fn: args => {
+                    const text = toText(args[0]), n = Math.trunc(toNumber(args[1]));
+                    if (n < 0 || text.length * n > 32767) throw new FormulaError('#VALUE!');
+                    return text.repeat(n);
                 }
             },
             // Visible-only versions: the same as SUM, AVERAGE ... but leave out rows a table filter is hiding (QSheet only)
@@ -4099,6 +4366,9 @@
         const ARG_LIMITS = {
             SUM: [1, Infinity], AVERAGE: [1, Infinity], COUNT: [1, Infinity], COUNTA: [1, Infinity], MIN: [1, Infinity], MAX: [1, Infinity],
             MEDIAN: [1, Infinity], PRODUCT: [1, Infinity], CONCAT: [1, Infinity],
+            INT: [1, 1], SQRT: [1, 1], POWER: [2, 2], CEILING: [1, 2], FLOOR: [1, 2], LARGE: [2, 2], SMALL: [2, 2], RANK: [2, 3],
+            MAXIFS: [3, Infinity], MINIFS: [3, Infinity], ISEVEN: [1, 1], ISODD: [1, 1],
+            TEXT: [2, 2], VALUE: [1, 1], FIND: [2, 3], SEARCH: [2, 3], REPT: [2, 2],
             RAND: [0, 0], RANDBETWEEN: [2, 2], RND: [0, 0], RNDBETWEEN: [2, 3],
             SUMV: [1, Infinity], AVERAGEV: [1, Infinity], COUNTV: [1, Infinity], COUNTAV: [1, Infinity], MAXV: [1, Infinity], MINV: [1, Infinity], PRODUCTV: [1, Infinity],
             ABS: [1, 1], MOD: [2, 2], ROUND: [1, 2], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], NOT: [1, 1],
@@ -4697,6 +4967,37 @@
             { name: 'RANDBETWEEN', cat: 'Math & Aggregation', desc: 'A random whole number between two numbers, both included. A new number every time the sheet recalculates.', kw: 'random dice roll', args: [wa('bottom', 'The lowest number it can give', '1', { t: 'num' }), wa('top', 'The highest number it can give', '6', { t: 'num' })] },
             { name: 'RND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1 that keeps its value until you tap Re-roll (Data tab). QSheet only.', kw: 'random dice held keep', args: [] },
             { name: 'RNDBETWEEN', cat: 'Math & Aggregation', desc: 'A random number between two numbers, both included, that keeps its value until you tap Re-roll (Data tab). Give decimals for numbers like 3.47. QSheet only.', kw: 'random dice roll held keep', args: [wa('low', 'The lowest number it can give', '1', { t: 'num' }), wa('high', 'The highest number it can give', '6', { t: 'num' }), wa('decimals', 'Decimal places. 0 or blank gives whole numbers', '0', { t: 'num', opt: true })] },
+            { name: 'INT', cat: 'Math & Aggregation', desc: 'Rounds down to the nearest whole number. For negative numbers that means away from zero: INT(-2.5) is -3.', kw: 'whole number round down floor integer', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
+            { name: 'SQRT', cat: 'Math & Aggregation', desc: 'The square root of a number.', kw: 'root square', args: [wa('number', 'The number (0 or more)', 'A2', { t: 'num' })] },
+            { name: 'POWER', cat: 'Math & Aggregation', desc: 'Raises a number to a power: POWER(2, 3) is 8.', kw: 'exponent squared cubed raise', args: [wa('number', 'The base number', '2', { t: 'num' }), wa('power', 'The power to raise it to', '3', { t: 'num' })] },
+            { name: 'CEILING', cat: 'Math & Aggregation', desc: 'Rounds up to the next multiple of a number: CEILING(7, 5) is 10.', kw: 'round up multiple', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('significance', 'Round to a multiple of this (blank = 1)', '5', { t: 'num', opt: true, def: '1' })] },
+            { name: 'FLOOR', cat: 'Math & Aggregation', desc: 'Rounds down to a multiple of a number: FLOOR(7, 5) is 5.', kw: 'round down multiple', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('significance', 'Round to a multiple of this (blank = 1)', '5', { t: 'num', opt: true, def: '1' })] },
+            { name: 'LARGE', cat: 'Math & Aggregation', desc: 'The 1st, 2nd, 3rd ... largest number in a list.', kw: 'biggest top nth highest rank', args: [wa('array', 'The cells to look at', 'A2:A20', { t: 'range', rng: true }), wa('k', 'Which one: 1 = largest, 2 = second largest ...', '1', { t: 'num' })] },
+            { name: 'SMALL', cat: 'Math & Aggregation', desc: 'The 1st, 2nd, 3rd ... smallest number in a list.', kw: 'lowest bottom nth least rank', args: [wa('array', 'The cells to look at', 'A2:A20', { t: 'range', rng: true }), wa('k', 'Which one: 1 = smallest, 2 = second smallest ...', '1', { t: 'num' })] },
+            { name: 'RANK', cat: 'Math & Aggregation', desc: 'Where a number places in a list (1 = first). Ties share a place.', kw: 'position leaderboard order standing', args: [wa('number', 'The number to place', 'B2', { t: 'num' }), wa('ref', 'The list of numbers', 'B2:B20', { t: 'range', rng: true }), wa('order', '0 or blank = biggest is 1st, 1 = smallest is 1st', '0', { t: 'num', opt: true })] },
+            {
+                name: 'MAXIFS', cat: 'Conditional Calculations', desc: 'The largest number among the cells that meet one or more conditions.', kw: 'highest biggest where if multiple conditions',
+                args: [wa('max_range', 'Cells to take the largest from', 'C2:C20', { t: 'range', rng: true }), wa('criteria_range1', 'Cells to test against condition 1', 'A2:A20', { t: 'range' }), wa('criteria1', 'Condition 1', '"apple"', { t: 'crit' })],
+                rep: { from: 2, args: [wa('criteria_range', 'Cells to test against this condition', 'B2:B20', { t: 'range' }), wa('criteria', 'This condition', '">10"', { t: 'crit' })] }
+            },
+            {
+                name: 'MINIFS', cat: 'Conditional Calculations', desc: 'The smallest number among the cells that meet one or more conditions.', kw: 'lowest least where if multiple conditions',
+                args: [wa('min_range', 'Cells to take the smallest from', 'C2:C20', { t: 'range', rng: true }), wa('criteria_range1', 'Cells to test against condition 1', 'A2:A20', { t: 'range' }), wa('criteria1', 'Condition 1', '"apple"', { t: 'crit' })],
+                rep: { from: 2, args: [wa('criteria_range', 'Cells to test against this condition', 'B2:B20', { t: 'range' }), wa('criteria', 'This condition', '">10"', { t: 'crit' })] }
+            },
+            {
+                name: 'SWITCH', cat: 'Logic & Error Control', desc: 'Compares one value to a list of options and gives the matching answer. To add an answer for "none of these", type one extra argument after the last pair.', kw: 'choose case match lookup if',
+                args: [wa('expression', 'The value to compare', 'A2', { t: 'val' }), wa('value1', 'First option', '"Red"', { t: 'val' }), wa('result1', 'Answer if it matches the first option', '1', { t: 'val' })],
+                rep: { from: 3, args: [wa('value', 'Another option', '"Blue"', { t: 'val', opt: true }), wa('result', 'Answer if it matches', '2', { t: 'val', opt: true })] }
+            },
+            { name: 'IFNA', cat: 'Logic & Error Control', desc: 'Shows a friendly answer only when the result is #N/A (for example a lookup that found nothing). Other errors still show.', kw: 'not available lookup missing fallback', args: [wa('value', 'The formula that might give #N/A', 'VLOOKUP(A2,D2:E20,2,FALSE)'), wa('value_if_na', 'What to show instead', '"not found"', { t: 'val' })] },
+            { name: 'TEXT', cat: 'Text & String', desc: 'Turns a number or date into text in a format you choose, e.g. "0.00", "#,##0", "0%", "$#,##0.00", "mm/dd/yyyy", "dddd", "h:mm AM/PM".', kw: 'format number date convert string', args: [wa('value', 'The number or date', 'A2', { t: 'val' }), wa('format_text', 'The format, in quotes', '"#,##0.00"', { t: 'val' })] },
+            { name: 'VALUE', cat: 'Text & String', desc: 'Turns text that looks like a number into a real number: "$1,234.50", "12%", "(5)", a date or a time.', kw: 'convert text to number numeric', args: [wa('text', 'The text', 'A2', { t: 'val' })] },
+            { name: 'FIND', cat: 'Text & String', desc: 'Where some text starts inside other text (1 = first character). Capital letters matter.', kw: 'position locate search case sensitive', args: [wa('find_text', 'The text to look for', '"-"', { t: 'val' }), wa('within_text', 'The text to look in', 'A2', { t: 'val' }), wa('start_num', 'Start looking at this character (blank = 1)', '1', { t: 'num', opt: true })] },
+            { name: 'SEARCH', cat: 'Text & String', desc: 'Where some text starts inside other text. Capital letters do not matter, and ? (any one character) and * (any run) work as wildcards.', kw: 'position locate find wildcard', args: [wa('find_text', 'The text to look for', '"ab*"', { t: 'val' }), wa('within_text', 'The text to look in', 'A2', { t: 'val' }), wa('start_num', 'Start looking at this character (blank = 1)', '1', { t: 'num', opt: true })] },
+            { name: 'REPT', cat: 'Text & String', desc: 'Repeats some text a number of times: REPT("*", 5) is *****.', kw: 'repeat stars bar copy', args: [wa('text', 'The text to repeat', '"*"', { t: 'val' }), wa('number_times', 'How many times', '5', { t: 'num' })] },
+            { name: 'ISEVEN', cat: 'Information', desc: 'TRUE if the number is even (whole part only).', kw: 'odd even parity check', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
+            { name: 'ISODD', cat: 'Information', desc: 'TRUE if the number is odd (whole part only).', kw: 'odd even parity check', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
             // Visible-only (rows hidden by a table filter are left out)
             wizAgg('SUMV', 'Adds up the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(109, range).', 'total add filtered hidden visible'),
             wizAgg('AVERAGEV', 'Average of the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(101, range).', 'mean filtered hidden visible'),
