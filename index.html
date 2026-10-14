@@ -3512,6 +3512,14 @@
             ROUND: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'half') },
             ROUNDUP: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'up') },
             ROUNDDOWN: { fn: args => roundTo(toNumber(args[0]), args.length > 1 ? toNumber(args[1]) : 0, 'down') },
+            // Visible-only versions: the same as SUM, AVERAGE ... but leave out rows a table filter is hiding (QSheet only)
+            SUMV: { fn: args => FUNCTIONS.SUM.fn(args.map(skipFilteredRows)) },
+            AVERAGEV: { fn: args => FUNCTIONS.AVERAGE.fn(args.map(skipFilteredRows)) },
+            COUNTV: { fn: args => FUNCTIONS.COUNT.fn(args.map(skipFilteredRows)) },
+            COUNTAV: { fn: args => FUNCTIONS.COUNTA.fn(args.map(skipFilteredRows)) },
+            MAXV: { fn: args => FUNCTIONS.MAX.fn(args.map(skipFilteredRows)) },
+            MINV: { fn: args => FUNCTIONS.MIN.fn(args.map(skipFilteredRows)) },
+            PRODUCTV: { fn: args => FUNCTIONS.PRODUCT.fn(args.map(skipFilteredRows)) },
             SUBTOTAL: {
                 fn: args => {
                     if (args.length < 2) throw new FormulaError('#VALUE!');
@@ -4033,10 +4041,19 @@
         const ARG_LIMITS = {
             SUM: [1, Infinity], AVERAGE: [1, Infinity], COUNT: [1, Infinity], COUNTA: [1, Infinity], MIN: [1, Infinity], MAX: [1, Infinity],
             MEDIAN: [1, Infinity], PRODUCT: [1, Infinity], CONCAT: [1, Infinity],
+            SUMV: [1, Infinity], AVERAGEV: [1, Infinity], COUNTV: [1, Infinity], COUNTAV: [1, Infinity], MAXV: [1, Infinity], MINV: [1, Infinity], PRODUCTV: [1, Infinity],
             ABS: [1, 1], MOD: [2, 2], ROUND: [1, 2], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], NOT: [1, 1],
             LEFT: [1, 2], RIGHT: [1, 2], LEN: [1, 1], TRIM: [1, 1], CLEAN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], PROPER: [1, 1],
             YEAR: [1, 1], MONTH: [1, 1], DAY: [1, 1], TODAY: [0, 0], NOW: [0, 0], INDIRECT: [1, 1]
         };
+
+        // A single cell passed to a function: a range of one that remembers where it is (so the visible-only functions can skip a hidden row)
+        function refArg(a, curR, curC) {
+            const rv = new RangeVal(1, 1, [evalNode(a, curR, curC)]);
+            const b = nodeBounds(a);
+            if (b) rv.origin = { r: b.minR, c: b.minC };
+            return rv;
+        }
 
         function evalNode(n, curR, curC) {
             switch (n.t) {
@@ -4069,7 +4086,7 @@
                     const lim = ARG_LIMITS[n.name];
                     if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!');
                     // A single cell passed to a function counts as a cell (like a range of one): text in it is skipped by SUM, AVERAGE, ...
-                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'ref' ? new RangeVal(1, 1, [evalNode(a, curR, curC)]) : evalNode(a, curR, curC)));
+                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'ref' ? refArg(a, curR, curC) : evalNode(a, curR, curC)));
                     return def.fn(args, curR, curC);
                 }
             }
@@ -4593,6 +4610,14 @@
             wizAgg('MAX', 'The largest number.', 'highest maximum biggest'),
             wizAgg('MEDIAN', 'The middle value when the numbers are put in order.', 'middle'),
             wizAgg('PRODUCT', 'Multiplies the numbers together.', 'multiply times'),
+            // Visible-only (rows hidden by a table filter are left out)
+            wizAgg('SUMV', 'Adds up the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(109, range).', 'total add filtered hidden visible'),
+            wizAgg('AVERAGEV', 'Average of the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(101, range).', 'mean filtered hidden visible'),
+            wizAgg('COUNTV', 'Counts the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(102, range).', 'how many numbers filtered hidden visible'),
+            wizAgg('COUNTAV', 'Counts the cells you can see that are not empty. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(103, range).', 'how many filled filtered hidden visible'),
+            wizAgg('MAXV', 'The largest number you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(104, range).', 'highest filtered hidden visible'),
+            wizAgg('MINV', 'The smallest number you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(105, range).', 'lowest filtered hidden visible'),
+            wizAgg('PRODUCTV', 'Multiplies the numbers you can see together. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(106, range).', 'multiply filtered hidden visible'),
             { name: 'ABS', cat: 'Math & Aggregation', desc: 'Removes the minus sign: the distance from zero.', kw: 'absolute positive', args: [wa('number', 'The number', '-5', { t: 'num' })] },
             { name: 'ROUND', cat: 'Math & Aggregation', desc: 'Rounds a number to a set number of decimal places (halves round up).', kw: 'decimals nearest', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '2', { t: 'num' })] },
             { name: 'ROUNDUP', cat: 'Math & Aggregation', desc: 'Rounds a number up, away from zero.', kw: 'ceiling', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '0', { t: 'num' })] },
