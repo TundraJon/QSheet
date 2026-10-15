@@ -312,4 +312,4 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 
 ### Build Log 24 — Item 42: message time by word count
 
-- [x] **Every message (toast) now stays on screen 0.2 seconds per word, never less than 3 seconds.** Short messages stay 3 s; 16 words = 3.2 s; 25 words = 5 s; 40 words = 8 s. Words are counted by spaces (a formula counts as one word where it has no spaces). This replaces the earlier rule (5 s for messages with a formula, 3 s for the rest). A new message still restarts the clock, so an older message's timer never hides a newer one.
+- [x] **Every message (toast) now stays on screen 0.3 seconds per word, never less than 3 seconds** (first built at 0.2 s per word; raised to 0.3 because 0.2 was still too fast). Short messages stay 3 s; 11 words = 3.3 s; 25 words = 7.5 s; 40 words = 12 s. Words are counted by spaces (a formula counts as one word where it has no spaces). This replaces the earlier rule (5 s for messages with a formula, 3 s for the rest). A new message still restarts the clock, so an older message's timer never hides a newer one.

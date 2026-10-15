@@ -1238,9 +1238,9 @@
         let activeRibbonTab = 'home';
         let lastRibbonTab = 'home';
 
-        // A message stays up 0.2 seconds per word (at least 3 seconds) so long ones can be read; a new message restarts the clock
+        // A message stays up 0.3 seconds per word (at least 3 seconds) so long ones can be read; a new message restarts the clock
         let toastTimer = null;
-        const toastMillis = msg => Math.max(3000, String(msg).trim().split(/\s+/).filter(Boolean).length * 200);
+        const toastMillis = msg => Math.max(3000, String(msg).trim().split(/\s+/).filter(Boolean).length * 300);
         function showToast(msg) {
             const toast = document.getElementById('app-toast');
             toast.innerText = msg;
