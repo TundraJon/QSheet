@@ -2865,6 +2865,7 @@
                 const inputEl = document.getElementById(`input-${cellId}`);
                 inputEl.value = val;
                 onCellInput(cellId, val);
+                e.target.value = cellEditText(cellId); // the bar shows what the cell now holds (the full formula, not what was typed)
                 recordHistory(`Updated ${cellId} to ${val}`);
             }
         }
