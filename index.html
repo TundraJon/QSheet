@@ -1238,14 +1238,15 @@
         let activeRibbonTab = 'home';
         let lastRibbonTab = 'home';
 
-        // Messages with a formula in them stay a little longer so they can be read; a new message restarts the clock
+        // A message stays up 0.2 seconds per word (at least 3 seconds) so long ones can be read; a new message restarts the clock
         let toastTimer = null;
+        const toastMillis = msg => Math.max(3000, String(msg).trim().split(/\s+/).filter(Boolean).length * 200);
         function showToast(msg) {
             const toast = document.getElementById('app-toast');
             toast.innerText = msg;
             toast.classList.remove('hidden');
             clearTimeout(toastTimer);
-            toastTimer = setTimeout(() => toast.classList.add('hidden'), /=|^Smart /.test(msg) ? 5000 : 3000);
+            toastTimer = setTimeout(() => toast.classList.add('hidden'), toastMillis(msg));
         }
 
         // The on-screen keyboard slides over the bottom of the page without resizing it, so anything pinned to the bottom would be hidden.
