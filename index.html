@@ -2975,6 +2975,19 @@
             return -1;
         }
 
+        // The run of numbers above (else to the left of) a cell as a range, or null when there are none (COUNTA counts anything filled)
+        function sgNumberRange(r, c, countAny) {
+            const rng = guessNeighborhoodRange(r, c);
+            const [a, b] = rng.split(':').map(parseCellCoord);
+            if (a.r >= r && a.c >= c) return null;
+            let n = 0;
+            for (let rr = Math.min(a.r, b.r); rr <= Math.max(a.r, b.r); rr++) for (let cc = Math.min(a.c, b.c); cc <= Math.max(a.c, b.c); cc++) {
+                const x = sgCell(rr, cc);
+                if (x && (countAny ? !sgBlank(x.value) : sgIsNum(x.value))) n++;
+            }
+            return n ? rng : null;
+        }
+
         // ---- IF: the patterns, first one that fits wins ----
         function smartIf(r, c) {
             if (c < 1) return null;
@@ -3074,14 +3087,8 @@
             }
             // functions on a run of numbers above or to the left
             if (SG_AGG.includes(name) || name === 'LARGE' || name === 'SMALL') {
-                const rng = guessNeighborhoodRange(r, c);
-                const [a, b] = rng.split(':').map(parseCellCoord);
-                let n = 0;
-                for (let rr = Math.min(a.r, b.r); rr <= Math.max(a.r, b.r); rr++) for (let cc = Math.min(a.c, b.c); cc <= Math.max(a.c, b.c); cc++) {
-                    const x = sgCell(rr, cc);
-                    if (x && (name === 'COUNTA' ? !sgBlank(x.value) : sgIsNum(x.value))) n++;
-                }
-                if (!n || (a.r >= r && a.c >= c)) return { why: name === 'COUNTA' ? 'No filled cells found above or to the left of this cell' : 'No numbers found above or to the left of this cell' };
+                const rng = sgNumberRange(r, c, name === 'COUNTA');
+                if (!rng) return { why: name === 'COUNTA' ? 'No filled cells found above or to the left of this cell' : 'No numbers found above or to the left of this cell' };
                 return { args: (name === 'LARGE' || name === 'SMALL') ? [rng, '1'] : [rng] };
             }
             if (name === 'RANK') {
@@ -3093,9 +3100,18 @@
             }
             // criteria and lookups: the value in the cell to the left is searched for in the rest of the sheet
             const a = c > 0 && sgCell(r, c - 1) && !sgBlank(sgCell(r, c - 1).value) ? { r, c: c - 1 } : null;
+            // Nothing to look for (or a number that is part of the run itself): use the numbers above or to the left with a starting test the user can change
+            const startingGuess = () => {
+                const rng = sgNumberRange(r, c, false);
+                if (!rng) return null;
+                const note = 'a starting point: no value to look for beside it, so this uses the nearby numbers with the test >0. Change the test to what you need';
+                return { args: (name === 'MAXIFS' || name === 'MINIFS') ? [rng, rng, '">0"'] : [rng, '">0"'], note, starting: true };
+            };
+            if (!a && SG_CRIT.includes(name)) return startingGuess() || { why: 'Put the value to look for in the cell to the left first, or have numbers above this cell to work on' };
             if (!a) return { why: 'Put the value to look for in the cell to the left first' };
             const cell = sgCell(a.r, a.c), ref = sgRef(a.r, a.c);
             const f = sgFindColumnWith(cell.value, a.c, c);
+            if (!f && SG_CRIT.includes(name) && sgIsNum(cell.value)) { const g = startingGuess(); if (g) return g; }
             if (!f) return { why: `No other column on this sheet contains "${String(cellDisplayText(cell))}"` };
             if (name === 'COUNTIF') return { args: [sgAbs(f.col, f.r1, f.r2), ref] };
             if (SG_CRIT.includes(name)) {
