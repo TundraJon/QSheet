@@ -302,7 +302,7 @@
         .cm-hint { font-size: 0.75rem; color: #64748b; word-break: break-word; }
         .ttc-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 0.85rem; color: #475569; }
         .ttc-check input { width: 22px; height: 22px; flex: none; }
-        #ttc-other.hidden { display: none; }
+        #ttc-other.hidden, #pick-search.hidden { display: none; }
         .tt-controls { display: flex; gap: 8px; }
         .tt-controls button { flex: 1; min-height: 44px; font-size: 0.9rem; }
         .tt-scrub { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
@@ -317,6 +317,25 @@
         .tt-item.ahead { opacity: 0.6; font-style: italic; }
         td.tt-flash { animation: ttFlash 1.4s ease-out; }
         @keyframes ttFlash { 0% { box-shadow: inset 0 0 0 3px #f59e0b; background-color: #fde68a; } 100% { box-shadow: inset 0 0 0 3px rgba(245, 158, 11, 0); } }
+        .val-sub { font-weight: 400 !important; font-size: 0.8rem; }
+        .val-limits { display: flex; gap: 8px; }
+        .val-limits input { flex: 1; min-width: 0; min-height: 44px; }
+        .val-rules { display: flex; flex-direction: column; gap: 6px; }
+        .val-rule { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: #f8fafc; }
+        .val-rule.editing { border-color: var(--accent-color); background: #e0e9ff; }
+        .val-rule .vr-text { flex: 1; min-width: 0; font-size: 0.8rem; overflow-wrap: anywhere; }
+        .val-rule button { min-height: 44px; min-width: 44px; padding: 0 10px; }
+        .val-none { color: #64748b; font-size: 0.8rem; }
+        .modal-overlay.sheet { align-items: flex-end; }
+        .modal-overlay.sheet .modal { width: 100%; max-width: 100%; border-radius: 14px 14px 0 0; }
+        .modal-overlay.sheet .modal-body { max-height: 52vh; }
+        body.kb-open .modal-overlay.sheet .modal { margin-bottom: var(--kb, 0px); }
+        .pick-list { display: flex; flex-direction: column; gap: 4px; }
+        .pick-row { justify-content: flex-start; min-height: 48px; width: 100%; font-size: 0.95rem; gap: 10px; text-align: left; }
+        .pick-row .pick-tick { width: 1.2em; color: var(--accent-color); font-weight: 700; flex: none; }
+        .pick-row.chosen { border-color: var(--accent-color); background: #e0e9ff; }
+        td.val-bad { position: relative; }
+        td.val-bad::after { content: ''; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 9px 9px 0; border-color: transparent #dc2626 transparent transparent; pointer-events: none; }
         .cm-sort { display: flex; gap: 8px; }
         .cm-sort button { flex: 1; min-height: 44px; font-size: 0.9rem; }
         .cm-tools { display: flex; gap: 8px; align-items: center; }
@@ -1040,16 +1059,36 @@
                 <button onclick="closeDataValidation()">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label>Target Range (e.g. B2:B100)</label>
-                    <input type="text" id="val-range" value="B2:B100">
+                <div class="form-group" id="val-rules-wrap">
+                    <label>Rules on this sheet</label>
+                    <div id="val-rules-list" class="val-rules"></div>
                 </div>
                 <div class="form-group">
-                    <label>Rule Type</label>
-                    <select id="val-type" onchange="onValSourceChange()">
+                    <label id="val-form-title">New rule</label>
+                    <label for="val-range" class="val-sub">Target Range (e.g. B2:B100)</label>
+                    <input type="text" id="val-range" value="B2:B100" autocomplete="off" autocapitalize="characters">
+                </div>
+                <div class="form-group">
+                    <label for="val-type">Rule Type</label>
+                    <select id="val-type" onchange="onValTypeChange()">
                         <option value="list">List Drop-Down Options</option>
-                        <option value="number">Whole Number Only</option>
+                        <option value="whole">Whole Number</option>
+                        <option value="decimal">Decimal Number</option>
+                        <option value="date">Date</option>
                     </select>
+                </div>
+                <div class="form-group" id="val-cond-wrap">
+                    <label for="val-cond">Allowed values</label>
+                    <select id="val-cond" onchange="onValTypeChange()">
+                        <option value="any">Any</option>
+                        <option value="between">Between</option>
+                        <option value="atleast">At least</option>
+                        <option value="atmost">At most</option>
+                    </select>
+                    <div class="val-limits">
+                        <input type="number" step="any" id="val-min" placeholder="Lowest" aria-label="Lowest allowed">
+                        <input type="number" step="any" id="val-max" placeholder="Highest" aria-label="Highest allowed">
+                    </div>
                 </div>
                 <div class="form-group" id="val-source-wrap">
                     <label>Where do the options come from?</label>
@@ -1068,10 +1107,55 @@
                     <div id="val-list-hint" class="wiz-tip"></div>
                     <div class="wiz-tip">Linked: if you change the list later, this drop-down changes too.</div>
                 </div>
+                <div class="form-group">
+                    <label for="val-mode">When something else is entered</label>
+                    <select id="val-mode">
+                        <option value="warn">Warn only (keep what was entered)</option>
+                        <option value="reject">Reject it (put the old value back)</option>
+                    </select>
+                </div>
             </div>
             <div class="modal-footer">
                 <button onclick="closeDataValidation()">Cancel</button>
-                <button class="primary" onclick="applyDataValidation()">Apply Validation Rule</button>
+                <button class="primary" id="val-apply-btn" onclick="applyDataValidation()">Apply Validation Rule</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pick a value for a drop-down cell -->
+    <div class="modal-overlay sheet hidden" id="pick-sheet" onclick="if (event.target === this) closePicker()">
+        <div class="modal">
+            <div class="modal-header">
+                <span id="pick-title">Pick a value</span>
+                <button onclick="closePicker()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="pick-search" placeholder="Search" autocomplete="off" oninput="renderPicker()">
+                <div id="pick-list" class="pick-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="pickerClear()">Clear cell</button>
+                <button onclick="closePicker()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pick a date for a date cell -->
+    <div class="modal-overlay sheet hidden" id="date-sheet" onclick="if (event.target === this) closeDatePicker()">
+        <div class="modal">
+            <div class="modal-header">
+                <span id="date-title">Pick a date</span>
+                <button onclick="closeDatePicker()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="date" id="date-pick" style="min-height: 48px; font-size: 1rem;">
+                <div class="cm-hint" id="date-hint"></div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="datePickerToday()">Today</button>
+                <button onclick="datePickerClear()">Clear cell</button>
+                <button onclick="closeDatePicker()">Cancel</button>
+                <button class="primary" onclick="datePickerSet()">Set</button>
             </div>
         </div>
     </div>
@@ -1346,6 +1430,7 @@
             if (cell.formula) return cell.formula;
             const st = cell.style || {};
             if (st.numFormat === 'percent' && typeof cell.value === 'number' && isFinite(cell.value)) return String(roundTo(cell.value * 100, 10, 'half')) + '%';
+            if ((st.numFormat === 'date_mdy' || st.numFormat === 'date_ymd') && typeof cell.value === 'number' && isFinite(cell.value) && cell.value >= 0 && Number.isInteger(cell.value)) return formatDateSerial(cell.value, st.numFormat);
             return cell.value === undefined || cell.value === null ? '' : cell.value;
         }
 
@@ -1373,6 +1458,7 @@
                 st.numFormat = 'percent';
                 return Number((Number(pm[1]) / 100).toPrecision(15));
             }
+            if ((st.numFormat === 'date_mdy' || st.numFormat === 'date_ymd') && typeof dateFromText === 'function') { const d = dateFromText(value); if (d !== null) return d; }
             if (value.trim() === '' || isNaN(value)) return value;
             if (st.numFormat === 'percent') return Number((Number(value) / 100).toPrecision(15));
             return Number(value);
@@ -1591,6 +1677,25 @@
         const cleanInt = (v, lo, hi, dflt) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : dflt; };
         const CF_TYPE_IDS = ['gt', 'lt', 'eq', 'between', 'text', 'top', 'bottom', 'topPct', 'bottomPct', 'above', 'below', 'scale', 'formula'];
 
+        // A validation rule read from storage (an older "number" rule is a whole-number rule)
+        function cleanValidation(v) {
+            if (!v || typeof v !== 'object' || !parseRangeText(v.range)) return null;
+            const type = v.type === 'number' ? 'whole' : v.type;
+            if (!['list', 'whole', 'decimal', 'date'].includes(type)) return null;
+            const out = { range: cleanText(v.range, 30).toUpperCase(), type, mode: v.mode === 'reject' ? 'reject' : 'warn' };
+            if (type === 'list') {
+                out.options = (Array.isArray(v.options) ? v.options : []).slice(0, 500).map(o => cleanText(o, 100));
+                if (v.listId) { out.listId = cleanText(v.listId, 40); out.listName = cleanText(v.listName, 40); }
+                return out;
+            }
+            const num = x => (typeof x === 'number' && isFinite(x) ? x : null);
+            out.cond = ['between', 'atleast', 'atmost'].includes(v.cond) ? v.cond : 'any';
+            if (out.cond === 'between' || out.cond === 'atleast') { out.min = num(v.min); if (out.min === null) out.cond = 'any'; }
+            if (out.cond === 'between' || out.cond === 'atmost') { out.max = num(v.max); if (out.max === null) { out.cond = 'any'; delete out.min; } }
+            if (out.cond === 'any') { delete out.min; delete out.max; }
+            return out;
+        }
+
         // A table's filters: { columnIndex: [values to hide] }, kept only for columns inside the table
         function cleanTable(t) {
             if (!t || typeof t !== 'object') return null;
@@ -1674,7 +1779,7 @@
                 name: cleanText(es.name || 'Sheet', 40) || 'Sheet',
                 data,
                 conditionalRules: (Array.isArray(es.cf) ? es.cf : []).map(cleanRule).filter(Boolean),
-                validationRules: (Array.isArray(es.dv) ? es.dv : []).filter(v => v && parseRangeText(v.range) && (v.type === 'list' || v.type === 'number')).map(v => ({ range: cleanText(v.range, 30).toUpperCase(), type: v.type, options: (Array.isArray(v.options) ? v.options : []).map(o => cleanText(o, 100)), ...(v.listId ? { listId: cleanText(v.listId, 40), listName: cleanText(v.listName, 40) } : {}) })),
+                validationRules: (Array.isArray(es.dv) ? es.dv : []).map(cleanValidation).filter(Boolean),
                 tableObjects: (Array.isArray(es.tb) ? es.tb : []).map(cleanTable).filter(t => t && t.startR >= 0 && t.endR >= t.startR && t.startC >= 0 && t.endC >= t.startC),
                 merges: (Array.isArray(es.mg) ? es.mg : []).map(m => m && ({ r: cleanInt(m.r, 0, ROWS - 1, -1), c: cleanInt(m.c, 0, COLS - 1, -1), rows: cleanInt(m.rows, 1, ROWS, 1), cols: cleanInt(m.cols, 1, COLS, 1) })).filter(m => m && m.r >= 0 && m.c >= 0 && m.r + m.rows <= ROWS && m.c + m.cols <= COLS && (m.rows > 1 || m.cols > 1)),
                 freezeRows: cleanInt(es.fr, 0, 50, 0),
@@ -2277,6 +2382,7 @@
             frozenEls = [];
             cfPaintedTds = [];
             filteredRows = new Set();
+            valBadIds = new Set();
             applyMerges();
             applyTableHeaders();
             layoutFreeze();
@@ -2573,19 +2679,17 @@
                 html += `<button onclick="openWizard()">fx Wizard</button>`;
             }
 
-            // Check if cell has list validation
-            let coord = parseCellCoord(cellId);
-            let matchedRule = validationRules.find(rule => {
-                let start = parseCellCoord(rule.range.split(':')[0]);
-                let end = parseCellCoord(rule.range.split(':')[1]);
-                return coord.r >= Math.min(start.r, end.r) && coord.r <= Math.max(start.r, end.r) &&
-                       coord.c >= Math.min(start.c, end.c) && coord.c <= Math.max(start.c, end.c);
-            });
-
+            // A cell with a drop-down list or a date rule gets a picker button (short lists also show their values)
+            const matchedRule = valRulesFor(cellId).find(r => r.type === 'list' || r.type === 'date');
             if (showVal && matchedRule && matchedRule.type === 'list') {
-                validationOptions(matchedRule).forEach(opt => {
+                const opts = validationOptions(matchedRule);
+                html += `<button data-cell="${cellId}" onclick="openPicker(this.dataset.cell)">&#9662; Pick</button>`;
+                if (opts.length <= 6) opts.forEach(opt => {
                     html += `<button data-cell="${cellId}" data-val="${escapeHtml(opt.trim())}" onclick="setValidationValue(this.dataset.cell, this.dataset.val)">${escapeHtml(opt.trim())}</button>`;
                 });
+            }
+            if (showVal && matchedRule && matchedRule.type === 'date') {
+                html += `<button data-cell="${cellId}" onclick="openDatePicker(this.dataset.cell)">&#128197; Pick date</button>`;
             }
 
             if (html !== '') {
@@ -3202,26 +3306,292 @@
 
         // Called when a value is committed (Enter, Tab, leaving the cell, formula bar, dock, wizard): validates, then stores
         function onCellInput(cellId, value) {
-            let coord = parseCellCoord(cellId);
-            validationRules.forEach(rule => {
-                let start = parseCellCoord(rule.range.split(':')[0]);
-                let end = parseCellCoord(rule.range.split(':')[1]);
-                if (coord.r >= Math.min(start.r, end.r) && coord.r <= Math.max(start.r, end.r) &&
-                    coord.c >= Math.min(start.c, end.c) && coord.c <= Math.max(start.c, end.c)) {
-                    if (rule.type === 'number' && isNaN(value) && value.trim() !== '') {
-                        showToast(`Validation Error: ${cellId} requires a whole number.`);
-                    } else if (rule.type === 'list' && value.trim() !== '') {
-                        let allowed = validationOptions(rule).map(o => o.trim().toLowerCase());
-                        if (!allowed.includes(value.trim().toLowerCase())) {
-                            showToast(`Validation Warning: Value not in allowed dropdown list.`);
-                        }
-                    }
-                }
-            });
+            const text = String(value);
+            const rules = valRulesFor(cellId);
+            const typedValue = text.trim() !== '' && !text.startsWith('=');
+            // In a Date rule a typed date becomes a real date (shown as a date)
+            if (typedValue && rules.some(r => r.type === 'date') && dateFromText(text) !== null) {
+                if (!data[cellId]) data[cellId] = { style: {}, value: '', formula: '' };
+                if (!data[cellId].style) data[cellId].style = {};
+                if (data[cellId].style.numFormat === undefined) data[cellId].style.numFormat = /^\s*\d{4}/.test(text) ? 'date_ymd' : 'date_mdy';
+            }
             setCellContent(cellId, value);
+            if (typedValue && rules.length) {
+                const bad = rules.find(r => !valCheck(r, data[cellId]));
+                if (bad) {
+                    const msg = valMessage(bad, cellId);
+                    if (bad.mode === 'reject') {
+                        valRevertCell(cellId);
+                        showToast(`Not accepted. ${msg}`);
+                        return;
+                    }
+                    showToast(`${msg}. It was kept.`);
+                }
+            }
             autoDateFormat(cellId);
             growTableFor(cellId, value);
             recordHistory(histCellLabel(cellId));
+        }
+
+        // ===== Data validation =====
+        // A rule: { range, type: list | whole | decimal | date, cond: any | between | atleast | atmost, min, max, mode: warn | reject, options (list) }
+        // Dates are kept as serial numbers. Entries that are formulas are never checked; empty cells are always fine.
+        const VAL_LABELS = { list: 'List', whole: 'Whole number', decimal: 'Decimal number', date: 'Date' };
+        function valRulesFor(cellId) {
+            const co = parseCellCoord(cellId);
+            return validationRules.filter(rule => {
+                const b = parseRangeText(rule.range);
+                return b && co.r >= b.minR && co.r <= b.maxR && co.c >= b.minC && co.c <= b.maxC;
+            });
+        }
+        function dateFromText(text) {
+            const t = String(text).trim();
+            let m, y, mo, d;
+            if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t))) { mo = +m[1]; d = +m[2]; y = +m[3]; }
+            else if ((m = /^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/.exec(t))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+            else return null;
+            if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+            const serial = serialFromYMD(y, mo, d), back = ymdFromSerial(serial);
+            return back.m === mo && back.d === d ? serial : null;
+        }
+        const valDateText = serial => formatDateSerial(serial, 'date_mdy');
+        function valLimitText(rule) {
+            const f = x => (rule.type === 'date' ? valDateText(x) : String(x));
+            if (rule.cond === 'between') return ` between ${f(rule.min)} and ${f(rule.max)}`;
+            if (rule.cond === 'atleast') return rule.type === 'date' ? ` on or after ${f(rule.min)}` : ` of at least ${f(rule.min)}`;
+            if (rule.cond === 'atmost') return rule.type === 'date' ? ` on or before ${f(rule.max)}` : ` of at most ${f(rule.max)}`;
+            return '';
+        }
+        function valMessage(rule, cellId) {
+            if (rule.type === 'list') {
+                const opts = validationOptions(rule).map(o => o.trim()).filter(Boolean);
+                return `${cellId} should be one of: ${opts.slice(0, 6).join(', ')}${opts.length > 6 ? ', ...' : ''}`;
+            }
+            if (rule.type === 'date') return `${cellId} should be a date${valLimitText(rule)}`;
+            return `${cellId} should be a ${rule.type === 'whole' ? 'whole number' : 'number'}${valLimitText(rule)}`;
+        }
+        // Does a stored cell satisfy a rule?
+        function valCheck(rule, cell) {
+            if (!cell || cell.formula || cell.spillOf || cell.value === '' || cell.value === undefined || cell.value === null) return true;
+            const v = cell.value;
+            if (rule.type === 'list') return validationOptions(rule).some(o => o.trim().toLowerCase() === String(v).trim().toLowerCase());
+            if (typeof v !== 'number' || !isFinite(v)) return false;
+            let x = v;
+            if (rule.type === 'whole' && !Number.isInteger(v)) return false;
+            if (rule.type === 'date') {
+                if (!(cell.style && DATE_FORMATS.includes(cell.style.numFormat))) return false;
+                x = Math.floor(v);
+            }
+            if (rule.cond === 'between') return x >= rule.min && x <= rule.max;
+            if (rule.cond === 'atleast') return x >= rule.min;
+            if (rule.cond === 'atmost') return x <= rule.max;
+            return true;
+        }
+        // A rejected entry: the cell goes back to what the last step left in it
+        function valRevertCell(cellId) {
+            const sheet = sheets[currentSheetIdx];
+            const sh = histShadow.get(sheet);
+            histWrite(sheet, cellId, sh ? (sh.cells.get(cellId) || null) : null);
+            recalculateAll();
+            applyCellStyle(cellId);
+            const input = document.getElementById(`input-${cellId}`);
+            if (input && !data[cellId]) { input.value = ''; input.style.textAlign = ''; }
+            updateStats();
+            applyConditionalFormattingRules();
+            const co = parseCellCoord(cellId);
+            if (activeCell.row === co.r && activeCell.col === co.c) document.getElementById('formula-input').value = cellEditText(cellId);
+        }
+        // Small red corner on cells that hold something their rule does not allow
+        let valBadIds = new Set();
+        function refreshValidationMarks() {
+            const next = new Set();
+            if (validationRules.length) {
+                const parsed = validationRules.map(r => ({ r, b: parseRangeText(r.range) })).filter(x => x.b);
+                for (const id in data) {
+                    const cell = data[id];
+                    if (cell.formula || cell.spillOf || cell.value === '' || cell.value === undefined) continue;
+                    const co = parseCellCoord(id);
+                    if (parsed.some(({ r, b }) => co.r >= b.minR && co.r <= b.maxR && co.c >= b.minC && co.c <= b.maxC && !valCheck(r, cell))) next.add(id);
+                }
+            }
+            valBadIds.forEach(id => { if (!next.has(id)) { const td = document.getElementById(`cell-${id}`); if (td) td.classList.remove('val-bad'); } });
+            next.forEach(id => { if (!valBadIds.has(id)) { const td = document.getElementById(`cell-${id}`); if (td) td.classList.add('val-bad'); } });
+            valBadIds = next;
+        }
+
+        // ----- The rules screen -----
+        let valEditIndex = -1;
+        const valEl = id => document.getElementById(id);
+        function valRuleSummary(rule) {
+            let what = VAL_LABELS[rule.type] || rule.type;
+            if (rule.type === 'list') {
+                const opts = validationOptions(rule).map(o => o.trim()).filter(Boolean);
+                what = `List${rule.listName ? ` "${rule.listName}"` : ''}: ${opts.slice(0, 4).join(', ')}${opts.length > 4 ? ', ...' : ''}`;
+            } else what += valLimitText(rule);
+            return `${rule.range} · ${what}${rule.mode === 'reject' ? ' · rejects' : ''}`;
+        }
+        function renderValRules() {
+            const box = valEl('val-rules-list');
+            box.innerHTML = validationRules.length ? validationRules.map((r, i) => `
+                <div class="val-rule${i === valEditIndex ? ' editing' : ''}">
+                    <span class="vr-text">${escapeHtml(valRuleSummary(r))}</span>
+                    <button onclick="valEditRule(${i})" aria-label="Edit this rule">Edit</button>
+                    <button onclick="valDeleteRule(${i})" aria-label="Delete this rule">&#10005;</button>
+                </div>`).join('') : '<div class="val-none">No rules yet. Make one below.</div>';
+            valEl('val-form-title').textContent = valEditIndex >= 0 ? `Editing rule ${valEditIndex + 1}` : 'New rule';
+            valEl('val-apply-btn').textContent = valEditIndex >= 0 ? 'Save Changes' : 'Apply Validation Rule';
+        }
+        function onValTypeChange() {
+            const type = valEl('val-type').value;
+            const isList = type === 'list';
+            const cond = valEl('val-cond').value;
+            valEl('val-cond-wrap').classList.toggle('hidden', isList);
+            const dateInputs = type === 'date';
+            ['val-min', 'val-max'].forEach(id => { valEl(id).type = dateInputs ? 'date' : 'number'; });
+            valEl('val-min').classList.toggle('hidden', cond === 'any' || cond === 'atmost');
+            valEl('val-max').classList.toggle('hidden', cond === 'any' || cond === 'atleast');
+            valEl('val-min').placeholder = cond === 'between' ? 'Lowest' : 'Value';
+            valEl('val-max').placeholder = cond === 'between' ? 'Highest' : 'Value';
+            onValSourceChange();
+        }
+        const valInputDate = serial => { const { y, m, d } = ymdFromSerial(serial); return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; };
+        function openDataValidation() {
+            valEditIndex = -1;
+            refreshValidationLists();
+            valEl('val-source').value = myLists.length ? 'list' : 'typed';
+            valEl('val-type').value = 'list'; valEl('val-cond').value = 'any'; valEl('val-mode').value = 'warn';
+            valEl('val-min').value = ''; valEl('val-max').value = '';
+            const b = selBounds();
+            valEl('val-range').value = (b.minR === b.maxR && b.minC === b.maxC) ? `${getCellId(b.minR, b.minC)}:${getCellId(Math.min(ROWS - 1, b.minR + 99), b.minC)}` : `${getCellId(b.minR, b.minC)}:${getCellId(b.maxR, b.maxC)}`;
+            onValTypeChange();
+            renderValRules();
+            valEl('val-modal').classList.remove('hidden');
+        }
+        function closeDataValidation() { valEl('val-modal').classList.add('hidden'); valEditIndex = -1; }
+        function valEditRule(i) {
+            const r = validationRules[i];
+            if (!r) return;
+            valEditIndex = i;
+            valEl('val-range').value = r.range;
+            valEl('val-type').value = r.type;
+            valEl('val-cond').value = r.cond || 'any';
+            valEl('val-mode').value = r.mode === 'reject' ? 'reject' : 'warn';
+            onValTypeChange();
+            if (r.type === 'date') { valEl('val-min').value = r.min !== undefined ? valInputDate(r.min) : ''; valEl('val-max').value = r.max !== undefined ? valInputDate(r.max) : ''; }
+            else { valEl('val-min').value = r.min !== undefined ? r.min : ''; valEl('val-max').value = r.max !== undefined ? r.max : ''; }
+            if (r.type === 'list') {
+                refreshValidationLists();
+                if (r.listId && findList(r.listId)) { valEl('val-source').value = 'list'; valEl('val-list').value = r.listId; }
+                else { valEl('val-source').value = 'typed'; valEl('val-options').value = (r.options || []).join(', '); }
+                onValSourceChange();
+            }
+            renderValRules();
+            valEl('val-range').scrollIntoView && valEl('val-range').scrollIntoView({ block: 'nearest' });
+        }
+        function valDeleteRule(i) {
+            const r = validationRules[i];
+            if (!r) return;
+            if (!confirm(`Delete the rule for ${r.range}?`)) return;
+            validationRules.splice(i, 1);
+            sheets[currentSheetIdx].validationRules = validationRules;
+            if (valEditIndex === i) valEditIndex = -1; else if (valEditIndex > i) valEditIndex--;
+            refreshValidationMarks();
+            updateCellDock(getCellId(activeCell.row, activeCell.col));
+            renderValRules();
+            showToast(`Rule for ${r.range} deleted`);
+            recordHistory('Removed data validation');
+        }
+        function applyDataValidation() {
+            const rangeText = valEl('val-range').value.trim().toUpperCase().replace(/\$/g, '');
+            if (!parseRangeText(rangeText)) { showToast('Type the range like B2:B100'); return; }
+            const type = valEl('val-type').value;
+            const mode = valEl('val-mode').value === 'reject' ? 'reject' : 'warn';
+            let rule;
+            if (type === 'list') {
+                if (valEl('val-source').value === 'list') {
+                    const list = findList(valEl('val-list').value);
+                    if (!list) { showToast('Pick one of your lists (make one in Settings → My Lists)'); return; }
+                    rule = { range: rangeText, type, mode, options: list.items.slice(), listId: list.id, listName: list.name };
+                } else {
+                    const options = valEl('val-options').value.split(',').map(o => o.trim()).filter(Boolean);
+                    if (!options.length) { showToast('Type at least one option'); return; }
+                    rule = { range: rangeText, type, mode, options };
+                }
+            } else {
+                const cond = valEl('val-cond').value;
+                const read = id => {
+                    const t = valEl(id).value;
+                    if (t === '') return null;
+                    if (type === 'date') { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t); return m ? serialFromYMD(+m[1], +m[2], +m[3]) : null; }
+                    return isFinite(Number(t)) ? Number(t) : null;
+                };
+                rule = { range: rangeText, type, mode, cond };
+                if (cond === 'between' || cond === 'atleast') { rule.min = read('val-min'); if (rule.min === null) { showToast(cond === 'between' ? 'Fill in the lowest value' : 'Fill in the value'); return; } }
+                if (cond === 'between' || cond === 'atmost') { rule.max = read('val-max'); if (rule.max === null) { showToast(cond === 'between' ? 'Fill in the highest value' : 'Fill in the value'); return; } }
+                if (cond === 'between' && rule.min > rule.max) { showToast('The lowest value is above the highest value'); return; }
+            }
+            const editing = valEditIndex >= 0;
+            if (editing) validationRules[valEditIndex] = rule; else validationRules.push(rule);
+            sheets[currentSheetIdx].validationRules = validationRules;
+            closeDataValidation();
+            refreshValidationMarks();
+            updateCellDock(getCellId(activeCell.row, activeCell.col));
+            showToast(`Validation rule ${editing ? 'saved for' : 'applied to'} ${rangeText}`);
+            recordHistory(editing ? 'Changed data validation' : 'Applied data validation');
+        }
+
+        // ----- Picker sheets (a drop-down list, a date) -----
+        let pickCell = null;
+        function openPicker(cellId) {
+            const rule = valRulesFor(cellId).find(r => r.type === 'list');
+            if (!rule) return;
+            pickCell = cellId;
+            valEl('pick-title').textContent = `Pick a value for ${cellId}`;
+            valEl('pick-search').value = '';
+            valEl('pick-search').classList.toggle('hidden', validationOptions(rule).length <= 8);
+            renderPicker();
+            valEl('pick-sheet').classList.remove('hidden');
+        }
+        function renderPicker() {
+            const rule = pickCell && valRulesFor(pickCell).find(r => r.type === 'list');
+            if (!rule) return;
+            const q = valEl('pick-search').value.trim().toLowerCase();
+            const cur = data[pickCell] ? String(data[pickCell].value).trim().toLowerCase() : '';
+            const opts = validationOptions(rule).map(o => o.trim()).filter(o => o && (!q || o.toLowerCase().includes(q)));
+            valEl('pick-list').innerHTML = opts.length ? opts.map((o, i) => `
+                <button class="pick-row${o.toLowerCase() === cur ? ' chosen' : ''}" data-i="${i}" onclick="pickerChoose(this.dataset.v)" data-v="${escapeHtml(o)}">
+                    <span class="pick-tick">${o.toLowerCase() === cur ? '✓' : ''}</span><span>${escapeHtml(o)}</span>
+                </button>`).join('') : '<div class="val-none">No matching values</div>';
+        }
+        function pickerChoose(v) { const id = pickCell; closePicker(); if (id) setValidationValue(id, v); }
+        function pickerClear() { const id = pickCell; closePicker(); if (id) setValidationValue(id, ''); }
+        function closePicker() { valEl('pick-sheet').classList.add('hidden'); pickCell = null; }
+
+        let dateCell = null;
+        function openDatePicker(cellId) {
+            const rule = valRulesFor(cellId).find(r => r.type === 'date');
+            if (!rule) return;
+            dateCell = cellId;
+            const input = valEl('date-pick');
+            input.min = rule.cond === 'between' || rule.cond === 'atleast' ? valInputDate(rule.min) : '';
+            input.max = rule.cond === 'between' || rule.cond === 'atmost' ? valInputDate(rule.max) : '';
+            const cell = data[cellId];
+            input.value = cell && typeof cell.value === 'number' && cell.style && DATE_FORMATS.includes(cell.style.numFormat) ? valInputDate(Math.floor(cell.value)) : '';
+            valEl('date-title').textContent = `Pick a date for ${cellId}`;
+            valEl('date-hint').textContent = valLimitText(rule) ? `Allowed: a date${valLimitText(rule)}` : '';
+            valEl('date-sheet').classList.remove('hidden');
+        }
+        function closeDatePicker() { valEl('date-sheet').classList.add('hidden'); dateCell = null; }
+        function datePickerToday() { const n = new Date(); valEl('date-pick').value = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; }
+        function datePickerClear() { const id = dateCell; closeDatePicker(); if (id) setValidationValue(id, ''); }
+        function datePickerSet() {
+            const t = valEl('date-pick').value;
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+            if (!m) { showToast('Pick a date first'); return; }
+            const id = dateCell, cell = data[id];
+            const ymd = cell && cell.style && cell.style.numFormat === 'date_ymd';
+            closeDatePicker();
+            setValidationValue(id, ymd ? `${m[1]}/${m[2]}/${m[3]}` : `${m[2]}/${m[3]}/${m[1]}`);
         }
 
         // Stores a value / formula and recalculates (runs on every keystroke while typing in a cell)
@@ -4957,6 +5327,7 @@
                 if (!spilled) break;
             }
             for (let cellId in data) renderCellDisplay(cellId);
+            if (validationRules.length || valBadIds.size) refreshValidationMarks();
         }
 
         function updateStats() {
@@ -5419,32 +5790,6 @@
             updateStats();
             showToast(flattened ? `Sorted by column ${columnToLetter(colIdx)} (formulas in sorted rows became values)` : `Table sorted by column ${columnToLetter(colIdx)}`);
             recordHistory(`Sorted table by column ${columnToLetter(colIdx)}`);
-        }
-
-        // Data Validation
-        function openDataValidation() {
-            refreshValidationLists();
-            document.getElementById('val-source').value = myLists.length ? 'list' : 'typed';
-            onValSourceChange();
-            document.getElementById('val-modal').classList.remove('hidden');
-        }
-        function closeDataValidation() { document.getElementById('val-modal').classList.add('hidden'); }
-        function applyDataValidation() {
-            let range = document.getElementById('val-range').value;
-            let type = document.getElementById('val-type').value;
-            let rule;
-            if (type === 'list' && document.getElementById('val-source').value === 'list') {
-                const list = findList(document.getElementById('val-list').value);
-                if (!list) { showToast('Pick one of your lists (make one in Settings → My Lists)'); return; }
-                rule = { range, type, options: list.items.slice(), listId: list.id, listName: list.name };
-            } else {
-                rule = { range, type, options: document.getElementById('val-options').value.split(',') };
-            }
-            validationRules.push(rule);
-            sheets[currentSheetIdx].validationRules = validationRules;
-            closeDataValidation();
-            showToast(`Validation rule applied to ${range}`);
-            recordHistory("Applied data validation");
         }
 
         // Text to Columns
