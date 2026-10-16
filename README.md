@@ -49,7 +49,7 @@ Logged from the V2 → V3 gap review. Nothing here is approved to build yet. Ful
 18. ~~Time Travel: visual drawer, scrub forward/back, restore formatting/merges/rules (currently `alert()` restore of cell data only) (BQ-08.4).~~ **Done — see Build Log 26.**
 19. ~~Sort & Filter header dropdowns, value checklist filtering with search, view masking in aggregates (BQ-09.2).~~ **Done — see Build Log 12.**
 20. ~~Structured table references (`=SUM(Sales[Amount])`) and auto-expanding tables (BQ-09.1).~~ **Done — see Build Log 19.**
-21. Data validation: date rule, touch picker sheets, integrity toasts (BQ-09.3).
+21. Data validation: date rule, touch picker sheets, integrity toasts (BQ-09.3). **DECIDED, awaiting go-ahead to build:** rule types List, Whole number, Decimal and Date; number and date rules can limit with Any / Between / At least / At most (date limits use the phone's date picker); each rule is Warn only (default; value stays, a toast explains, e.g. "B2 should be a date between 01/01/2025 and 12/31/2025") or Reject (old value put back); cells holding an invalid value get a small red corner marker; list cells get a "▾ Pick" button in the cell-actions bar opening a bottom sheet (48px rows, search box for lists over 8 items, current value ticked, Clear); lists of 6 items or fewer keep their chips, longer lists show only the Pick button; date-rule cells get a "Pick date" button using the phone's date picker, stored as a real date shown MM/DD/YYYY; the Validation tool lists the rules on the sheet, each can be edited in place (tap it, the form fills in, Apply replaces it) or deleted.
 22. ~~Flash Fill and custom-delimiter Text to Columns (BQ-09.4).~~ **Done — see Build Log 20.**
 
 ### D. Pixel 7 / mobile fit (target device)
