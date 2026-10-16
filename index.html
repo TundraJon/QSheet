@@ -303,6 +303,20 @@
         .ttc-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 0.85rem; color: #475569; }
         .ttc-check input { width: 22px; height: 22px; flex: none; }
         #ttc-other.hidden { display: none; }
+        .tt-controls { display: flex; gap: 8px; }
+        .tt-controls button { flex: 1; min-height: 44px; font-size: 0.9rem; }
+        .tt-scrub { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
+        .tt-scrub input[type=range] { width: 100%; min-height: 44px; margin: 0; }
+        .tt-hint { font-size: 0.75rem; color: #64748b; text-align: center; }
+        .tt-list { display: flex; flex-direction: column; gap: 6px; }
+        .tt-item { padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 44px; }
+        .tt-item .tt-name { overflow-wrap: anywhere; }
+        .tt-item .tt-meta { font-size: 0.72rem; color: #94a3b8; white-space: nowrap; flex: none; }
+        .tt-item.current { border-color: var(--accent-color); background: #e0e9ff; font-weight: 600; }
+        .tt-item.current .tt-meta { color: var(--accent-color); }
+        .tt-item.ahead { opacity: 0.6; font-style: italic; }
+        td.tt-flash { animation: ttFlash 1.4s ease-out; }
+        @keyframes ttFlash { 0% { box-shadow: inset 0 0 0 3px #f59e0b; background-color: #fde68a; } 100% { box-shadow: inset 0 0 0 3px rgba(245, 158, 11, 0); } }
         .cm-sort { display: flex; gap: 8px; }
         .cm-sort button { flex: 1; min-height: 44px; font-size: 0.9rem; }
         .cm-tools { display: flex; gap: 8px; align-items: center; }
@@ -825,7 +839,7 @@
         <div class="header-actions">
             <button class="primary" onclick="toggleRibbon()">Ribbon Menu</button>
             <button onclick="toggleSidebar('insights-sidebar')">Insights</button>
-            <button onclick="toggleSidebar('timeline-sidebar')">Time Travel</button>
+            <button onclick="toggleSidebar('timeline-sidebar'); histRender()">Time Travel</button>
             <button onclick="openSettingsModal()" title="Settings">⚙️</button>
         </div>
     </header>
@@ -876,8 +890,15 @@
                 <button onclick="toggleSidebar('timeline-sidebar')">&times;</button>
             </div>
             <div class="sidebar-body" id="timeline-body">
-                <p style="color: #64748b; margin-bottom: 10px;">Recent edits timeline (click to scrub history):</p>
-                <div id="timeline-list" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                <div class="tt-controls">
+                    <button id="tt-undo" onclick="histUndo()" disabled>&#8630; Undo</button>
+                    <button id="tt-redo" onclick="histRedo()" disabled>Redo &#8631;</button>
+                </div>
+                <div class="tt-scrub">
+                    <input type="range" id="tt-slider" min="0" max="0" value="0" step="1" aria-label="Scrub through your changes" oninput="document.getElementById('tt-slider-label').textContent = 'Go to step ' + this.value" onchange="histTravel(Number(this.value))" disabled>
+                    <div class="tt-hint" id="tt-slider-label">No changes yet</div>
+                </div>
+                <div id="timeline-list" class="tt-list"></div>
             </div>
         </div>
     </div>
@@ -2444,6 +2465,10 @@
             if (tab === 'home') {
                 area.innerHTML = `
                     <div class="ribbon-group">
+                        <button id="undo-btn" onclick="histUndo()" title="Undo" aria-label="Undo" ${histPos > 0 ? '' : 'disabled'}>&#8630;</button>
+                        <button id="redo-btn" onclick="histRedo()" title="Redo" aria-label="Redo" ${histPos < historyStack.length ? '' : 'disabled'}>&#8631;</button>
+                    </div>
+                    <div class="ribbon-group">
                         <button onclick="formatCell('bold')" title="Bold"><b>B</b></button>
                         <button onclick="formatCell('italic')" title="Italic"><i>I</i></button>
                         <button onclick="formatCell('underline')" title="Underline"><u>U</u></button>
@@ -3196,6 +3221,7 @@
             setCellContent(cellId, value);
             autoDateFormat(cellId);
             growTableFor(cellId, value);
+            recordHistory(histCellLabel(cellId));
         }
 
         // Stores a value / formula and recalculates (runs on every keystroke while typing in a cell)
@@ -5042,6 +5068,7 @@
             let name = `Sheet ${sheets.length + 1}`;
             sheets.push(makeBlankSheet(name));
             switchSheet(sheets.length - 1);
+            recordHistory(`Added ${name}`);
         }
 
         // Freeze Panes Modal
@@ -5261,7 +5288,7 @@
             recalculateAll();
             colMenuRefHint();
             showToast(changed ? `Renamed to ${name}. ${changed} formula${changed === 1 ? '' : 's'} updated` : `Renamed to ${name}`);
-            recordHistory('Renamed table');
+            recordHistory('Renamed table', { all: true });
         }
         function closeColumnMenu() { document.getElementById('colmenu-modal').classList.add('hidden'); colMenu = null; }
 
@@ -6541,7 +6568,9 @@
                 document.getElementById('formula-input').value = cellEditText(getCellId(activeCell.row, activeCell.col));
             }
             applyConditionalFormattingRules(); // rules are drawn on top of fill colours
-            recordHistory("Formatted cells");
+            const FORMAT_NAMES = { bold: 'Bold', italic: 'Italic', underline: 'Underline', fontFamily: 'Font', color: 'Text color', bgColor: 'Fill color', align: 'Alignment', numFormat: 'Number format' };
+            const rangeText = (minR === maxR && minC === maxC) ? getCellId(minR, minC) : `${getCellId(minR, minC)}:${getCellId(maxR, maxC)}`;
+            recordHistory(`${FORMAT_NAMES[type] || 'Formatting'} on ${rangeText}`);
         }
 
         // Merge / Unmerge (merges are stored per sheet so they survive grid rebuilds)
@@ -6731,30 +6760,231 @@
             e.target.value = '';
         }
 
-        function recordHistory(actionName) {
-            historyStack.push({ name: actionName, snapshot: JSON.parse(JSON.stringify(sheets)) });
-            if (historyStack.length > 25) historyStack.shift();
-            renderTimeline();
+        // ===== Time Travel =====
+        // Every change is a step. A step keeps only what it changed (the cells and settings before and after), never a copy of the
+        // whole workbook, so recording is quick and 25 steps cost little memory. Going back or forward applies those changes.
+        // `historyStack` holds the steps; `histPos` is how many of them are applied (the rest are "ahead" and can be redone).
+        const HIST_MAX = 25;
+        const HIST_META = ['name', 'conditionalRules', 'validationRules', 'tableObjects', 'merges', 'freezeRows', 'freezeCols'];
+        let histPos = 0;
+        let histStartName = 'Opened workbook';
+        let histShadow = new WeakMap(); // sheet -> what it looked like at the last step: { cells: Map, meta: {} }
+        let histKnown = [];             // the sheets as of the last step
+        let histDropNoted = false;
+
+        // A cell as the history sees it (null for an empty one). Values of formulas are left out, they are recalculated.
+        function histCapture(cell) {
+            if (!cell || cell.spillOf) return null;
+            const hasF = !!cell.formula;
+            const v = hasF ? '' : cell.value;
+            const blank = v === '' || v === undefined || v === null;
+            const st = cell.style && Object.keys(cell.style).length ? { ...cell.style } : null;
+            const rolls = Array.isArray(cell.rolls) && cell.rolls.some(x => typeof x === 'number') ? cell.rolls.slice() : null;
+            if (!hasF && blank && !st && !rolls) return null;
+            return { v: blank ? '' : v, f: hasF ? cell.formula : '', s: st, r: rolls };
+        }
+        function histSame(a, b) {
+            if (a === b) return true;
+            if (!a || !b || a.v !== b.v || a.f !== b.f) return false;
+            if ((a.s === null) !== (b.s === null) || (a.r === null) !== (b.r === null)) return false;
+            if (a.s) {
+                const ka = Object.keys(a.s);
+                if (ka.length !== Object.keys(b.s).length || ka.some(k => a.s[k] !== b.s[k])) return false;
+            }
+            if (a.r && (a.r.length !== b.r.length || a.r.some((x, i) => x !== b.r[i]))) return false;
+            return true;
+        }
+        function histWrite(sheet, id, cs) {
+            if (!cs) { delete sheet.data[id]; return; }
+            sheet.data[id] = { value: cs.f ? '' : cs.v, formula: cs.f, style: cs.s ? { ...cs.s } : {} };
+            if (cs.r) sheet.data[id].rolls = cs.r.slice();
+        }
+        function histSnapshotSheet(sheet) {
+            const cells = new Map();
+            for (const id in sheet.data) { const cs = histCapture(sheet.data[id]); if (cs) cells.set(id, cs); }
+            const meta = {};
+            HIST_META.forEach(k => { meta[k] = JSON.stringify(sheet[k]); });
+            return { cells, meta };
+        }
+        function resetHistory(name) {
+            historyStack = [];
+            histPos = 0;
+            histStartName = name;
+            histShadow = new WeakMap();
+            sheets.forEach(sh => histShadow.set(sh, histSnapshotSheet(sh)));
+            histKnown = sheets.slice();
+            histRender();
+        }
+        // What changed in a sheet since the last step
+        function histDiffSheet(sheet) {
+            const sh = histShadow.get(sheet);
+            const cells = [], meta = [];
+            for (const id in sheet.data) {
+                const now = histCapture(sheet.data[id]), was = sh.cells.get(id) || null;
+                if (!histSame(was, now)) cells.push([id, was, now]);
+            }
+            sh.cells.forEach((was, id) => { if (sheet.data[id] === undefined) cells.push([id, was, null]); });
+            HIST_META.forEach(k => { const now = JSON.stringify(sheet[k]); if (now !== sh.meta[k]) meta.push([k, sh.meta[k], now]); });
+            return { cells, meta };
+        }
+
+        // A short plain name for a cell edit
+        function histCellLabel(cellId) {
+            const c = data[cellId];
+            if (!c || (!c.formula && (c.value === '' || c.value === undefined || c.value === null))) return `${cellId} cleared`;
+            const t = String(cellEditText(cellId));
+            return `${cellId}: ${t.length > 28 ? t.slice(0, 27) + '…' : t}`;
+        }
+
+        // Called after a change has been made. `opts.all` also looks at the other sheets (for changes that reach them).
+        function recordHistory(actionName, opts) {
+            if (actionName === 'Opened workbook' || actionName === 'Initial blank sheet') { resetHistory(actionName); markDirty(); return; }
+            const struct = [];
+            sheets.forEach((sh, i) => { if (!histKnown.includes(sh)) struct.push({ op: 'add', sheet: sh, index: i }); });
+            histKnown.forEach((sh, i) => { if (!sheets.includes(sh)) struct.push({ op: 'delete', sheet: sh, index: i }); });
+            const changes = [];
+            const targets = opts && opts.all ? sheets.slice() : [sheets[currentSheetIdx]];
+            targets.forEach(sh => {
+                if (!sh || !histShadow.has(sh)) return;
+                const d = histDiffSheet(sh);
+                if (d.cells.length || d.meta.length) changes.push({ sh, cells: d.cells, meta: d.meta });
+            });
+            if (!struct.length && !changes.length) { markDirty(); histRender(); return; }
+            if (histPos < historyStack.length) {
+                historyStack.length = histPos; // a new change replaces the steps that were ahead
+                if (!histDropNoted) { histDropNoted = true; setTimeout(() => showToast('The steps ahead of you were dropped: a new change replaces them'), 3300); }
+            }
+            struct.forEach(x => { if (x.op === 'add') histShadow.set(x.sheet, histSnapshotSheet(x.sheet)); });
+            changes.forEach(ch => {
+                const sh = histShadow.get(ch.sh);
+                ch.cells.forEach(([id, , now]) => { if (now) sh.cells.set(id, now); else sh.cells.delete(id); });
+                ch.meta.forEach(([k, , now]) => { sh.meta[k] = now; });
+            });
+            historyStack.push({ name: actionName, time: Date.now(), sheet: sheets[currentSheetIdx], struct, changes });
+            if (historyStack.length > HIST_MAX) historyStack.shift();
+            histPos = historyStack.length;
+            histKnown = sheets.slice();
+            histRender();
             markDirty();
         }
 
-        function renderTimeline() {
-            const list = document.getElementById('timeline-list');
-            if (!list) return;
-            list.innerHTML = historyStack.map((h, i) => `
-                <div style="padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="restoreHistory(${i})">
-                    <span>${escapeHtml(h.name)}</span>
-                    <span style="font-size: 0.75rem; color: #94a3b8;">#${i+1}</span>
-                </div>
-            `).reverse().join('');
+        // Undo or redo one step
+        function histApplyStep(step, dir, info) {
+            const sheetsChanged = () => { histKnown = sheets.slice(); info.struct = true; };
+            if (dir === 'redo') {
+                step.struct.forEach(x => {
+                    if (x.op === 'add') sheets.splice(Math.min(x.index, sheets.length), 0, x.sheet);
+                    else { const k = sheets.indexOf(x.sheet); if (k >= 0) sheets.splice(k, 1); }
+                });
+                if (step.struct.length) sheetsChanged();
+            }
+            step.changes.forEach(ch => {
+                const sh = histShadow.get(ch.sh);
+                ch.cells.forEach(([id, before, after]) => {
+                    const cs = dir === 'undo' ? before : after;
+                    histWrite(ch.sh, id, cs);
+                    if (sh) { if (cs) sh.cells.set(id, cs); else sh.cells.delete(id); }
+                    if (!info.cells.has(ch.sh)) info.cells.set(ch.sh, new Set());
+                    info.cells.get(ch.sh).add(id);
+                });
+                ch.meta.forEach(([k, before, after]) => {
+                    const str = dir === 'undo' ? before : after;
+                    ch.sh[k] = JSON.parse(str);
+                    if (sh) sh.meta[k] = str;
+                    info.meta = true;
+                });
+            });
+            if (dir === 'undo') {
+                step.struct.slice().reverse().forEach(x => {
+                    if (x.op === 'add') { const k = sheets.indexOf(x.sheet); if (k >= 0) sheets.splice(k, 1); }
+                    else sheets.splice(Math.min(x.index, sheets.length), 0, x.sheet);
+                });
+                if (step.struct.length) sheetsChanged();
+            }
+            info.view = step.sheet;
         }
 
-        function restoreHistory(index) {
-            sheets = JSON.parse(JSON.stringify(historyStack[index].snapshot));
-            currentSheetIdx = Math.min(currentSheetIdx, sheets.length - 1);
-            switchSheet(currentSheetIdx);
-            alert(`Time traveled back to checkpoint #${index + 1}: ${historyStack[index].name}`);
+        function histTravel(target) {
+            if (editingCell) endEdit(true);
+            target = Math.max(0, Math.min(historyStack.length, target));
+            if (target === histPos) return;
+            const from = histPos;
+            const info = { cells: new Map(), meta: false, struct: false, view: null };
+            while (histPos > target) { histApplyStep(historyStack[histPos - 1], 'undo', info); histPos--; }
+            while (histPos < target) { histApplyStep(historyStack[histPos], 'redo', info); histPos++; }
+            histRefresh(info);
+            const name = target === 0 ? histStartName : historyStack[target - 1].name;
+            const n = Math.abs(target - from);
+            if (n === 1) showToast(target < from ? `Undid: ${historyStack[target].name}` : `Redid: ${name}`);
+            else if (target === 0) showToast(`Back to the start (${histStartName})`);
+            else showToast(`${target < from ? 'Went back' : 'Went forward'} ${n} steps to: ${name}`);
+            histRender();
         }
+        // (a cell that is still open is committed first, so it counts as the latest step)
+        const histUndo = () => { if (editingCell) endEdit(true); histTravel(histPos - 1); };
+        const histRedo = () => { if (editingCell) endEdit(true); histTravel(histPos + 1); };
+        const restoreHistory = index => histTravel(index + 1); // step number (0-based) -> the state right after it
+
+        // Redraw only what changed (or the whole grid when settings, tables or sheets changed), then flash the cells that moved
+        function histRefresh(info) {
+            let view = info.view && sheets.includes(info.view) ? info.view : sheets[Math.min(currentSheetIdx, sheets.length - 1)];
+            const idx = sheets.indexOf(view);
+            if (info.struct || info.meta || idx !== currentSheetIdx) {
+                switchSheet(idx);
+            } else {
+                recalculateAll();
+                const ids = info.cells.get(view) || new Set();
+                ids.forEach(id => {
+                    applyCellStyle(id);
+                    if (!data[id]) { const input = document.getElementById(`input-${id}`); if (input) { input.value = ''; input.style.textAlign = ''; } }
+                });
+                applyConditionalFormattingRules();
+                updateStats();
+                updateInsights();
+                setActiveCell(activeCell.row, activeCell.col);
+                markDirty();
+            }
+            const ids = [...(info.cells.get(view) || [])].slice(0, 150);
+            let first = null;
+            ids.forEach(id => {
+                const td = document.getElementById(`cell-${id}`);
+                if (!td) return;
+                if (!first) first = td;
+                td.classList.add('tt-flash');
+                setTimeout(() => td.classList.remove('tt-flash'), 1400);
+            });
+            if (first && first.scrollIntoView) first.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+
+        const histAgo = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : (m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`); };
+        function histRender() {
+            const n = historyStack.length;
+            const undo = document.getElementById('tt-undo'), redo = document.getElementById('tt-redo');
+            if (undo) undo.disabled = histPos === 0;
+            if (redo) redo.disabled = histPos === n;
+            const ru = document.getElementById('undo-btn'), rr = document.getElementById('redo-btn');
+            if (ru) ru.disabled = histPos === 0;
+            if (rr) rr.disabled = histPos === n;
+            const slider = document.getElementById('tt-slider');
+            if (slider) { slider.max = n; slider.value = histPos; slider.disabled = n === 0; }
+            const label = document.getElementById('tt-slider-label');
+            if (label) label.textContent = n ? `Step ${histPos} of ${n}` : 'No changes yet';
+            const list = document.getElementById('timeline-list');
+            if (!list) return;
+            const row = (i, name, when, state) => `
+                <div class="tt-item${state === 'current' ? ' current' : ''}${state === 'ahead' ? ' ahead' : ''}" onclick="histTravel(${i})">
+                    <span class="tt-name">${i ? i + '. ' : ''}${escapeHtml(name)}</span>
+                    <span class="tt-meta">${state === 'current' ? '◀ you are here' : (state === 'ahead' ? 'ahead · ' : '') + when}</span>
+                </div>`;
+            let html = '';
+            for (let i = n; i >= 1; i--) html += row(i, historyStack[i - 1].name, histAgo(historyStack[i - 1].time), i === histPos ? 'current' : (i > histPos ? 'ahead' : ''));
+            html += row(0, `Start: ${histStartName}`, '', histPos === 0 ? 'current' : '');
+            list.innerHTML = html;
+            const sidebar = document.getElementById('timeline-sidebar');
+            const cur = list.querySelector('.tt-item.current');
+            if (cur && sidebar && !sidebar.classList.contains('hidden') && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' }); // keep "you are here" in view
+        }
+        const renderTimeline = histRender;
 
         function toggleSidebar(id) {
             const el = document.getElementById(id);
