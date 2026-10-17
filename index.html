@@ -2702,6 +2702,9 @@
                 html += `<button data-cell="${cellId}" onclick="openDatePicker(this.dataset.cell)">&#128197; Pick date</button>`;
             }
 
+            // Cells are marked by Copy / Cut: a phone has no Escape key, so the bar carries the way out
+            if (clip) html += `<button onclick="clipClear()">&#10005; Clear ${clip.cut ? 'cut' : 'copy'}</button>`;
+
             if (html !== '') {
                 dockButtons.innerHTML = html;
                 dock.classList.remove('hidden');
@@ -2909,6 +2912,7 @@
             if (!input) return;
             if (editingCell) endEdit(true);
             if (activeCell.row !== r || activeCell.col !== c) selectSingle(r, c);
+            if (clip) clipClear(true); // starting to edit drops the copy outline, as in Excel
             editingCell = { row: r, col: c, original: cellEditText(cellId) };
             input.readOnly = false;
             input.classList.add('editing');
@@ -5926,6 +5930,16 @@
         let clip = null; // { cells (as the history sees them), vals (calculated values), rows, cols, r0, c0, cut, tsv, sheet }
         let clipMarks = [];
         function clipUnmark() { clipMarks.forEach(td => td.classList.remove('clip-src')); clipMarks = []; }
+        // Forget what was copied or cut: the outline goes, and so does the button in the cell-actions bar
+        let clipCleared = null; // the text of a copy that was cleared with the button: Paste ignores it on the phone's clipboard
+        function clipClear(quiet) {
+            if (!clip) return;
+            if (!quiet) clipCleared = clip.tsv;
+            clip = null;
+            clipUnmark();
+            updateCellDock(getCellId(activeCell.row, activeCell.col));
+            if (!quiet) showToast('Copy cleared');
+        }
         function clipMark() {
             clipUnmark();
             if (!clip) return;
@@ -5954,9 +5968,11 @@
                 }
                 cells.push(row); vals.push(vrow); lines.push(text.join('\t'));
             }
+            clipCleared = null;
             clip = { cells, vals, rows: b.maxR - b.minR + 1, cols: b.maxC - b.minC + 1, r0: b.minR, c0: b.minC, cut: !!cut, tsv: lines.join('\n'), sheet: sheets[currentSheetIdx] };
             try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(clip.tsv).catch(() => {}); } catch (e) { /* the phone may not allow it */ }
             clipMark();
+            updateCellDock(getCellId(activeCell.row, activeCell.col));
             const n = clip.rows * clip.cols;
             showToast(`${cut ? 'Cut' : 'Copied'} ${n === 1 ? getCellId(b.minR, b.minC) : `${n} cells (${clipRange(b.minR, b.minC, b.maxR, b.maxC)})`}. Tap a cell and press Paste${cut ? '' : ' (as often as you like)'}`);
         }
@@ -5979,6 +5995,7 @@
             if (editingCell) endEdit(true);
             let sys = null;
             try { if (navigator.clipboard && navigator.clipboard.readText) sys = await navigator.clipboard.readText(); } catch (e) { sys = null; }
+            if (sys !== null && sys === clipCleared) sys = null;
             // Cells copied here win, unless something else has been copied since (then that text is pasted)
             if (clip && (sys === null || sys === clip.tsv)) return pasteInternal(valuesOnly);
             if (sys) return pasteText(sys);
@@ -6022,7 +6039,7 @@
             const cut = clip.cut && !valuesOnly;
             const n = (r2 - r1 + 1) * (c2 - c1 + 1);
             const where = clipRange(r1, c1, r2, c2);
-            if (cut) { clip = null; clipUnmark(); }
+            if (cut) clipClear(true);
             cellsChanged(ids, `${cut ? 'Moved' : (valuesOnly ? 'Pasted values at' : 'Pasted at')} ${where}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 });
             showToast(`${cut ? 'Moved' : 'Pasted'} ${n === 1 ? getCellId(r1, c1) : `${n} cells`}${valuesOnly ? ' (values only)' : ''}${clipped ? '. Part of it did not fit on the sheet' : ''}`);
         }
@@ -6091,7 +6108,7 @@
             cellsChanged(ids, `Filled ${clipRange(r1, c1, r2, c2)} ${down ? 'down' : 'right'}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 });
             showToast(`Filled ${clipRange(down ? r1 + 1 : r1, down ? c1 : c1 + 1, r2, c2)} from ${first}`);
         }
-        document.addEventListener('keydown', e => { if (e.key === 'Escape' && clip && !editingCell) { clip = null; clipUnmark(); } });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && clip && !editingCell) clipClear(); });
 
         // ===== Flash Fill =====
         // Type one or two examples of what you want in a column next to your data, then tap Flash Fill: the app works out the
