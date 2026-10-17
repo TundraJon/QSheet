@@ -752,7 +752,7 @@
         }
         .wiz-cat-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
         /* Plain tappable text (no box): the padding is an invisible tap area that is cancelled by the negative margin, so the Category line does not grow */
-        .wiz-fav-toggle { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font: inherit; line-height: 1; font-weight: 500; color: #475569; padding: 12px 16px; margin: -12px -16px; cursor: pointer; }
+        .wiz-fav-toggle { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font: inherit; line-height: 1; font-weight: 500; color: #475569; padding: 13px 16px; margin: -13px -16px; cursor: pointer; }
         .wiz-fav-toggle.on { color: #92400e; }
         /* One box per function: name, category and star share the first line; the description spans the whole box underneath */
         .wizard-result {
@@ -775,7 +775,7 @@
         .wizard-result:hover { background: #f1f5f9; border-color: #94a3b8; }
         .wizard-result.selected { border-color: var(--accent-color); background: #e0e9ff; }
         /* The star is small text on the line; its padding is an invisible tap area cancelled by the negative margin, so the line does not grow */
-        .wiz-star { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font-size: 0.85rem; line-height: 1; padding: 8px 15px; margin: -8px -13px; color: #94a3b8; cursor: pointer; }
+        .wiz-star { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font-size: 0.85rem; line-height: 1; padding: 14px 15px; margin: -14px -13px; color: #94a3b8; cursor: pointer; }
         .wiz-star:hover { background: none; border: none; }
         .wiz-star.on { color: #f59e0b; }
         .wr-name { font-weight: 700; color: #0f172a; }
@@ -846,6 +846,20 @@
             body.sheet-open .cell-dock { display: none; }
             body.sheet-open .grid-container { padding-bottom: 42vh; padding-bottom: 42dvh; }
         }
+        /* Touch targets: ribbon buttons are at least 30 px wide and tall; the cell-actions bar, modal buttons, close buttons,
+           modal inputs and checkbox rows are at least 40 px. */
+        .ribbon-group button, .ribbon-group select, .ribbon-group input[type="color"] { min-width: 30px; }
+        .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 14px; }
+        #cell-dock-buttons { gap: 8px !important; }
+        .modal button, .modal select { min-height: 40px; min-width: 40px; }
+        .modal-header button { font-size: 1.2rem; }
+        .modal button.pick-row { min-height: 48px; }
+        .modal button.wiz-star, .modal button.wiz-fav-toggle { min-height: 0; min-width: 0; } /* these get their 40 px from padding, so the card does not grow */
+        .modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]), .modal textarea { min-height: 40px; box-sizing: border-box; }
+        .modal input[type="color"] { width: 40px; height: 40px; }
+        .modal-footer { gap: 8px; }
+        .form-group:has(> input[type="checkbox"]) { min-height: 40px; }
+        .form-group:has(> input[type="checkbox"]) > label { flex: 1; min-height: 40px; display: flex; align-items: center; }
     </style>
 </head>
 <body>
