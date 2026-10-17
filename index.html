@@ -336,6 +336,7 @@
         .pick-row.chosen { border-color: var(--accent-color); background: #e0e9ff; }
         td.val-bad { position: relative; }
         td.val-bad::after { content: ''; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 9px 9px 0; border-color: transparent #dc2626 transparent transparent; pointer-events: none; }
+        td.clip-src { outline: 2px dashed #2563eb; outline-offset: -2px; }
         .cm-sort { display: flex; gap: 8px; }
         .cm-sort button { flex: 1; min-height: 44px; font-size: 0.9rem; }
         .cm-tools { display: flex; gap: 8px; align-items: center; }
@@ -2390,6 +2391,7 @@
             applyAllStyles();
             applyConditionalFormattingRules();
             highlightSelection();
+            if (clip && clip.sheet === sheets[currentSheetIdx]) clipMark();
             // Filters need the calculated values, so they are applied last
             if (filtersActive()) {
                 applyFilterVisibility();
@@ -2573,6 +2575,14 @@
                     <div class="ribbon-group">
                         <button id="undo-btn" onclick="histUndo()" title="Undo" aria-label="Undo" ${histPos > 0 ? '' : 'disabled'}>&#8630;</button>
                         <button id="redo-btn" onclick="histRedo()" title="Redo" aria-label="Redo" ${histPos < historyStack.length ? '' : 'disabled'}>&#8631;</button>
+                    </div>
+                    <div class="ribbon-group">
+                        <button onclick="copyCells(false)" title="Copy the selected cells">Copy</button>
+                        <button onclick="copyCells(true)" title="Cut the selected cells">Cut</button>
+                        <button onclick="pasteCells(false)" title="Paste (formulas move with the cells)">Paste</button>
+                        <button onclick="pasteCells(true)" title="Paste only the values">Paste values</button>
+                        <button onclick="fillCells('down')" title="Fill down">Fill &darr;</button>
+                        <button onclick="fillCells('right')" title="Fill right">Fill &rarr;</button>
                     </div>
                     <div class="ribbon-group">
                         <button onclick="formatCell('bold')" title="Bold"><b>B</b></button>
@@ -3651,6 +3661,7 @@
                 }
                 const rest = src.slice(i);
                 let m;
+                if (rest.startsWith('#REF!')) { tokens.push({ t: 'err', v: '#REF!' }); i += 5; continue; }
                 // Table references: Sales[Amount] (the column's data cells), Sales[@Amount] (this row), Sales[@[Unit Price]] / Sales[Unit Price] (names with spaces)
                 if ((m = /^([A-Za-z_][A-Za-z0-9_.]*)\[/.exec(rest))) {
                     let depth = 0, k = m[1].length;
@@ -3769,6 +3780,7 @@
                 if (!tok) throw new FormulaError('#ERROR!');
                 if (tok.t === 'num') return { t: 'num', v: tok.v };
                 if (tok.t === 'str') return { t: 'str', v: tok.v };
+                if (tok.t === 'err') return { t: 'err', v: tok.v };
                 if (tok.t === 'sref') return { t: 'sref', table: tok.table, col: tok.col, row: tok.row };
                 if (tok.t === 'ref') {
                     if (isOp(':') && tokens[p + 1] && tokens[p + 1].t === 'ref') {
@@ -5227,6 +5239,8 @@
                     return shrink(rangeValues(n));
                 case 'sref':
                     return shrink(structuredValue(n, curR));
+                case 'err':
+                    throw new FormulaError(n.v);
                 case 'empty':
                     return '';
                 case 'unary': {
@@ -5868,6 +5882,216 @@
             showToast(`Split ${jobs.length} cell${jobs.length === 1 ? '' : 's'} into ${widest} column${widest === 1 ? '' : 's'} starting at ${columnToLetter(destC)}${clipped ? ' (the rest did not fit)' : ''}`);
             recordHistory("Executed Text to Columns");
         }
+
+        // ===== Copy, cut, paste and fill =====
+        // Formulas keep their meaning when they move: a reference that is relative moves with the cell (A1 -> A2 one row down),
+        // one with a $ stays, a range moves at both ends, text in quotes and table references are left alone, and a reference
+        // pushed off the sheet becomes #REF!.
+        const CELL_REF_RE = /(^|[^A-Za-z0-9_.$])(\$?)([A-Za-z]{1,3})(\$?)(\d+)(?::(\$?)([A-Za-z]{1,3})(\$?)(\d+))?(?![A-Za-z0-9_(])/g;
+        const FORMULA_SKIP_RE = /("(?:[^"]|"")*"|\[(?:[^\[\]]|\[[^\[\]]*\])*\])/;
+        function mapFormulaRefs(f, mapRef) {
+            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(CELL_REF_RE, (m, pre, ca1, col1, ra1, row1, ca2, col2, ra2, row2) => {
+                const a = mapRef(letterToColumn(col1.toUpperCase()), Number(row1) - 1, !!ca1, !!ra1);
+                if (!a) return `${pre}#REF!`;
+                let out = `${pre}${ca1}${columnToLetter(a.c)}${ra1}${a.r + 1}`;
+                if (col2 !== undefined) {
+                    const b = mapRef(letterToColumn(col2.toUpperCase()), Number(row2) - 1, !!ca2, !!ra2);
+                    if (!b) return `${pre}#REF!`;
+                    out += `:${ca2}${columnToLetter(b.c)}${ra2}${b.r + 1}`;
+                }
+                return out;
+            }))).join('');
+        }
+        // The formula as it would read if the cell moved dr rows and dc columns
+        function shiftFormula(f, dr, dc) {
+            if (typeof f !== 'string' || !f.startsWith('=') || (!dr && !dc)) return f;
+            return mapFormulaRefs(f, (c, r, absC, absR) => {
+                const nc = absC ? c : c + dc, nr = absR ? r : r + dr;
+                return nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS ? null : { c: nc, r: nr };
+            });
+        }
+        // After a cut: references to cells inside the moved block follow the block (also those written with $)
+        function retargetFormula(f, b, dr, dc) {
+            if (typeof f !== 'string' || !f.startsWith('=')) return f;
+            const inside = (c, r) => r >= b.minR && r <= b.maxR && c >= b.minC && c <= b.maxC;
+            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(CELL_REF_RE, (m, pre, ca1, col1, ra1, row1, ca2, col2, ra2, row2) => {
+                const c1 = letterToColumn(col1.toUpperCase()), r1 = Number(row1) - 1;
+                if (col2 === undefined) return inside(c1, r1) ? `${pre}${ca1}${columnToLetter(c1 + dc)}${ra1}${r1 + dr + 1}` : m;
+                const c2 = letterToColumn(col2.toUpperCase()), r2 = Number(row2) - 1;
+                if (!inside(c1, r1) || !inside(c2, r2)) return m;
+                return `${pre}${ca1}${columnToLetter(c1 + dc)}${ra1}${r1 + dr + 1}:${ca2}${columnToLetter(c2 + dc)}${ra2}${r2 + dr + 1}`;
+            }))).join('');
+        }
+
+        let clip = null; // { cells (as the history sees them), vals (calculated values), rows, cols, r0, c0, cut, tsv, sheet }
+        let clipMarks = [];
+        function clipUnmark() { clipMarks.forEach(td => td.classList.remove('clip-src')); clipMarks = []; }
+        function clipMark() {
+            clipUnmark();
+            if (!clip) return;
+            for (let r = clip.r0; r < clip.r0 + clip.rows; r++) for (let c = clip.c0; c < clip.c0 + clip.cols; c++) {
+                const td = document.getElementById(`cell-${getCellId(r, c)}`);
+                if (td) { td.classList.add('clip-src'); clipMarks.push(td); }
+            }
+        }
+        const clipRange = (r1, c1, r2, c2) => (r1 === r2 && c1 === c2 ? getCellId(r1, c1) : `${getCellId(r1, c1)}:${getCellId(r2, c2)}`);
+
+        function copyCells(cut) {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            const cells = [], vals = [], lines = [];
+            for (let r = b.minR; r <= b.maxR; r++) {
+                const row = [], vrow = [], text = [];
+                for (let c = b.minC; c <= b.maxC; c++) {
+                    const cell = data[getCellId(r, c)];
+                    row.push(histCapture(cell));
+                    const v = cell && cell.value !== undefined && cell.value !== null ? cell.value : '';
+                    vrow.push(v);
+                    // For other apps: dates and text as they look, numbers as the real number
+                    const st = (cell && cell.style) || {};
+                    const t = (typeof v === 'number' && !DATE_FORMATS.includes(st.numFormat)) ? String(v) : String(cell ? cellDisplayText(cell) : '');
+                    text.push(t.replace(/[\t\r\n]+/g, ' '));
+                }
+                cells.push(row); vals.push(vrow); lines.push(text.join('\t'));
+            }
+            clip = { cells, vals, rows: b.maxR - b.minR + 1, cols: b.maxC - b.minC + 1, r0: b.minR, c0: b.minC, cut: !!cut, tsv: lines.join('\n'), sheet: sheets[currentSheetIdx] };
+            try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(clip.tsv).catch(() => {}); } catch (e) { /* the phone may not allow it */ }
+            clipMark();
+            const n = clip.rows * clip.cols;
+            showToast(`${cut ? 'Cut' : 'Copied'} ${n === 1 ? getCellId(b.minR, b.minC) : `${n} cells (${clipRange(b.minR, b.minC, b.maxR, b.maxC)})`}. Tap a cell and press Paste${cut ? '' : ' (as often as you like)'}`);
+        }
+
+        // Redraw what a paste or fill changed, select the result and record the step
+        function cellsChanged(ids, name, sel) {
+            recalculateAll();
+            ids.forEach(id => {
+                applyCellStyle(id);
+                if (!data[id]) { const input = document.getElementById(`input-${id}`); if (input) { input.value = ''; input.style.textAlign = ''; } }
+            });
+            applyConditionalFormattingRules();
+            updateStats();
+            updateInsights();
+            if (sel) { selectionRange = sel; setActiveCell(sel.startRow, sel.startCol); }
+            recordHistory(name);
+        }
+
+        async function pasteCells(valuesOnly) {
+            if (editingCell) endEdit(true);
+            let sys = null;
+            try { if (navigator.clipboard && navigator.clipboard.readText) sys = await navigator.clipboard.readText(); } catch (e) { sys = null; }
+            // Cells copied here win, unless something else has been copied since (then that text is pasted)
+            if (clip && (sys === null || sys === clip.tsv)) return pasteInternal(valuesOnly);
+            if (sys) return pasteText(sys);
+            showToast('Nothing to paste. Copy some cells first');
+        }
+
+        function pasteInternal(valuesOnly) {
+            const sel = selBounds();
+            const sheet = sheets[currentSheetIdx];
+            const one = clip.rows === 1 && clip.cols === 1;
+            const fillSel = one && (sel.minR !== sel.maxR || sel.minC !== sel.maxC);
+            const r1 = sel.minR, c1 = sel.minC;
+            const r2 = Math.min(ROWS - 1, fillSel ? sel.maxR : r1 + clip.rows - 1), c2 = Math.min(COLS - 1, fillSel ? sel.maxC : c1 + clip.cols - 1);
+            const clipped = !fillSel && (r1 + clip.rows - 1 > ROWS - 1 || c1 + clip.cols - 1 > COLS - 1);
+            const dtr = r1 - clip.r0, dtc = c1 - clip.c0; // how far a cut block moves
+            const src = { minR: clip.r0, maxR: clip.r0 + clip.rows - 1, minC: clip.c0, maxC: clip.c0 + clip.cols - 1 };
+            const ids = [];
+            // Work out everything first (the destination may overlap the source)
+            const writes = [];
+            for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+                const si = fillSel ? 0 : r - r1, sj = fillSel ? 0 : c - c1;
+                const cs = clip.cells[si][sj], v = clip.vals[si][sj];
+                writes.push({ id: getCellId(r, c), cs, v, dr: r - (clip.r0 + si), dc: c - (clip.c0 + sj) });
+            }
+            if (clip.cut && !valuesOnly) {
+                // Moving cells: formulas anywhere that point into the block follow it; the moved formulas keep their own meaning
+                for (const id in data) { const cell = data[id]; if (cell.formula) cell.formula = retargetFormula(cell.formula, src, dtr, dtc); }
+                writes.forEach(w => { if (w.cs && w.cs.f) w.cs = { ...w.cs, f: retargetFormula(w.cs.f, src, dtr, dtc) }; });
+                for (let r = src.minR; r <= src.maxR; r++) for (let c = src.minC; c <= src.maxC; c++) { const id = getCellId(r, c); if (data[id]) { delete data[id]; ids.push(id); } }
+            }
+            writes.forEach(w => {
+                ids.push(w.id);
+                if (valuesOnly) {
+                    if (!data[w.id]) data[w.id] = { style: {}, value: '', formula: '' };
+                    delete data[w.id].spillOf; delete data[w.id].rolls;
+                    data[w.id].formula = '';
+                    data[w.id].value = w.v;
+                } else if (!w.cs) { delete data[w.id]; }
+                else histWrite(sheet, w.id, { v: w.cs.v, f: clip.cut ? w.cs.f : shiftFormula(w.cs.f, w.dr, w.dc), s: w.cs.s, r: null });
+            });
+            const cut = clip.cut && !valuesOnly;
+            const n = (r2 - r1 + 1) * (c2 - c1 + 1);
+            const where = clipRange(r1, c1, r2, c2);
+            if (cut) { clip = null; clipUnmark(); }
+            cellsChanged(ids, `${cut ? 'Moved' : (valuesOnly ? 'Pasted values at' : 'Pasted at')} ${where}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 });
+            showToast(`${cut ? 'Moved' : 'Pasted'} ${n === 1 ? getCellId(r1, c1) : `${n} cells`}${valuesOnly ? ' (values only)' : ''}${clipped ? '. Part of it did not fit on the sheet' : ''}`);
+        }
+
+        // Text copied in another app: lines are rows, tabs split columns
+        function pasteText(text) {
+            const lines = String(text).replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n').slice(0, ROWS);
+            const grid = lines.map(l => l.split('\t').slice(0, COLS));
+            const sel = selBounds();
+            const ids = [];
+            let maxC = 0, clipped = false;
+            grid.forEach((row, i) => row.forEach((t, j) => {
+                const r = sel.minR + i, c = sel.minC + j;
+                if (r >= ROWS || c >= COLS) { clipped = true; return; }
+                const id = getCellId(r, c);
+                if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
+                delete data[id].spillOf; delete data[id].rolls;
+                if (t.startsWith('=') && t.length > 1) { data[id].formula = t; data[id].value = ''; }
+                else { data[id].formula = ''; data[id].value = parseTypedValue(t, data[id].style || (data[id].style = {})); }
+                ids.push(id);
+                maxC = Math.max(maxC, j);
+            }));
+            const endR = Math.min(ROWS - 1, sel.minR + grid.length - 1), endC = Math.min(COLS - 1, sel.minC + maxC);
+            const where = clipRange(sel.minR, sel.minC, endR, endC);
+            cellsChanged(ids, `Pasted text at ${where}`, { startRow: sel.minR, startCol: sel.minC, endRow: endR, endCol: endC });
+            showToast(`Pasted ${ids.length} cell${ids.length === 1 ? '' : 's'} of text${clipped ? '. Part of it did not fit on the sheet' : ''}`);
+        }
+
+        // Fill down / right: the first row (column) of the selection is copied across the rest, formulas adjusting as they go.
+        // With one cell selected it fills as far as the data beside it goes.
+        function fillCells(dir) {
+            if (editingCell) endEdit(true);
+            const down = dir === 'down';
+            const b = selBounds();
+            let r1 = b.minR, r2 = b.maxR, c1 = b.minC, c2 = b.maxC;
+            const filled = (r, c) => { const cell = data[getCellId(r, c)]; return r >= 0 && c >= 0 && r < ROWS && c < COLS && cell && cell.value !== '' && cell.value !== undefined && cell.value !== null || (cell && cell.formula); };
+            if (r1 === r2 && c1 === c2) {
+                if (down) {
+                    const nc = filled(r1, c1 - 1) ? c1 - 1 : (filled(r1, c1 + 1) ? c1 + 1 : -1);
+                    if (nc < 0) { showToast('Fill down: select the cells to fill (the top one is copied), or put data beside this cell first'); return; }
+                    while (r2 + 1 < ROWS && filled(r2 + 1, nc)) r2++;
+                } else {
+                    const nr = filled(r1 - 1, c1) ? r1 - 1 : (filled(r1 + 1, c1) ? r1 + 1 : -1);
+                    if (nr < 0) { showToast('Fill right: select the cells to fill (the left one is copied), or put data above or below this cell first'); return; }
+                    while (c2 + 1 < COLS && filled(nr, c2 + 1)) c2++;
+                }
+                if (r2 === r1 && c2 === c1) { showToast(`Nothing to fill: the data beside ${getCellId(r1, c1)} ends there`); return; }
+            } else if (down ? r1 === r2 : c1 === c2) {
+                showToast(down ? 'Fill down: select at least two rows (the top row is copied)' : 'Fill right: select at least two columns (the left column is copied)');
+                return;
+            }
+            const sheet = sheets[currentSheetIdx];
+            const ids = [];
+            if (down) {
+                for (let c = c1; c <= c2; c++) {
+                    const cs = histCapture(data[getCellId(r1, c)]);
+                    for (let r = r1 + 1; r <= r2; r++) { const id = getCellId(r, c); ids.push(id); if (cs) histWrite(sheet, id, { v: cs.v, f: shiftFormula(cs.f, r - r1, 0), s: cs.s, r: null }); else delete data[id]; }
+                }
+            } else {
+                for (let r = r1; r <= r2; r++) {
+                    const cs = histCapture(data[getCellId(r, c1)]);
+                    for (let c = c1 + 1; c <= c2; c++) { const id = getCellId(r, c); ids.push(id); if (cs) histWrite(sheet, id, { v: cs.v, f: shiftFormula(cs.f, 0, c - c1), s: cs.s, r: null }); else delete data[id]; }
+                }
+            }
+            const first = getCellId(r1, c1);
+            cellsChanged(ids, `Filled ${clipRange(r1, c1, r2, c2)} ${down ? 'down' : 'right'}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 });
+            showToast(`Filled ${clipRange(down ? r1 + 1 : r1, down ? c1 : c1 + 1, r2, c2)} from ${first}`);
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && clip && !editingCell) { clip = null; clipUnmark(); } });
 
         // ===== Flash Fill =====
         // Type one or two examples of what you want in a column next to your data, then tap Flash Fill: the app works out the
