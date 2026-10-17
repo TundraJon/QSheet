@@ -873,6 +873,21 @@
         .modal input[type="color"] { width: 40px; height: 40px; }
         .modal-footer { gap: 8px; }
         .size-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+        /* Find & Replace: a panel at the bottom, so the grid stays visible and the match can be seen */
+        .find-panel { position: fixed; left: 0; right: 0; bottom: 70px; z-index: 60; background: #ffffff; border-top: 1px solid var(--border-color); border-radius: 14px 14px 0 0; box-shadow: 0 -6px 20px rgba(0,0,0,0.15); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; animation: sheetUp 0.2s ease; }
+        .find-panel.hidden { display: none; }
+        body.kb-open .find-panel { bottom: var(--kb, 0px); }
+        body.find-open .cell-dock { display: none; }
+        body.find-open .grid-container { padding-bottom: var(--find-h, 220px); }
+        .find-row { display: flex; gap: 8px; align-items: center; }
+        .find-row input[type="text"] { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; }
+        .find-panel button, .find-panel input[type="text"] { min-height: 40px; min-width: 40px; box-sizing: border-box; }
+        .find-head { justify-content: space-between; font-weight: 600; }
+        .find-opts { display: flex; flex-wrap: wrap; gap: 0 16px; }
+        .find-opts.hidden { display: none; }
+        .find-opts label { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 0.85rem; }
+        .find-status { font-size: 0.8rem; color: #64748b; min-height: 1.1em; }
+        .dedup-col { display: flex; align-items: center; gap: 10px; min-height: 40px; }
         .form-group:has(> input[type="checkbox"]) { min-height: 40px; }
         .form-group:has(> input[type="checkbox"]) > label { flex: 1; min-height: 40px; display: flex; align-items: center; }
     </style>
@@ -1295,6 +1310,93 @@
             <div class="modal-footer">
                 <button onclick="closeFreezeModal()">Cancel</button>
                 <button class="primary" onclick="applyFreezePanes()">Apply Freeze Panes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Find & Replace (a panel at the bottom of the screen) -->
+    <div class="find-panel hidden" id="find-panel">
+        <div class="find-row find-head">
+            <span>Find &amp; Replace</span>
+            <span style="display: flex; gap: 8px;">
+                <button id="find-opts-btn" onclick="toggleFindOptions()">Options &#9662;</button>
+                <button onclick="closeFindPanel()" aria-label="Close">&times;</button>
+            </span>
+        </div>
+        <div class="find-row">
+            <input type="text" id="find-text" placeholder="Find" autocomplete="off" autocapitalize="off" oninput="findUpdate()" onkeydown="if (event.key === 'Enter') findStep(event.shiftKey ? -1 : 1)">
+            <button onclick="findStep(-1)" aria-label="Previous match">&#9664;</button>
+            <button onclick="findStep(1)" aria-label="Next match">&#9654;</button>
+        </div>
+        <div class="find-row">
+            <input type="text" id="find-replace" placeholder="Replace with" autocomplete="off" autocapitalize="off">
+            <button onclick="findReplaceOne()">Replace</button>
+            <button onclick="findReplaceAll()">All</button>
+        </div>
+        <div class="find-opts hidden" id="find-opts">
+            <label><input type="checkbox" id="find-case" onchange="findUpdate()"> Match case</label>
+            <label><input type="checkbox" id="find-whole" onchange="findUpdate()"> Whole cell</label>
+            <label><input type="checkbox" id="find-formulas" onchange="findUpdate()"> Include formulas</label>
+            <label><input type="checkbox" id="find-all" onchange="findUpdate()"> All sheets</label>
+        </div>
+        <div class="find-status" id="find-status"></div>
+    </div>
+
+    <!-- Sort a range -->
+    <div class="modal-overlay hidden" id="sort-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Sort a range</span>
+                <button onclick="closeSortModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="wiz-tip" id="sort-target"></div>
+                <div class="form-group">
+                    <label for="sort-col">Sort by</label>
+                    <select id="sort-col"></select>
+                </div>
+                <div class="form-group">
+                    <label for="sort-order">Order</label>
+                    <select id="sort-order">
+                        <option value="asc">A to Z (smallest first)</option>
+                        <option value="desc">Z to A (largest first)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="sort-header">First row is a header (it stays on top)</label>
+                    <input type="checkbox" id="sort-header" style="width: 20px; height: 20px;" onchange="sortFillColumns()">
+                </div>
+                <div class="wiz-tip">Formulas move with their rows and adjust like a copy. A formula that points at a cell in another row can change its answer.</div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeSortModal()">Cancel</button>
+                <button class="primary" onclick="applySort()">Sort</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Remove duplicate rows -->
+    <div class="modal-overlay hidden" id="dedup-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Remove duplicates</span>
+                <button onclick="closeDedupModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="wiz-tip" id="dedup-target"></div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="dedup-header">First row is a header (it is kept)</label>
+                    <input type="checkbox" id="dedup-header" style="width: 20px; height: 20px;" onchange="dedupFillColumns()">
+                </div>
+                <div class="form-group">
+                    <label>Rows count as the same when these columns match</label>
+                    <div id="dedup-cols"></div>
+                </div>
+                <div class="wiz-tip">The first copy of a row is kept; capital letters and spaces at the ends are ignored. The rows below move up, leaving empty cells at the bottom of the range.</div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeDedupModal()">Cancel</button>
+                <button class="primary" onclick="applyDedup()">Remove duplicates</button>
             </div>
         </div>
     </div>
@@ -2826,6 +2928,11 @@
                         <button onclick="openTextToColumns()">Text to Columns</button>
                         <button onclick="runFlashFill()">Flash Fill</button>
                         <button onclick="rerollRandoms()">&#127922; Re&#8209;roll</button>
+                    </div>
+                    <div class="ribbon-group">
+                        <button onclick="openFindPanel()">Find &amp; Replace</button>
+                        <button onclick="openSortModal()">Sort...</button>
+                        <button onclick="openDedupModal()">Remove Duplicates</button>
                     </div>
                     <div class="ribbon-group">
                         <button onclick="exportCSV()">Export CSV</button>
@@ -7688,6 +7795,320 @@
             const name = `Auto-fit width of ${sizeSpan(b.minC, b.maxC, 'column')}`;
             showToast(name);
             sizesChanged(name);
+        }
+
+        // ===== Find & Replace, Sort, Remove duplicates =====
+        const hasContent = cell => !!cell && (!!cell.formula || !(cell.value === '' || cell.value === undefined || cell.value === null));
+        const rawCellText = cell => (cell.formula ? cell.formula : (isBlank(cell.value) ? '' : String(cell.value)));
+
+        // --- Find & Replace ---
+        let findHits = [];   // the matches: [{ si: sheet index, id, r, c }] in reading order
+        const fEl = id => document.getElementById(id);
+        function openFindPanel() {
+            if (editingCell) endEdit(true);
+            fEl('find-panel').classList.remove('hidden');
+            document.body.classList.add('find-open');
+            sizeFindPanel();
+            findUpdate();
+            fEl('find-text').focus();
+        }
+        function closeFindPanel() {
+            fEl('find-panel').classList.add('hidden');
+            document.body.classList.remove('find-open');
+        }
+        function sizeFindPanel() { document.documentElement.style.setProperty('--find-h', fEl('find-panel').offsetHeight + 'px'); }
+        function toggleFindOptions() {
+            fEl('find-opts').classList.toggle('hidden');
+            sizeFindPanel();
+        }
+        function findOptions() {
+            return { text: fEl('find-text').value, repl: fEl('find-replace').value, mc: fEl('find-case').checked, whole: fEl('find-whole').checked, inF: fEl('find-formulas').checked, all: fEl('find-all').checked };
+        }
+        function findRegex(o, global) {
+            const body = o.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(o.whole ? `^${body}$` : body, (o.mc ? '' : 'i') + (global ? 'g' : ''));
+        }
+        function cellMatches(cell, o, re) {
+            if (!hasContent(cell) || cell.spillOf) return false;
+            if (re.test(String(cellDisplayText(cell)))) return true;
+            if (cell.formula) return o.inF && re.test(cell.formula);
+            return re.test(rawCellText(cell));
+        }
+        // Every match, row by row (all sheets when asked)
+        function findMatches(o) {
+            if (!o.text) return [];
+            const re = findRegex(o, false), out = [];
+            sheets.forEach((sh, si) => {
+                if (!o.all && si !== currentSheetIdx) return;
+                const hits = [];
+                for (const id in sh.data) {
+                    if (!cellMatches(sh.data[id], o, re)) continue;
+                    const co = parseCellCoord(id);
+                    hits.push({ si, id, r: co.r, c: co.c });
+                }
+                hits.sort((a, b) => a.r - b.r || a.c - b.c);
+                out.push(...hits);
+            });
+            return out;
+        }
+        function findStatus(msg) { fEl('find-status').textContent = msg; sizeFindPanel(); }
+        function findPosition() { // the index of the match the selection is on (or just before), -1 when it is before all of them
+            let at = -1;
+            findHits.forEach((m, i) => { if (m.si < currentSheetIdx || (m.si === currentSheetIdx && (m.r < activeCell.row || (m.r === activeCell.row && m.c <= activeCell.col)))) at = i; });
+            return at;
+        }
+        function findUpdate() {
+            const o = findOptions();
+            findHits = findMatches(o);
+            const on = ['find-case', 'find-whole', 'find-formulas', 'find-all'].filter(id => fEl(id).checked).length;
+            fEl('find-opts-btn').innerHTML = `Options${on ? ` (${on})` : ''} &#9662;`;
+            if (!o.text) findStatus('');
+            else if (!findHits.length) findStatus('No matches');
+            else findStatus(`${findHits.length} match${findHits.length === 1 ? '' : 'es'}${o.all ? ' on all sheets' : ''}`);
+        }
+        function goToMatch(m) {
+            if (m.si !== currentSheetIdx) switchSheet(m.si);
+            selectSingle(m.r, m.c);
+            const td = document.getElementById(`cell-${m.id}`);
+            if (td && td.scrollIntoView) td.scrollIntoView({ block: 'center', inline: 'center' });
+        }
+        function findStep(dir) {
+            if (editingCell) endEdit(true);
+            findUpdate();
+            if (!findHits.length) return;
+            const at = findPosition();
+            const onMatch = at >= 0 && findHits[at].si === currentSheetIdx && findHits[at].r === activeCell.row && findHits[at].c === activeCell.col;
+            let idx;
+            if (dir > 0) idx = (at + 1) % findHits.length;
+            else idx = onMatch ? (at - 1 + findHits.length) % findHits.length : (at < 0 ? findHits.length - 1 : at);
+            goToMatch(findHits[idx]);
+            findStatus(`Match ${idx + 1} of ${findHits.length}${findOptions().all ? ' (all sheets)' : ''}`);
+        }
+        // Changes one cell; returns true when its content changed
+        function replaceInCell(sh, id, o) {
+            const cell = sh.data[id];
+            if (!cell || cell.spillOf) return false;
+            const re = findRegex(o, true);
+            const swap = text => (o.whole ? (findRegex(o, false).test(text) ? o.repl : text) : text.replace(re, () => o.repl));
+            if (cell.formula) {
+                if (!o.inF) return false;
+                const nf = swap(cell.formula);
+                if (nf === cell.formula) return false;
+                if (nf.startsWith('=') && nf.length > 1) { cell.formula = fixSheetRefs(capitalizeFormula(nf)); delete cell.rolls; cell.value = ''; }
+                else { cell.formula = ''; delete cell.rolls; cell.value = parseTypedValue(nf, cell.style || (cell.style = {})); }
+                return true;
+            }
+            const raw = rawCellText(cell), nt = swap(raw);
+            if (nt === raw) return false;
+            if (!cell.style) cell.style = {};
+            if (nt.startsWith('=') && nt.length > 1 && cell.style.numFormat !== 'text') { cell.formula = fixSheetRefs(capitalizeFormula(nt)); cell.value = ''; }
+            else { cell.formula = ''; cell.value = parseTypedValue(nt, cell.style); }
+            return true;
+        }
+        function findRefresh() {
+            recalculateAll();
+            applyAllStyles();
+            applyConditionalFormattingRules();
+            updateStats();
+            updateInsights();
+            setActiveCell(activeCell.row, activeCell.col);
+        }
+        function findReplaceOne() {
+            if (editingCell) endEdit(true);
+            const o = findOptions();
+            if (!o.text) { findStatus('Type what to find'); return; }
+            findHits = findMatches(o);
+            const here = findHits.find(m => m.si === currentSheetIdx && m.r === activeCell.row && m.c === activeCell.col);
+            if (!here) { findStep(1); return; }
+            const sh = sheets[currentSheetIdx];
+            if (!replaceInCell(sh, here.id, o)) { showToast('That cell shows the text but holds something else (a formula result or a formatted number), so it was not changed'); findStep(1); return; }
+            findRefresh();
+            recordHistory(`Replaced in ${here.id}`);
+            findUpdate();
+            findStep(1);
+        }
+        function findReplaceAll() {
+            if (editingCell) endEdit(true);
+            const o = findOptions();
+            if (!o.text) { findStatus('Type what to find'); return; }
+            const list = findMatches(o);
+            if (!list.length) { findStatus('No matches'); return; }
+            let changed = 0, skipped = 0;
+            const touched = new Set();
+            list.forEach(m => { if (replaceInCell(sheets[m.si], m.id, o)) { changed++; touched.add(m.si); } else skipped++; });
+            if (changed) { findRefresh(); recordHistory(`Replaced "${o.text.length > 20 ? o.text.slice(0, 19) + '…' : o.text}" in ${changed} cell${changed === 1 ? '' : 's'}`, { all: true }); }
+            findUpdate();
+            const msg = `Replaced in ${changed} cell${changed === 1 ? '' : 's'}${skipped ? `. ${skipped} not changed (formula results or formatted numbers)` : ''}`;
+            showToast(msg);
+        }
+
+        // --- Sort and Remove duplicates share these ---
+        // The block of filled cells around a cell (what a single selected cell means to Sort and Remove duplicates)
+        function dataRegion(r, c) {
+            const filled = (rr, cc) => rr >= 0 && cc >= 0 && rr < ROWS && cc < COLS && hasContent(data[getCellId(rr, cc)]);
+            const b = { minR: r, maxR: r, minC: c, maxC: c };
+            let grew = true;
+            const ring = (r1, r2, c1, c2) => { for (let rr = r1; rr <= r2; rr++) for (let cc = c1; cc <= c2; cc++) if (filled(rr, cc)) return true; return false; };
+            while (grew) {
+                grew = false;
+                if (ring(b.minR - 1, b.minR - 1, b.minC - 1, b.maxC + 1)) { b.minR--; grew = true; }
+                if (ring(b.maxR + 1, b.maxR + 1, b.minC - 1, b.maxC + 1)) { b.maxR++; grew = true; }
+                if (ring(b.minR, b.maxR, b.minC - 1, b.minC - 1)) { b.minC--; grew = true; }
+                if (ring(b.minR, b.maxR, b.maxC + 1, b.maxC + 1)) { b.maxC++; grew = true; }
+            }
+            // keep the region to cells that really exist
+            b.minR = Math.max(0, b.minR); b.minC = Math.max(0, b.minC);
+            b.maxR = Math.min(ROWS - 1, b.maxR); b.maxC = Math.min(COLS - 1, b.maxC);
+            return b;
+        }
+        function toolBounds() {
+            const b = selBounds();
+            return (b.minR === b.maxR && b.minC === b.maxC) ? dataRegion(b.minR, b.minC) : b;
+        }
+        // A first row of labels (text above numbers or in bold) is taken as a header
+        function looksLikeHeader(b) {
+            if (b.maxR <= b.minR) return false;
+            let allText = true, bold = false, numbersBelow = false;
+            for (let c = b.minC; c <= b.maxC; c++) {
+                const top = data[getCellId(b.minR, c)];
+                if (!top || top.formula || typeof top.value !== 'string' || top.value.trim() === '') { allText = false; break; }
+                if (top.style && top.style.fontWeight === 'bold') bold = true;
+                for (let r = b.minR + 1; r <= b.maxR; r++) { const x = data[getCellId(r, c)]; if (x && typeof x.value === 'number') numbersBelow = true; }
+            }
+            return allText && (numbersBelow || bold);
+        }
+        // Why a range cannot be rearranged (merged cells and spilled results would break), or ''
+        function rearrangeProblem(b) {
+            if (merges.some(m => mergeOverlaps(m, b))) return 'The range has merged cells. Unmerge them first';
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) {
+                const x = data[getCellId(r, c)];
+                if (x && (x.spillOf || x.spillIds)) return 'The range holds a formula that spills into other cells, so it cannot be rearranged';
+            }
+            return '';
+        }
+        // order[i] = the row whose contents go into row (first + i), or -1 for an empty row. Formulas adjust as if copied to their new row.
+        function placeRows(b, first, order) {
+            const sheet = sheets[currentSheetIdx];
+            const snap = new Map();
+            order.forEach(sr => { if (sr < 0 || snap.has(sr)) return; const row = []; for (let c = b.minC; c <= b.maxC; c++) row.push(histCapture(data[getCellId(sr, c)])); snap.set(sr, row); });
+            const ids = [];
+            order.forEach((sr, i) => {
+                const dr = first + i;
+                for (let c = b.minC; c <= b.maxC; c++) {
+                    const id = getCellId(dr, c);
+                    ids.push(id);
+                    const cs = sr >= 0 ? snap.get(sr)[c - b.minC] : null;
+                    if (!cs) delete data[id]; else histWrite(sheet, id, { v: cs.v, f: shiftFormula(cs.f, dr - sr, 0), s: cs.s, r: cs.r });
+                }
+            });
+            return ids;
+        }
+
+        // --- Sort ---
+        let sortBounds = null;
+        function openSortModal() {
+            if (editingCell) endEdit(true);
+            const b = toolBounds();
+            if (b.maxR <= b.minR) { showToast('Select the cells to sort (at least two rows), or tap one cell inside your data'); return; }
+            sortBounds = b;
+            fEl('sort-target').textContent = `Range: ${selRangeText(b)}`;
+            fEl('sort-header').checked = looksLikeHeader(b);
+            fEl('sort-order').value = 'asc';
+            sortFillColumns(b.minC <= activeCell.col && activeCell.col <= b.maxC ? activeCell.col : b.minC);
+            fEl('sort-modal').classList.remove('hidden');
+        }
+        function closeSortModal() { fEl('sort-modal').classList.add('hidden'); }
+        function sortFillColumns(keep) {
+            const b = sortBounds, sel = fEl('sort-col');
+            const was = keep !== undefined && typeof keep === 'number' ? keep : Number(sel.value);
+            const hdr = fEl('sort-header').checked;
+            let html = '';
+            for (let c = b.minC; c <= b.maxC; c++) {
+                const h = hdr ? data[getCellId(b.minR, c)] : null;
+                html += `<option value="${c}">${escapeHtml(h && !isBlank(h.value) ? `${columnToLetter(c)} - ${String(h.value).slice(0, 24)}` : `Column ${columnToLetter(c)}`)}</option>`;
+            }
+            sel.innerHTML = html;
+            sel.value = String(Number.isFinite(was) && was >= b.minC && was <= b.maxC ? was : b.minC);
+        }
+        function applySort() {
+            const b = sortBounds;
+            const problem = rearrangeProblem(b);
+            if (problem) { showToast(problem); return; }
+            const hdr = fEl('sort-header').checked ? 1 : 0;
+            const first = b.minR + hdr;
+            if (b.maxR < first + 1) { showToast('There is only one row to sort'); return; }
+            const col = Number(fEl('sort-col').value), desc = fEl('sort-order').value === 'desc';
+            const rows = [];
+            for (let r = first; r <= b.maxR; r++) rows.push({ r, key: getCellValue(getCellId(r, col)) });
+            rows.sort((x, y) => {
+                const bx = isBlank(x.key), by = isBlank(y.key);
+                if (bx || by) return bx === by ? 0 : (bx ? 1 : -1); // empty keys always go last
+                const cmp = sortCompare(x.key, y.key);
+                return desc ? -cmp : cmp;
+            });
+            const order = rows.map(x => x.r);
+            if (order.every((r, i) => r === first + i)) { closeSortModal(); showToast('Already in that order'); return; }
+            const ids = placeRows(b, first, order);
+            closeSortModal();
+            const hdrCell = hdr ? data[getCellId(b.minR, col)] : null;
+            const name = `Sorted ${selRangeText(b)} by ${hdrCell && !isBlank(hdrCell.value) ? String(hdrCell.value).slice(0, 20) : 'column ' + columnToLetter(col)} (${desc ? 'Z to A' : 'A to Z'})`;
+            cellsChanged(ids, name, { startRow: b.minR, startCol: b.minC, endRow: b.maxR, endCol: b.maxC });
+            showToast(name);
+        }
+
+        // --- Remove duplicates ---
+        let dedupBounds = null;
+        function openDedupModal() {
+            if (editingCell) endEdit(true);
+            const b = toolBounds();
+            if (b.maxR <= b.minR) { showToast('Select the cells to check (at least two rows), or tap one cell inside your data'); return; }
+            dedupBounds = b;
+            fEl('dedup-target').textContent = `Range: ${selRangeText(b)}`;
+            fEl('dedup-header').checked = looksLikeHeader(b);
+            dedupFillColumns();
+            fEl('dedup-modal').classList.remove('hidden');
+        }
+        function closeDedupModal() { fEl('dedup-modal').classList.add('hidden'); }
+        function dedupFillColumns() {
+            const b = dedupBounds, hdr = fEl('dedup-header').checked;
+            const was = new Set([...document.querySelectorAll('#dedup-cols input:not(:checked)')].map(i => i.value));
+            let html = '';
+            for (let c = b.minC; c <= b.maxC; c++) {
+                const h = hdr ? data[getCellId(b.minR, c)] : null;
+                const label = h && !isBlank(h.value) ? `${columnToLetter(c)} - ${String(h.value).slice(0, 24)}` : `Column ${columnToLetter(c)}`;
+                html += `<label class="dedup-col"><input type="checkbox" value="${c}" ${was.has(String(c)) ? '' : 'checked'}> ${escapeHtml(label)}</label>`;
+            }
+            fEl('dedup-cols').innerHTML = html;
+        }
+        function dedupKey(r, cols) {
+            return cols.map(c => {
+                const v = getCellValue(getCellId(r, c));
+                return typeof v === 'string' ? 's:' + v.trim().toLowerCase() : (isBlank(v) ? 'e:' : typeof v + ':' + String(v));
+            }).join('\u0001');
+        }
+        function applyDedup() {
+            const b = dedupBounds;
+            const problem = rearrangeProblem(b);
+            if (problem) { showToast(problem); return; }
+            const cols = [...document.querySelectorAll('#dedup-cols input:checked')].map(i => Number(i.value));
+            if (!cols.length) { showToast('Tick at least one column'); return; }
+            const hdr = fEl('dedup-header').checked ? 1 : 0;
+            const first = b.minR + hdr;
+            const seen = new Set(), keep = [];
+            const emptyKey = dedupKey(-1, cols);
+            for (let r = first; r <= b.maxR; r++) {
+                const k = dedupKey(r, cols);
+                if (k !== emptyKey) { if (seen.has(k)) continue; seen.add(k); } // rows with nothing in them are not "duplicates"
+                keep.push(r);
+            }
+            const removed = (b.maxR - first + 1) - keep.length;
+            closeDedupModal();
+            if (!removed) { showToast('No duplicates found'); return; }
+            const order = keep.concat(new Array(removed).fill(-1));
+            const ids = placeRows(b, first, order);
+            const name = `Removed ${removed} duplicate row${removed === 1 ? '' : 's'} in ${selRangeText(b)}`;
+            cellsChanged(ids, name, { startRow: b.minR, startCol: b.minC, endRow: b.maxR, endCol: b.maxC });
+            showToast(`Removed ${removed} duplicate row${removed === 1 ? '' : 's'}, ${keep.length} left`);
         }
 
         // Merge / Unmerge (merges are stored per sheet so they survive grid rebuilds)
