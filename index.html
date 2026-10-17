@@ -3320,6 +3320,7 @@
 
         // Called when a value is committed (Enter, Tab, leaving the cell, formula bar, dock, wizard): validates, then stores
         function onCellInput(cellId, value) {
+            value = capitalizeFormula(String(value));
             const text = String(value);
             const rules = valRulesFor(cellId);
             const typedValue = text.trim() !== '' && !text.startsWith('=');
@@ -5906,6 +5907,16 @@
                 return out;
             }))).join('');
         }
+        // =sum(a3) -> =SUM(A3): function names, cell references (also $ ones and ranges) and TRUE / FALSE go to capitals.
+        // Text in quotes and table references in [...] are left exactly as typed.
+        function capitalizeFormula(f) {
+            if (typeof f !== 'string' || !f.startsWith('=')) return f;
+            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part
+                .replace(CELL_REF_RE, m => m.toUpperCase())
+                .replace(/[A-Za-z_][A-Za-z0-9_.]*(?=\s*\()/g, m => m.toUpperCase())
+                .replace(/(^|[^A-Za-z0-9_.])(true|false)(?![A-Za-z0-9_.(])/gi, (m, pre, w) => pre + w.toUpperCase())
+            )).join('');
+        }
         // The formula as it would read if the cell moved dr rows and dc columns
         function shiftFormula(f, dr, dc) {
             if (typeof f !== 'string' || !f.startsWith('=') || (!dr && !dc)) return f;
@@ -6057,7 +6068,7 @@
                 const id = getCellId(r, c);
                 if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
                 delete data[id].spillOf; delete data[id].rolls;
-                if (t.startsWith('=') && t.length > 1) { data[id].formula = t; data[id].value = ''; }
+                if (t.startsWith('=') && t.length > 1) { data[id].formula = capitalizeFormula(t); data[id].value = ''; }
                 else { data[id].formula = ''; data[id].value = parseTypedValue(t, data[id].style || (data[id].style = {})); }
                 ids.push(id);
                 maxC = Math.max(maxC, j);
