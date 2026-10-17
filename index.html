@@ -1110,7 +1110,13 @@
                     <select id="val-source" onchange="onValSourceChange()">
                         <option value="typed">Type them in now</option>
                         <option value="list">One of My Lists</option>
+                        <option value="range">A range on a sheet</option>
                     </select>
+                </div>
+                <div class="form-group" id="val-rangesrc-wrap">
+                    <label for="val-rangesrc">Range that holds the options (e.g. Lists!A2:A20)</label>
+                    <input type="text" id="val-rangesrc" placeholder="Lists!A2:A20" autocapitalize="off" autocomplete="off">
+                    <div class="wiz-tip">Linked: the drop-down always shows what is in that range right now. Use the sheet name, a !, and the cells.</div>
                 </div>
                 <div class="form-group" id="val-options-wrap">
                     <label>List Options (separate with commas, e.g. Pending, In Progress, Completed)</label>
@@ -1274,6 +1280,28 @@
             <div class="modal-footer">
                 <button onclick="closeFreezeModal()">Cancel</button>
                 <button class="primary" onclick="applyFreezePanes()">Apply Freeze Panes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sheet options (rename / delete) -->
+    <div class="modal-overlay hidden" id="sheet-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Sheet options</span>
+                <button onclick="closeSheetModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="sheet-name-input">Sheet name</label>
+                    <input type="text" id="sheet-name-input" maxlength="31" onkeydown="if (event.key === 'Enter') renameSheet()">
+                    <div class="wiz-tip">Formulas that use this sheet's name (like Lists!A2) are updated when you rename it, and show #REF! if you delete it.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="sheet-delete-btn" onclick="deleteSheet()">Delete sheet</button>
+                <button onclick="closeSheetModal()">Close</button>
+                <button class="primary" onclick="renameSheet()">Rename</button>
             </div>
         </div>
     </div>
@@ -1701,6 +1729,7 @@
             if (type === 'list') {
                 out.options = (Array.isArray(v.options) ? v.options : []).slice(0, 500).map(o => cleanText(o, 100));
                 if (v.listId) { out.listId = cleanText(v.listId, 40); out.listName = cleanText(v.listName, 40); }
+                if (typeof v.listRange === 'string' && v.listRange.trim()) out.listRange = cleanText(v.listRange, 80);
                 return out;
             }
             const num = x => (typeof x === 'number' && isFinite(x) ? x : null);
@@ -2052,7 +2081,26 @@
         function findList(id) { return myLists.find(l => l.id === id); }
 
         // The options a validation rule offers: its list if it is linked (and the list exists), otherwise its own copy
+        // A list that comes from cells (Lists!A2:A20): read live, blanks left out, repeats shown once. Kept until the next recalculation.
+        let rangeListCache = new Map();
+        function rangeListOptions(rule) {
+            if (rangeListCache.has(rule)) return rangeListCache.get(rule);
+            const out = [], seen = new Set();
+            try {
+                const res = evaluateFormula('=' + rule.listRange, 0, 0, true);
+                (isRange(res) ? res.values : [res]).forEach(v => {
+                    if (v === '' || v === undefined || v === null || (typeof v === 'string' && ERROR_CODES.includes(v))) return;
+                    const t = String(v).trim(), k = t.toLowerCase();
+                    if (t === '' || seen.has(k) || out.length >= 500) return;
+                    seen.add(k);
+                    out.push(t);
+                });
+            } catch (e) { /* a range that cannot be read gives no options */ }
+            rangeListCache.set(rule, out);
+            return out;
+        }
         function validationOptions(rule) {
+            if (rule.listRange) return rangeListOptions(rule);
             if (rule.listId) {
                 const list = findList(rule.listId);
                 if (list) return list.items;
@@ -2340,10 +2388,12 @@
 
         function onValSourceChange() {
             const isList = listsEl('val-type').value === 'list';
-            const fromList = listsEl('val-source').value === 'list';
+            const src = listsEl('val-source').value;
+            const fromList = src === 'list', fromRange = src === 'range';
             listsEl('val-source-wrap').classList.toggle('hidden', !isList);
-            listsEl('val-options-wrap').classList.toggle('hidden', !isList || fromList);
+            listsEl('val-options-wrap').classList.toggle('hidden', !isList || fromList || fromRange);
             listsEl('val-list-wrap').classList.toggle('hidden', !isList || !fromList);
+            listsEl('val-rangesrc-wrap').classList.toggle('hidden', !isList || !fromRange);
         }
 
         async function initGrid() {
@@ -2673,6 +2723,7 @@
                         <button onclick="openFreezeModal()">Freeze Panes...</button>
                         <button id="unfreeze-btn" onclick="unfreezePanes()" ${freezeRows || freezeCols ? '' : 'disabled'}>Unfreeze</button>
                         <button onclick="openCondFormatting()">Cond. Formatting</button>
+                        <button onclick="openSheetModal()">Rename / Delete Sheet</button>
                         <button class="primary" onclick="openWizard()">fx Wizard</button>
                     </div>
                 `;
@@ -3334,7 +3385,7 @@
 
         // Called when a value is committed (Enter, Tab, leaving the cell, formula bar, dock, wizard): validates, then stores
         function onCellInput(cellId, value) {
-            value = capitalizeFormula(String(value));
+            value = fixSheetRefs(capitalizeFormula(String(value)));
             const text = String(value);
             const rules = valRulesFor(cellId);
             const typedValue = text.trim() !== '' && !text.startsWith('=');
@@ -3403,7 +3454,11 @@
         function valCheck(rule, cell) {
             if (!cell || cell.formula || cell.spillOf || cell.value === '' || cell.value === undefined || cell.value === null) return true;
             const v = cell.value;
-            if (rule.type === 'list') return validationOptions(rule).some(o => o.trim().toLowerCase() === String(v).trim().toLowerCase());
+            if (rule.type === 'list') {
+                const opts = validationOptions(rule);
+                if (rule.listRange && !opts.length) return true; // the range cannot be read (or is empty): nothing to check against
+                return opts.some(o => o.trim().toLowerCase() === String(v).trim().toLowerCase());
+            }
             if (typeof v !== 'number' || !isFinite(v)) return false;
             let x = v;
             if (rule.type === 'whole' && !Number.isInteger(v)) return false;
@@ -3455,7 +3510,9 @@
             let what = VAL_LABELS[rule.type] || rule.type;
             if (rule.type === 'list') {
                 const opts = validationOptions(rule).map(o => o.trim()).filter(Boolean);
-                what = `List${rule.listName ? ` "${rule.listName}"` : ''}: ${opts.slice(0, 4).join(', ')}${opts.length > 4 ? ', ...' : ''}`;
+                what = rule.listRange
+                    ? `List from ${rule.listRange}: ${opts.length ? opts.slice(0, 4).join(', ') + (opts.length > 4 ? ', ...' : '') : '(nothing found there)'}`
+                    : `List${rule.listName ? ` "${rule.listName}"` : ''}: ${opts.slice(0, 4).join(', ')}${opts.length > 4 ? ', ...' : ''}`;
             } else what += valLimitText(rule);
             return `${rule.range} · ${what}${rule.mode === 'reject' ? ' · rejects' : ''}`;
         }
@@ -3488,6 +3545,7 @@
             valEditIndex = -1;
             refreshValidationLists();
             valEl('val-source').value = myLists.length ? 'list' : 'typed';
+            valEl('val-rangesrc').value = '';
             valEl('val-type').value = 'list'; valEl('val-cond').value = 'any'; valEl('val-mode').value = 'warn';
             valEl('val-min').value = ''; valEl('val-max').value = '';
             const b = selBounds();
@@ -3510,7 +3568,8 @@
             else { valEl('val-min').value = r.min !== undefined ? r.min : ''; valEl('val-max').value = r.max !== undefined ? r.max : ''; }
             if (r.type === 'list') {
                 refreshValidationLists();
-                if (r.listId && findList(r.listId)) { valEl('val-source').value = 'list'; valEl('val-list').value = r.listId; }
+                if (r.listRange) { valEl('val-source').value = 'range'; valEl('val-rangesrc').value = r.listRange; }
+                else if (r.listId && findList(r.listId)) { valEl('val-source').value = 'list'; valEl('val-list').value = r.listId; }
                 else { valEl('val-source').value = 'typed'; valEl('val-options').value = (r.options || []).join(', '); }
                 onValSourceChange();
             }
@@ -3530,6 +3589,16 @@
             showToast(`Rule for ${r.range} deleted`);
             recordHistory('Removed data validation');
         }
+        // "Lists!A2:A20" (or just "A2:A20" for this sheet) -> { text: the tidy form } or { error }
+        function parseListRange(input) {
+            const t = String(input || '').trim().replace(/\$/g, '');
+            const m = new RegExp(`^(${SHEET_PREFIX_SRC})?([A-Za-z]{1,3}\\d+(?::[A-Za-z]{1,3}\\d+)?)$`).exec(t);
+            if (!m || !parseRangeText(m[2])) return { error: 'Type the range like Lists!A2:A20' };
+            const name = m[1] ? sheetOfPrefix(m[1]) : sheets[currentSheetIdx].name;
+            const k = sheetIndexByName(name);
+            if (k < 0) return { error: `There is no sheet called ${name}` };
+            return { text: sheetPrefix(sheets[k].name) + m[2].toUpperCase() };
+        }
         function applyDataValidation() {
             const rangeText = valEl('val-range').value.trim().toUpperCase().replace(/\$/g, '');
             if (!parseRangeText(rangeText)) { showToast('Type the range like B2:B100'); return; }
@@ -3537,7 +3606,11 @@
             const mode = valEl('val-mode').value === 'reject' ? 'reject' : 'warn';
             let rule;
             if (type === 'list') {
-                if (valEl('val-source').value === 'list') {
+                if (valEl('val-source').value === 'range') {
+                    const lr = parseListRange(valEl('val-rangesrc').value);
+                    if (lr.error) { showToast(lr.error); return; }
+                    rule = { range: rangeText, type, mode, options: [], listRange: lr.text };
+                } else if (valEl('val-source').value === 'list') {
                     const list = findList(valEl('val-list').value);
                     if (!list) { showToast('Pick one of your lists (make one in Settings → My Lists)'); return; }
                     rule = { range: rangeText, type, mode, options: list.items.slice(), listId: list.id, listName: list.name };
@@ -3680,6 +3753,12 @@
                 }
                 const rest = src.slice(i);
                 let m;
+                // A sheet name in front of a cell or range: Lists!A2:A20, 'My Sheet'!B3
+                if ((m = /^(?:'((?:[^']|'')+)'|([A-Za-z_][A-Za-z0-9_.]*))!/.exec(rest))) {
+                    tokens.push({ t: 'sheet', name: m[1] !== undefined ? m[1].replace(/''/g, "'") : m[2] });
+                    i += m[0].length;
+                    continue;
+                }
                 if (rest.startsWith('#REF!')) { tokens.push({ t: 'err', v: '#REF!' }); i += 5; continue; }
                 // Table references: Sales[Amount] (the column's data cells), Sales[@Amount] (this row), Sales[@[Unit Price]] / Sales[Unit Price] (names with spaces)
                 if ((m = /^([A-Za-z_][A-Za-z0-9_.]*)\[/.exec(rest))) {
@@ -3801,6 +3880,16 @@
                 if (tok.t === 'str') return { t: 'str', v: tok.v };
                 if (tok.t === 'err') return { t: 'err', v: tok.v };
                 if (tok.t === 'sref') return { t: 'sref', table: tok.table, col: tok.col, row: tok.row };
+                if (tok.t === 'sheet') {
+                    const first = tokens[p++];
+                    if (!first || first.t !== 'ref') throw new FormulaError('#ERROR!');
+                    if (isOp(':') && tokens[p + 1] && tokens[p + 1].t === 'ref') {
+                        p++;
+                        const end = tokens[p++];
+                        return { t: 'xref', sheet: tok.name, node: { t: 'range', a: first.v, b: end.v, ca1: first.ca, ra1: first.ra, ca2: end.ca, ra2: end.ra } };
+                    }
+                    return { t: 'xref', sheet: tok.name, node: { t: 'ref', v: first.v, ca: first.ca, ra: first.ra } };
+                }
                 if (tok.t === 'ref') {
                     if (isOp(':') && tokens[p + 1] && tokens[p + 1].t === 'ref') {
                         p++;
@@ -4068,6 +4157,55 @@
         function rangeValues(n) {
             const a = shiftCoord(parseCellCoord(n.a), n.ca1, n.ra1), b = shiftCoord(parseCellCoord(n.b), n.ca2, n.ra2);
             return rangeFromBounds(Math.min(a.r, b.r), Math.min(a.c, b.c), Math.max(a.r, b.r), Math.max(a.c, b.c));
+        }
+
+        // ----- Cells on other sheets: Lists!A2, 'My Sheet'!A1:B9 -----
+        const sheetIndexByName = name => { const k = String(name).toLowerCase(); return sheets.findIndex(sh => sh.name.toLowerCase() === k); };
+        let evalSheetIdx = null; // the sheet the formula engine is looking at right now (null = the one on screen)
+        const engineSheetIdx = () => (evalSheetIdx === null ? currentSheetIdx : evalSheetIdx);
+        // Runs fn with the engine pointed at another sheet (its cells, tables and calculation progress), then points it back
+        function inSheet(idx, fn) {
+            if (idx === engineSheetIdx()) return fn();
+            const sh = sheets[idx];
+            const saved = { data, tableObjects, filteredRows, cfShift, evalSheetIdx, done: calcState.done, busy: calcState.busy };
+            const cfMode = calcState === CF_CALC;
+            let mine = null;
+            if (!cfMode) {
+                if (!calcState.byIdx) calcState.byIdx = new Map();
+                calcState.byIdx.set(engineSheetIdx(), { done: calcState.done, busy: calcState.busy });
+                mine = calcState.byIdx.get(idx);
+                if (!mine) { mine = { done: new Set(), busy: new Set() }; calcState.byIdx.set(idx, mine); }
+                calcState.done = mine.done;
+                calcState.busy = mine.busy;
+            }
+            data = sh.data; tableObjects = sh.tableObjects; filteredRows = new Set(); cfShift = null; evalSheetIdx = idx;
+            try {
+                return fn();
+            } finally {
+                data = saved.data; tableObjects = saved.tableObjects; filteredRows = saved.filteredRows; cfShift = saved.cfShift; evalSheetIdx = saved.evalSheetIdx;
+                if (!cfMode) { calcState.done = saved.done; calcState.busy = saved.busy; }
+            }
+        }
+        function xrefValue(n) {
+            const idx = sheetIndexByName(n.sheet);
+            if (idx < 0) throw new FormulaError('#REF!');
+            const same = idx === engineSheetIdx();
+            if (n.node.t === 'ref') {
+                const co = shiftCoord(parseCellCoord(n.node.v), n.node.ca, n.node.ra);
+                if (co.r < 0 || co.c < 0) throw new FormulaError('#REF!');
+                const id = getCellId(co.r, co.c);
+                return inSheet(idx, () => refValue(id));
+            }
+            const b = nodeBounds(n.node);
+            return inSheet(idx, () => {
+                const rv = rangeFromBounds(b.minR, b.minC, b.maxR, b.maxC);
+                if (!same) delete rv.origin; // row numbers of another sheet mean nothing to this sheet's filters
+                return rv;
+            });
+        }
+        function xrefArg(a) {
+            const v = xrefValue(a);
+            return a.node.t === 'range' ? v : new RangeVal(1, 1, [v]);
         }
 
         // Bounds of a reference node (A1 or A1:B5), for functions that need the cells themselves (OFFSET, CELL, ISBLANK)
@@ -5256,6 +5394,10 @@
                 }
                 case 'range':
                     return shrink(rangeValues(n));
+                case 'xref': {
+                    const v = xrefValue(n);
+                    return n.node.t === 'range' ? shrink(v) : v;
+                }
                 case 'sref':
                     return shrink(structuredValue(n, curR));
                 case 'err':
@@ -5277,7 +5419,7 @@
                     const lim = ARG_LIMITS[n.name];
                     if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!');
                     // A single cell passed to a function counts as a cell (like a range of one): text in it is skipped by SUM, AVERAGE, ...
-                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'sref' ? structuredValue(a, curR) : (a.t === 'ref' ? refArg(a, curR, curC) : evalNode(a, curR, curC))));
+                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'sref' ? structuredValue(a, curR) : (a.t === 'ref' ? refArg(a, curR, curC) : (a.t === 'xref' ? xrefArg(a) : evalNode(a, curR, curC)))));
                     return def.fn(args, curR, curC, n);
                 }
             }
@@ -5344,6 +5486,7 @@
         }
 
         function recalculateAll() {
+            rangeListCache = new Map();
             clearSpills();
             // Two passes when something spilled, so formulas that read spilled cells see them
             for (let pass = 0; pass < 2; pass++) {
@@ -5437,7 +5580,7 @@
             const bar = document.getElementById('sheet-tab-bar');
             let html = '';
             sheets.forEach((s, idx) => {
-                html += `<button class="sheet-tab ${idx === currentSheetIdx ? 'active' : ''}" onclick="switchSheet(${idx})">${escapeHtml(s.name)}</button>`;
+                html += `<button class="sheet-tab ${idx === currentSheetIdx ? 'active' : ''}" onclick="${idx === currentSheetIdx ? 'openSheetModal()' : `switchSheet(${idx})`}">${escapeHtml(s.name)}</button>`;
             });
             html += `<button class="sheet-tab" onclick="addNewSheet()">+ Add Sheet</button>`;
             bar.innerHTML = html;
@@ -5469,10 +5612,86 @@
         }
 
         function addNewSheet() {
-            let name = `Sheet ${sheets.length + 1}`;
+            let n = sheets.length + 1;
+            while (sheetIndexByName(`Sheet ${n}`) >= 0) n++;
+            const name = `Sheet ${n}`;
             sheets.push(makeBlankSheet(name));
             switchSheet(sheets.length - 1);
             recordHistory(`Added ${name}`);
+        }
+
+        // ----- Rename / delete sheets -----
+        // Calls fix(sheetName, theReferenceWithoutItsSheet) for each Name!A1 style reference in a formula text; fix returns the new text for the whole reference, or null to keep it
+        function mapSheetRefs(text, fix) {
+            if (typeof text !== 'string') return text;
+            return text.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(CELL_REF_RE, (m, pre, sh) => {
+                if (!sh) return m;
+                const r = fix(sheetOfPrefix(sh), m.slice(pre.length + sh.length));
+                return r === null ? m : pre + r;
+            }))).join('');
+        }
+        // Rewrites every formula, conditional-format formula and validation list range in the workbook
+        function rewriteSheetRefs(fix) {
+            sheets.forEach(sh => {
+                for (const id in sh.data) { const cell = sh.data[id]; if (cell.formula) cell.formula = mapSheetRefs(cell.formula, fix); }
+                (sh.conditionalRules || []).forEach(r => { if (typeof r.formula === 'string') r.formula = mapSheetRefs(r.formula, fix); });
+                (sh.validationRules || []).forEach(r => { if (typeof r.listRange === 'string') r.listRange = mapSheetRefs(r.listRange, fix); });
+            });
+        }
+        function countSheetUsers(name) {
+            const k = name.toLowerCase();
+            let n = 0;
+            sheets.forEach(sh => {
+                if (sh.name.toLowerCase() === k) return;
+                for (const id in sh.data) { const cell = sh.data[id]; if (cell.formula) mapSheetRefs(cell.formula, nm => { if (nm.toLowerCase() === k) n++; return null; }); }
+            });
+            return n;
+        }
+        function sheetNameProblem(name, exceptIdx) {
+            if (!name) return 'Type a name for the sheet';
+            if (name.length > 31) return 'Sheet names can have up to 31 characters';
+            if (/[\[\]!":\\\/?*]/.test(name)) return 'A sheet name cannot contain [ ] ! " : \\ / ? *';
+            if (name.startsWith("'") || name.endsWith("'")) return "A sheet name cannot start or end with '";
+            const k = sheetIndexByName(name);
+            if (k >= 0 && k !== exceptIdx) return `There is already a sheet called ${sheets[k].name}`;
+            return '';
+        }
+        function openSheetModal() {
+            if (editingCell) endEdit(true);
+            document.getElementById('sheet-name-input').value = sheets[currentSheetIdx].name;
+            document.getElementById('sheet-delete-btn').disabled = sheets.length <= 1;
+            document.getElementById('sheet-modal').classList.remove('hidden');
+        }
+        function closeSheetModal() { document.getElementById('sheet-modal').classList.add('hidden'); }
+        function renameSheet() {
+            const sh = sheets[currentSheetIdx];
+            const next = document.getElementById('sheet-name-input').value.trim();
+            if (next === sh.name) { closeSheetModal(); return; }
+            const problem = sheetNameProblem(next, currentSheetIdx);
+            if (problem) { showToast(problem); return; }
+            const old = sh.name, oldKey = old.toLowerCase();
+            rewriteSheetRefs((nm, bare) => (nm.toLowerCase() === oldKey ? sheetPrefix(next) + bare : null));
+            sh.name = next;
+            closeSheetModal();
+            renderSheetTabs();
+            recalculateAll();
+            updateStats();
+            showToast(`Renamed ${old} to ${next}`);
+            recordHistory(`Renamed sheet ${old} to ${next}`, { all: true });
+        }
+        function deleteSheet() {
+            if (sheets.length <= 1) { showToast('A workbook needs at least one sheet'); return; }
+            const idx = currentSheetIdx, sh = sheets[idx];
+            const users = countSheetUsers(sh.name);
+            const msg = `Delete the sheet ${sh.name} and everything on it?${users ? ` ${users} formula${users === 1 ? '' : 's'} on other sheets use it and will show #REF!.` : ''} You can undo this in Time Travel.`;
+            if (!confirm(msg)) return;
+            closeSheetModal();
+            const key = sh.name.toLowerCase();
+            sheets.splice(idx, 1);
+            rewriteSheetRefs(nm => (nm.toLowerCase() === key ? '#REF!' : null));
+            switchSheet(Math.min(idx, sheets.length - 1));
+            showToast(`Deleted ${sh.name}`);
+            recordHistory(`Deleted sheet ${sh.name}`, { all: true });
         }
 
         // Freeze Panes Modal
@@ -5906,13 +6125,18 @@
         // Formulas keep their meaning when they move: a reference that is relative moves with the cell (A1 -> A2 one row down),
         // one with a $ stays, a range moves at both ends, text in quotes and table references are left alone, and a reference
         // pushed off the sheet becomes #REF!.
-        const CELL_REF_RE = /(^|[^A-Za-z0-9_.$])(\$?)([A-Za-z]{1,3})(\$?)(\d+)(?::(\$?)([A-Za-z]{1,3})(\$?)(\d+))?(?![A-Za-z0-9_(])/g;
+        // Groups: 1 the character before, 2 a sheet name with its !, 3-6 the first cell ($ marks, column, row), 7-10 the end of a range
+        const SHEET_PREFIX_SRC = "(?:'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.]*)!";
+        const CELL_REF_RE = new RegExp(`(^|[^A-Za-z0-9_.$'])(${SHEET_PREFIX_SRC})?(\\$?)([A-Za-z]{1,3})(\\$?)(\\d+)(?::(\\$?)([A-Za-z]{1,3})(\\$?)(\\d+))?(?![A-Za-z0-9_(])`, 'g');
+        // 'My Sheet'! when the name needs quotes, Lists! when it does not
+        const sheetPrefix = name => (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`) + '!';
+        const sheetOfPrefix = p => { const t = p.slice(0, -1); return t.startsWith("'") ? t.slice(1, -1).replace(/''/g, "'") : t; };
         const FORMULA_SKIP_RE = /("(?:[^"]|"")*"|\[(?:[^\[\]]|\[[^\[\]]*\])*\])/;
         function mapFormulaRefs(f, mapRef) {
-            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(CELL_REF_RE, (m, pre, ca1, col1, ra1, row1, ca2, col2, ra2, row2) => {
+            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(CELL_REF_RE, (m, pre, sh, ca1, col1, ra1, row1, ca2, col2, ra2, row2) => {
                 const a = mapRef(letterToColumn(col1.toUpperCase()), Number(row1) - 1, !!ca1, !!ra1);
                 if (!a) return `${pre}#REF!`;
-                let out = `${pre}${ca1}${columnToLetter(a.c)}${ra1}${a.r + 1}`;
+                let out = `${pre}${sh || ''}${ca1}${columnToLetter(a.c)}${ra1}${a.r + 1}`;
                 if (col2 !== undefined) {
                     const b = mapRef(letterToColumn(col2.toUpperCase()), Number(row2) - 1, !!ca2, !!ra2);
                     if (!b) return `${pre}#REF!`;
@@ -5926,10 +6150,19 @@
         function capitalizeFormula(f) {
             if (typeof f !== 'string' || !f.startsWith('=')) return f;
             return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part
-                .replace(CELL_REF_RE, m => m.toUpperCase())
+                .replace(CELL_REF_RE, (m, pre, sh) => pre + (sh || '') + m.slice(pre.length + (sh || '').length).toUpperCase())
                 .replace(/[A-Za-z_][A-Za-z0-9_.]*(?=\s*\()/g, m => m.toUpperCase())
                 .replace(/(^|[^A-Za-z0-9_.])(true|false)(?![A-Za-z0-9_.(])/gi, (m, pre, w) => pre + w.toUpperCase())
             )).join('');
+        }
+        // lists!a2 or 'Lists'!A2 -> Lists!A2: a sheet name is written as the sheet is really spelled, with quotes only when it needs them
+        function fixSheetRefs(f) {
+            if (typeof f !== 'string' || !f.startsWith('=')) return f;
+            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(CELL_REF_RE, (m, pre, sh) => {
+                if (!sh) return m;
+                const k = sheetIndexByName(sheetOfPrefix(sh));
+                return k < 0 ? m : pre + sheetPrefix(sheets[k].name) + m.slice(pre.length + sh.length);
+            }))).join('');
         }
         // The formula as it would read if the cell moved dr rows and dc columns
         function shiftFormula(f, dr, dc) {
@@ -5939,16 +6172,21 @@
                 return nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS ? null : { c: nc, r: nr };
             });
         }
-        // After a cut: references to cells inside the moved block follow the block (also those written with $)
-        function retargetFormula(f, b, dr, dc) {
+        // After a cut: references to cells inside the moved block follow the block (also those written with $).
+        // onSource: the formula lives on the sheet the block was cut from (so references without a sheet name point at it);
+        // srcName: that sheet's name (references written as Name!A1 point at it from any sheet).
+        function retargetFormula(f, b, dr, dc, onSource, srcName) {
             if (typeof f !== 'string' || !f.startsWith('=')) return f;
             const inside = (c, r) => r >= b.minR && r <= b.maxR && c >= b.minC && c <= b.maxC;
-            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(CELL_REF_RE, (m, pre, ca1, col1, ra1, row1, ca2, col2, ra2, row2) => {
+            const lower = String(srcName || '').toLowerCase();
+            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(CELL_REF_RE, (m, pre, sh, ca1, col1, ra1, row1, ca2, col2, ra2, row2) => {
+                if (sh ? sheetOfPrefix(sh).toLowerCase() !== lower : !onSource) return m;
+                const head = pre + (sh || '');
                 const c1 = letterToColumn(col1.toUpperCase()), r1 = Number(row1) - 1;
-                if (col2 === undefined) return inside(c1, r1) ? `${pre}${ca1}${columnToLetter(c1 + dc)}${ra1}${r1 + dr + 1}` : m;
+                if (col2 === undefined) return inside(c1, r1) ? `${head}${ca1}${columnToLetter(c1 + dc)}${ra1}${r1 + dr + 1}` : m;
                 const c2 = letterToColumn(col2.toUpperCase()), r2 = Number(row2) - 1;
                 if (!inside(c1, r1) || !inside(c2, r2)) return m;
-                return `${pre}${ca1}${columnToLetter(c1 + dc)}${ra1}${r1 + dr + 1}:${ca2}${columnToLetter(c2 + dc)}${ra2}${r2 + dr + 1}`;
+                return `${head}${ca1}${columnToLetter(c1 + dc)}${ra1}${r1 + dr + 1}:${ca2}${columnToLetter(c2 + dc)}${ra2}${r2 + dr + 1}`;
             }))).join('');
         }
 
@@ -6003,7 +6241,7 @@
         }
 
         // Redraw what a paste or fill changed, select the result and record the step
-        function cellsChanged(ids, name, sel) {
+        function cellsChanged(ids, name, sel, allSheets) {
             recalculateAll();
             ids.forEach(id => {
                 applyCellStyle(id);
@@ -6013,7 +6251,7 @@
             updateStats();
             updateInsights();
             if (sel) { selectionRange = sel; setActiveCell(sel.startRow, sel.startCol); }
-            recordHistory(name);
+            recordHistory(name, allSheets ? { all: true } : undefined);
         }
 
         async function pasteCells(valuesOnly) {
@@ -6028,6 +6266,10 @@
         }
 
         function pasteInternal(valuesOnly) {
+            if (clip.cut && !valuesOnly && clip.sheet !== sheets[currentSheetIdx]) {
+                showToast('Cut moves cells within one sheet. To move them to another sheet, use Copy, paste, then clear the old cells');
+                return;
+            }
             const sel = selBounds();
             const sheet = sheets[currentSheetIdx];
             const one = clip.rows === 1 && clip.cols === 1;
@@ -6047,8 +6289,8 @@
             }
             if (clip.cut && !valuesOnly) {
                 // Moving cells: formulas anywhere that point into the block follow it; the moved formulas keep their own meaning
-                for (const id in data) { const cell = data[id]; if (cell.formula) cell.formula = retargetFormula(cell.formula, src, dtr, dtc); }
-                writes.forEach(w => { if (w.cs && w.cs.f) w.cs = { ...w.cs, f: retargetFormula(w.cs.f, src, dtr, dtc) }; });
+                sheets.forEach(sh => { for (const id in sh.data) { const cell = sh.data[id]; if (cell.formula) cell.formula = retargetFormula(cell.formula, src, dtr, dtc, sh === sheet, sheet.name); } });
+                writes.forEach(w => { if (w.cs && w.cs.f) w.cs = { ...w.cs, f: retargetFormula(w.cs.f, src, dtr, dtc, true, sheet.name) }; });
                 for (let r = src.minR; r <= src.maxR; r++) for (let c = src.minC; c <= src.maxC; c++) { const id = getCellId(r, c); if (data[id]) { delete data[id]; ids.push(id); } }
             }
             writes.forEach(w => {
@@ -6065,7 +6307,7 @@
             const n = (r2 - r1 + 1) * (c2 - c1 + 1);
             const where = clipRange(r1, c1, r2, c2);
             if (cut) clipClear(true);
-            cellsChanged(ids, `${cut ? 'Moved' : (valuesOnly ? 'Pasted values at' : 'Pasted at')} ${where}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 });
+            cellsChanged(ids, `${cut ? 'Moved' : (valuesOnly ? 'Pasted values at' : 'Pasted at')} ${where}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 }, cut);
             showToast(`${cut ? 'Moved' : 'Pasted'} ${n === 1 ? getCellId(r1, c1) : `${n} cells`}${valuesOnly ? ' (values only)' : ''}${clipped ? '. Part of it did not fit on the sheet' : ''}`);
         }
 
@@ -6082,7 +6324,7 @@
                 const id = getCellId(r, c);
                 if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
                 delete data[id].spillOf; delete data[id].rolls;
-                if (t.startsWith('=') && t.length > 1) { data[id].formula = capitalizeFormula(t); data[id].value = ''; }
+                if (t.startsWith('=') && t.length > 1) { data[id].formula = fixSheetRefs(capitalizeFormula(t)); data[id].value = ''; }
                 else { data[id].formula = ''; data[id].value = parseTypedValue(t, data[id].style || (data[id].style = {})); }
                 ids.push(id);
                 maxC = Math.max(maxC, j);
