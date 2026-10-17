@@ -244,7 +244,7 @@
             overflow: hidden;
             white-space: nowrap;
             text-overflow: ellipsis;
-            height: 26px;
+            height: var(--row-h, 26px);
             font-size: 0.85rem;
         }
 
@@ -364,6 +364,20 @@
         .cell-input:focus {
             background: #ffffff;
         }
+
+        /* A cell with Wrap on is a multi-line box: the text wraps inside the row height that was set */
+        textarea.cell-input {
+            resize: none;
+            overflow: hidden;
+            display: block;
+            box-sizing: border-box;
+            padding: 3px 6px;
+            line-height: 1.25;
+            font-family: inherit;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+        textarea.cell-input.editing { overflow-y: auto; }
 
         /* Cell inputs ignore touches until a cell is being edited (the grid handles tap / drag / long-press) */
         .cell-input {
@@ -804,7 +818,7 @@
         }
         .wiz-live .wiz-formula { padding: 4px 8px; }
 
-        /* Fixed column width: about 4-5 columns visible on a Pixel 7 (the frozen-column offsets in buildGridDOM assume 80px) */
+        /* Normal column width: about 4-5 columns visible on a Pixel 7. A column the user resized carries its own --col-width, a row its own --row-h */
         :root { --col-width: 80px; }
         table.spreadsheet th:not(.row-header):not(.corner-header) {
             width: var(--col-width);
@@ -858,6 +872,7 @@
         .modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]), .modal textarea { min-height: 40px; box-sizing: border-box; }
         .modal input[type="color"] { width: 40px; height: 40px; }
         .modal-footer { gap: 8px; }
+        .size-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
         .form-group:has(> input[type="checkbox"]) { min-height: 40px; }
         .form-group:has(> input[type="checkbox"]) > label { flex: 1; min-height: 40px; display: flex; align-items: center; }
     </style>
@@ -1284,6 +1299,43 @@
         </div>
     </div>
 
+    <!-- Column width / row height -->
+    <div class="modal-overlay hidden" id="size-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Column width and row height</span>
+                <button onclick="closeSizeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="wiz-tip" id="size-target"></div>
+                <div class="form-group">
+                    <label for="size-width">Column width in pixels (30 to 400; normal is 80)</label>
+                    <input type="number" id="size-width" min="30" max="400" inputmode="numeric">
+                    <div class="size-presets">
+                        <button type="button" onclick="sizePreset('size-width', 60)">Narrow 60</button>
+                        <button type="button" onclick="sizePreset('size-width', 80)">Normal 80</button>
+                        <button type="button" onclick="sizePreset('size-width', 120)">Wide 120</button>
+                        <button type="button" onclick="autoFitSelected()">Auto-fit</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="size-height">Row height in pixels (20 to 300; normal is 26)</label>
+                    <input type="number" id="size-height" min="20" max="300" inputmode="numeric">
+                    <div class="size-presets">
+                        <button type="button" onclick="sizePreset('size-height', 26)">Normal 26</button>
+                        <button type="button" onclick="sizePreset('size-height', 40)">Tall 40</button>
+                        <button type="button" onclick="sizePreset('size-height', 60)">Taller 60</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="flex-wrap: wrap;">
+                <button onclick="resetSizes()">Back to normal</button>
+                <button onclick="closeSizeModal()">Cancel</button>
+                <button class="primary" onclick="applySize()">Apply</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Sheet options (rename / delete) -->
     <div class="modal-overlay hidden" id="sheet-modal">
         <div class="modal">
@@ -1359,7 +1411,7 @@
         const COLS = 52;
 
         let sheets = [
-            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0 }
+            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {} }
         ];
         let currentSheetIdx = 0;
         let data = sheets[0].data;
@@ -1612,7 +1664,7 @@
         const escapeHtml = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
         function makeBlankSheet(name) {
-            return { name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0 };
+            return { name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {} };
         }
 
         // ----- Storage (IndexedDB, with localStorage only if IndexedDB cannot be opened at all) -----
@@ -1706,7 +1758,7 @@
                     cells[id] = o;
                 }
             }
-            return { name: s.name, cells, styles, cf: s.conditionalRules, dv: s.validationRules, tb: s.tableObjects, mg: s.merges || [], fr: s.freezeRows, fc: s.freezeCols };
+            return { name: s.name, cells, styles, cf: s.conditionalRules, dv: s.validationRules, tb: s.tableObjects, mg: s.merges || [], fr: s.freezeRows, fc: s.freezeCols, cw: s.colWidths || {}, rh: s.rowHeights || {} };
         }
 
         function encodeWorkbook() {
@@ -1788,6 +1840,19 @@
             if (['left', 'center', 'right'].includes(st.textAlign)) out.textAlign = st.textAlign;
             if (NUM_FORMATS.includes(st.numFormat)) out.numFormat = st.numFormat;
             if (Number.isInteger(st.decimals) && st.decimals >= 0 && st.decimals <= MAX_DECIMALS) out.decimals = st.decimals;
+            if (st.wrap === true) out.wrap = true;
+            if (typeof st.borders === 'string') { const b = [...'tbrl'].filter(ch => st.borders.includes(ch)).join(''); if (b) out.borders = b; }
+            return out;
+        }
+
+        // Column widths / row heights read from storage: { index: pixels }, only sizes that differ from the normal one
+        function cleanSizes(o, count, lo, hi, normal) {
+            const out = {};
+            if (!o || typeof o !== 'object') return out;
+            for (const k in o) {
+                const i = Number(k), px = Math.round(Number(o[k]));
+                if (Number.isInteger(i) && i >= 0 && i < count && Number.isFinite(px) && px !== normal) out[i] = Math.max(lo, Math.min(hi, px));
+            }
             return out;
         }
 
@@ -1827,7 +1892,9 @@
                 tableObjects: (Array.isArray(es.tb) ? es.tb : []).map(cleanTable).filter(t => t && t.startR >= 0 && t.endR >= t.startR && t.startC >= 0 && t.endC >= t.startC),
                 merges: (Array.isArray(es.mg) ? es.mg : []).map(m => m && ({ r: cleanInt(m.r, 0, ROWS - 1, -1), c: cleanInt(m.c, 0, COLS - 1, -1), rows: cleanInt(m.rows, 1, ROWS, 1), cols: cleanInt(m.cols, 1, COLS, 1) })).filter(m => m && m.r >= 0 && m.c >= 0 && m.r + m.rows <= ROWS && m.c + m.cols <= COLS && (m.rows > 1 || m.cols > 1)),
                 freezeRows: cleanInt(es.fr, 0, 50, 0),
-                freezeCols: cleanInt(es.fc, 0, 10, 0)
+                freezeCols: cleanInt(es.fc, 0, 10, 0),
+                colWidths: cleanSizes(es.cw, COLS, MIN_COL_W, MAX_COL_W, DEFAULT_COL_W),
+                rowHeights: cleanSizes(es.rh, ROWS, MIN_ROW_H, MAX_ROW_H, DEFAULT_ROW_H)
             };
         }
 
@@ -2417,6 +2484,45 @@
             else if (restored) showToast('Restored your workbook');
         }
 
+        // The box a cell is typed into: a one-line input, or a multi-line box when the cell wraps its text
+        function cellEditorHTML(r, c, wrap) {
+            const cellId = columnToLetter(c) + (r + 1);
+            const attrs = `class="cell-input" id="input-${cellId}" data-cell="${cellId}" readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="setCellContent('${cellId}', this.value)" onblur="onCellBlur(${r}, ${c})" onkeydown="handleCellKey(event, ${r}, ${c})"`;
+            return wrap ? `<textarea ${attrs} rows="1"></textarea>` : `<input type="text" ${attrs}>`;
+        }
+        // Swaps a cell's box when its Wrap setting changed (never while the cell is being typed in)
+        function syncCellEditor(cellId, wrap) {
+            const el = document.getElementById(`input-${cellId}`), td = document.getElementById(`cell-${cellId}`);
+            if (!el || !td || (el.tagName === 'TEXTAREA') === wrap) return el;
+            const co = parseCellCoord(cellId);
+            if (editingCell && editingCell.row === co.r && editingCell.col === co.c) return el;
+            td.innerHTML = cellEditorHTML(co.r, co.c, wrap);
+            renderCellDisplay(cellId);
+            return document.getElementById(`input-${cellId}`);
+        }
+
+        // ===== Column widths and row heights =====
+        // A width belongs to a whole column and a height to a whole row. Only sizes that differ from the normal ones are kept (sheet.colWidths / sheet.rowHeights).
+        const DEFAULT_COL_W = 80, MIN_COL_W = 30, MAX_COL_W = 400;
+        const DEFAULT_ROW_H = 26, MIN_ROW_H = 20, MAX_ROW_H = 300;
+        const colW = (c, sh) => ((sh || sheets[currentSheetIdx]).colWidths || {})[c] || DEFAULT_COL_W;
+        const rowH = (r, sh) => ((sh || sheets[currentSheetIdx]).rowHeights || {})[r] || DEFAULT_ROW_H;
+        function applySizes() {
+            const sh = sheets[currentSheetIdx];
+            for (let c = 0; c < COLS; c++) {
+                const th = document.getElementById(`col-th-${c}`);
+                if (!th) continue;
+                const w = sh.colWidths[c];
+                if (w) th.style.setProperty('--col-width', w + 'px'); else th.style.removeProperty('--col-width');
+            }
+            for (let r = 0; r < ROWS; r++) {
+                const th = document.getElementById(`row-th-${r}`);
+                if (!th) continue;
+                const h = sh.rowHeights[r];
+                if (h) th.parentElement.style.setProperty('--row-h', h + 'px'); else th.parentElement.style.removeProperty('--row-h');
+            }
+        }
+
         function buildGridDOM() {
             const thead = document.getElementById('spreadsheet-head');
             const tbody = document.getElementById('spreadsheet-body');
@@ -2436,7 +2542,7 @@
                 for (let c = 0; c < COLS; c++) {
                     const cellId = columnToLetter(c) + (r + 1);
                     bodyHTML += `<td id="cell-${cellId}" data-row="${r}" data-col="${c}">`;
-                    bodyHTML += `<input type="text" class="cell-input" id="input-${cellId}" data-cell="${cellId}" readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="setCellContent('${cellId}', this.value)" onblur="onCellBlur(${r}, ${c})" onkeydown="handleCellKey(event, ${r}, ${c})">`;
+                    bodyHTML += cellEditorHTML(r, c, false);
                     bodyHTML += `</td>`;
                 }
                 bodyHTML += `</tr>`;
@@ -2448,6 +2554,7 @@
             cfPaintedTds = [];
             filteredRows = new Set();
             valBadIds = new Set();
+            applySizes();
             applyMerges();
             applyTableHeaders();
             layoutFreeze();
@@ -2677,6 +2784,20 @@
                     <div class="ribbon-group">
                         <button onclick="mergeCells()" title="Merge Cells">Merge</button>
                         <button onclick="unmergeCells()" title="Unmerge Cells">Unmerge</button>
+                    </div>
+                    <div class="ribbon-group">
+                        <button id="wrap-btn" onclick="toggleWrap()" title="Wrap text inside the cell (make the row taller with Size... to see more lines)">Wrap</button>
+                        <select id="border-menu" onchange="applyBorders(this.value); this.value = ''" title="Cell borders">
+                            <option value="">Borders</option>
+                            <option value="all">All borders</option>
+                            <option value="outline">Outline</option>
+                            <option value="top">Top</option>
+                            <option value="bottom">Bottom</option>
+                            <option value="left">Left</option>
+                            <option value="right">Right</option>
+                            <option value="none">No borders</option>
+                        </select>
+                        <button onclick="openSizeModal()" title="Column width and row height of the selected cells">Size...</button>
                     </div>
                     <div class="ribbon-group">
                         <select id="number-format" onchange="formatCell('numFormat', this.value)">
@@ -5591,6 +5712,8 @@
             currentSheetIdx = idx;
             let s = sheets[idx];
             if (!s.merges) s.merges = [];
+            if (!s.colWidths) s.colWidths = {};
+            if (!s.rowHeights) s.rowHeights = {};
             data = s.data;
             conditionalRules = s.conditionalRules;
             validationRules = s.validationRules;
@@ -5698,8 +5821,11 @@
         // Limits keep part of the grid scrollable on small screens (about 2 columns / 14 rows on a Pixel 7)
         function freezeLimits() {
             const g = document.getElementById('grid-container');
-            const maxCols = Math.max(0, Math.min(10, Math.floor((g.clientWidth * 0.6 - 50) / 80)));
-            const maxRows = Math.max(0, Math.min(50, Math.floor((g.clientHeight * 0.6 - 26) / 26)));
+            let room = g.clientWidth * 0.6 - 50, maxCols = 0;
+            while (maxCols < 10 && room - colW(maxCols) >= 0) { room -= colW(maxCols); maxCols++; }
+            room = g.clientHeight * 0.6 - 26;
+            let maxRows = 0;
+            while (maxRows < 50 && room - rowH(maxRows) >= 0) { room -= rowH(maxRows); maxRows++; }
             return { maxRows, maxCols };
         }
         function openFreezeModal() {
@@ -7374,7 +7500,7 @@
 
         function applyCellStyle(cellId) {
             const st = (data[cellId] && data[cellId].style) || {};
-            const input = document.getElementById(`input-${cellId}`);
+            const input = syncCellEditor(cellId, !!st.wrap);
             const td = document.getElementById(`cell-${cellId}`);
             if (input) {
                 input.style.fontWeight = st.fontWeight || '';
@@ -7384,7 +7510,15 @@
                 input.style.color = st.color || '';
                 input.style.textAlign = data[cellId] ? effectiveAlign(data[cellId]) : (st.textAlign || '');
             }
-            if (td) td.style.backgroundColor = st.bgColor || '';
+            if (td) {
+                td.style.backgroundColor = st.bgColor || '';
+                const bd = st.borders || '';
+                const line = '2px solid #0f172a'; // wide enough to win over the grid lines where two cells meet
+                td.style.borderTop = bd.includes('t') ? line : '';
+                td.style.borderBottom = bd.includes('b') ? line : '';
+                td.style.borderLeft = bd.includes('l') ? line : '';
+                td.style.borderRight = bd.includes('r') ? line : '';
+            }
         }
 
         function applyAllStyles() {
@@ -7424,6 +7558,136 @@
             const FORMAT_NAMES = { bold: 'Bold', italic: 'Italic', underline: 'Underline', fontFamily: 'Font', color: 'Text color', bgColor: 'Fill color', align: 'Alignment', numFormat: 'Number format' };
             const rangeText = (minR === maxR && minC === maxC) ? getCellId(minR, minC) : `${getCellId(minR, minC)}:${getCellId(maxR, maxC)}`;
             recordHistory(`${FORMAT_NAMES[type] || 'Formatting'} on ${rangeText}`);
+        }
+
+        // ===== Wrap, borders, column width and row height =====
+        const selRangeText = b => ((b.minR === b.maxR && b.minC === b.maxC) ? getCellId(b.minR, b.minC) : `${getCellId(b.minR, b.minC)}:${getCellId(b.maxR, b.maxC)}`);
+        function ensureCellForStyle(id) {
+            if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
+            if (!data[id].style) data[id].style = {};
+            return data[id].style;
+        }
+        function toggleWrap() {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            const cur = data[getCellId(activeCell.row, activeCell.col)];
+            const turnOn = !(cur && cur.style && cur.style.wrap);
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) {
+                const id = getCellId(r, c);
+                if (turnOn) ensureCellForStyle(id).wrap = true;
+                else if (data[id] && data[id].style) delete data[id].style.wrap;
+                applyCellStyle(id);
+            }
+            let tall = false;
+            for (let r = b.minR; r <= b.maxR; r++) if (rowH(r) > DEFAULT_ROW_H) tall = true;
+            showToast(turnOn ? (tall ? 'Wrap is on' : 'Wrap is on. Make the row taller with Size... to see more lines') : 'Wrap is off');
+            highlightSelection();
+            recordHistory(`Wrap ${turnOn ? 'on' : 'off'} for ${selRangeText(b)}`);
+        }
+        const BORDER_NAMES = { all: 'All borders', outline: 'Outline', top: 'Top border', bottom: 'Bottom border', left: 'Left border', right: 'Right border', none: 'No borders' };
+        function applyBorders(kind) {
+            if (!BORDER_NAMES[kind]) return;
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) {
+                const id = getCellId(r, c);
+                if (kind === 'none') {
+                    if (data[id] && data[id].style) delete data[id].style.borders;
+                } else {
+                    let sides = '';
+                    if (kind === 'all') sides = 'tbrl';
+                    if ((kind === 'top' || kind === 'outline') && r === b.minR) sides += 't';
+                    if ((kind === 'bottom' || kind === 'outline') && r === b.maxR) sides += 'b';
+                    if ((kind === 'left' || kind === 'outline') && c === b.minC) sides += 'l';
+                    if ((kind === 'right' || kind === 'outline') && c === b.maxC) sides += 'r';
+                    if (!sides) continue;
+                    const st = ensureCellForStyle(id);
+                    st.borders = [...'tbrl'].filter(ch => sides.includes(ch) || (st.borders || '').includes(ch)).join('');
+                }
+                applyCellStyle(id);
+            }
+            showToast(`${BORDER_NAMES[kind]} on ${selRangeText(b)}`);
+            recordHistory(`${BORDER_NAMES[kind]} on ${selRangeText(b)}`);
+        }
+
+        let sizeStart = null; // the values the Size dialog opened with, so only what was changed is applied
+        function sizeSpan(a, b, name) { return a === b ? `${name} ${name === 'row' ? a + 1 : columnToLetter(a)}` : `${name}s ${name === 'row' ? `${a + 1}-${b + 1}` : `${columnToLetter(a)}-${columnToLetter(b)}`}`; }
+        function openSizeModal() {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            sizeStart = { w: colW(b.minC), h: rowH(b.minR) };
+            document.getElementById('size-width').value = sizeStart.w;
+            document.getElementById('size-height').value = sizeStart.h;
+            document.getElementById('size-target').textContent = `Applies to ${sizeSpan(b.minC, b.maxC, 'column')} and ${sizeSpan(b.minR, b.maxR, 'row')} (the cells you selected).`;
+            document.getElementById('size-modal').classList.remove('hidden');
+        }
+        function closeSizeModal() { document.getElementById('size-modal').classList.add('hidden'); }
+        function sizePreset(id, px) { document.getElementById(id).value = px; }
+        // Rebuilds what depends on sizes (freeze positions) after a change, then records it
+        function sizesChanged(name) {
+            applySizes();
+            layoutFreeze();
+            highlightSelection();
+            recordHistory(name);
+        }
+        function applySize() {
+            const b = selBounds();
+            const sh = sheets[currentSheetIdx];
+            const wIn = document.getElementById('size-width').value.trim(), hIn = document.getElementById('size-height').value.trim();
+            const w = Math.round(Number(wIn)), h = Math.round(Number(hIn));
+            const wantW = wIn !== '' && w !== sizeStart.w, wantH = hIn !== '' && h !== sizeStart.h;
+            if (wantW && !(w >= MIN_COL_W && w <= MAX_COL_W)) { showToast(`Column width: type a number from ${MIN_COL_W} to ${MAX_COL_W}`); return; }
+            if (wantH && !(h >= MIN_ROW_H && h <= MAX_ROW_H)) { showToast(`Row height: type a number from ${MIN_ROW_H} to ${MAX_ROW_H}`); return; }
+            if (!wantW && !wantH) { closeSizeModal(); showToast('Nothing changed'); return; }
+            const parts = [];
+            if (wantW) {
+                for (let c = b.minC; c <= b.maxC; c++) { if (w === DEFAULT_COL_W) delete sh.colWidths[c]; else sh.colWidths[c] = w; }
+                parts.push(`${sizeSpan(b.minC, b.maxC, 'column')} width ${w}`);
+            }
+            if (wantH) {
+                for (let r = b.minR; r <= b.maxR; r++) { if (h === DEFAULT_ROW_H) delete sh.rowHeights[r]; else sh.rowHeights[r] = h; }
+                parts.push(`${sizeSpan(b.minR, b.maxR, 'row')} height ${h}`);
+            }
+            closeSizeModal();
+            const name = 'Set ' + parts.join(' and ');
+            showToast(name);
+            sizesChanged(name);
+        }
+        function resetSizes() {
+            const b = selBounds();
+            const sh = sheets[currentSheetIdx];
+            for (let c = b.minC; c <= b.maxC; c++) delete sh.colWidths[c];
+            for (let r = b.minR; r <= b.maxR; r++) delete sh.rowHeights[r];
+            closeSizeModal();
+            const name = `Normal size for ${sizeSpan(b.minC, b.maxC, 'column')} and ${sizeSpan(b.minR, b.maxR, 'row')}`;
+            showToast(name);
+            sizesChanged(name);
+        }
+        // The width that fits the longest text in a column (wrapped cells are left out; an empty column stays normal)
+        let fitCanvas = null;
+        function autoFitWidth(c) {
+            if (!fitCanvas) fitCanvas = document.createElement('canvas');
+            const ctx = fitCanvas.getContext('2d');
+            let best = 0;
+            for (let r = 0; r < ROWS; r++) {
+                const cell = data[getCellId(r, c)];
+                if (!cell || (cell.style && cell.style.wrap)) continue;
+                const t = cellDisplayText(cell);
+                if (t === '' || t === undefined || t === null) continue;
+                const st = cell.style || {};
+                ctx.font = `${st.fontStyle === 'italic' ? 'italic ' : ''}${st.fontWeight === 'bold' ? 'bold ' : ''}13.6px ${st.fontFamily || 'system-ui, sans-serif'}`;
+                best = Math.max(best, ctx.measureText(String(t)).width);
+            }
+            return best ? Math.min(MAX_COL_W, Math.max(MIN_COL_W, Math.ceil(best + 16))) : DEFAULT_COL_W;
+        }
+        function autoFitSelected() {
+            const b = selBounds();
+            const sh = sheets[currentSheetIdx];
+            for (let c = b.minC; c <= b.maxC; c++) { const w = autoFitWidth(c); if (w === DEFAULT_COL_W) delete sh.colWidths[c]; else sh.colWidths[c] = w; }
+            closeSizeModal();
+            const name = `Auto-fit width of ${sizeSpan(b.minC, b.maxC, 'column')}`;
+            showToast(name);
+            sizesChanged(name);
         }
 
         // Merge / Unmerge (merges are stored per sheet so they survive grid rebuilds)
@@ -7618,7 +7882,7 @@
         // whole workbook, so recording is quick and 25 steps cost little memory. Going back or forward applies those changes.
         // `historyStack` holds the steps; `histPos` is how many of them are applied (the rest are "ahead" and can be redone).
         const HIST_MAX = 25;
-        const HIST_META = ['name', 'conditionalRules', 'validationRules', 'tableObjects', 'merges', 'freezeRows', 'freezeCols'];
+        const HIST_META = ['name', 'conditionalRules', 'validationRules', 'tableObjects', 'merges', 'freezeRows', 'freezeCols', 'colWidths', 'rowHeights'];
         let histPos = 0;
         let histStartName = 'Opened workbook';
         let histShadow = new WeakMap(); // sheet -> what it looked like at the last step: { cells: Map, meta: {} }
