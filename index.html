@@ -888,6 +888,17 @@
         .find-opts label { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 0.85rem; }
         .find-status { font-size: 0.8rem; color: #64748b; min-height: 1.1em; }
         .dedup-col { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+        .dice-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .dice-chips button { flex: 1 1 auto; }
+        .dice-result { min-height: 2.4em; font-size: 0.85rem; color: #334155; word-break: break-word; }
+        .dice-result strong { font-size: 1.6rem; color: #0f172a; margin-right: 8px; }
+        .dice-history { max-height: 64px; overflow-y: auto; font-size: 0.78rem; color: #64748b; }
+        .dice-history div { padding: 1px 0; }
+        body.dice-open .cell-dock { display: none; }
+        body.dice-open .grid-container { padding-bottom: var(--find-h, 220px); }
+        .name-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+        .name-row .nr-text { flex: 1; min-width: 0; word-break: break-word; font-size: 0.85rem; }
+        .name-row .nr-text small { display: block; color: #64748b; }
         .form-group:has(> input[type="checkbox"]) { min-height: 40px; }
         .form-group:has(> input[type="checkbox"]) > label { flex: 1; min-height: 40px; display: flex; align-items: center; }
     </style>
@@ -1144,7 +1155,7 @@
                     </select>
                 </div>
                 <div class="form-group" id="val-rangesrc-wrap">
-                    <label for="val-rangesrc">Range that holds the options (e.g. Lists!A2:A20)</label>
+                    <label for="val-rangesrc">Range that holds the options (e.g. Lists!A2:A20, or the name of a named range)</label>
                     <input type="text" id="val-rangesrc" placeholder="Lists!A2:A20" autocapitalize="off" autocomplete="off">
                     <div class="wiz-tip">Linked: the drop-down always shows what is in that range right now. Use the sheet name, a !, and the cells.</div>
                 </div>
@@ -1342,6 +1353,58 @@
         <div class="find-status" id="find-status"></div>
     </div>
 
+    <!-- Named ranges -->
+    <div class="modal-overlay hidden" id="names-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Named ranges</span>
+                <button onclick="closeNamesModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="names-list"></div>
+                <div class="form-group">
+                    <label id="names-form-title">New name</label>
+                    <input type="text" id="names-name" placeholder="Name, like Damage" maxlength="30" autocomplete="off" autocapitalize="off">
+                </div>
+                <div class="form-group">
+                    <label for="names-ref">Refers to (a cell or cells, like Lists!B2:B20)</label>
+                    <input type="text" id="names-ref" placeholder="Lists!B2:B20" autocomplete="off" autocapitalize="off">
+                    <div class="size-presets"><button type="button" onclick="namesUseSelection()">Use the selected cells</button></div>
+                </div>
+                <div class="wiz-tip">Use a name in any formula: =SUM(Damage), =Armor+2. A name always points at the same cells, wherever the formula is copied.</div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeNamesModal()">Close</button>
+                <button class="primary" id="names-save" onclick="saveName()">Add name</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dice roller (a panel at the bottom of the screen) -->
+    <div class="find-panel dice-panel hidden" id="dice-panel">
+        <div class="find-row find-head">
+            <span>Dice roller</span>
+            <button onclick="closeDicePanel()" aria-label="Close">&times;</button>
+        </div>
+        <div class="find-row">
+            <input type="text" id="dice-expr" value="1d20" placeholder="3d6+1d10+2d12kl1+3" autocomplete="off" autocapitalize="off" onkeydown="if (event.key === 'Enter') diceRoll()">
+            <button class="primary" onclick="diceRoll()">Roll</button>
+        </div>
+        <div class="dice-chips">
+            <button onclick="diceAdd(4)">d4</button><button onclick="diceAdd(6)">d6</button><button onclick="diceAdd(8)">d8</button><button onclick="diceAdd(10)">d10</button><button onclick="diceAdd(12)">d12</button><button onclick="diceAdd(20)">d20</button><button onclick="diceAdd(100)">d100</button>
+        </div>
+        <div class="dice-chips">
+            <button onclick="diceMod(-1)" aria-label="Minus one">&minus;1</button><button onclick="diceMod(1)" aria-label="Plus one">+1</button>
+            <button onclick="diceAdv('kh')">Advantage</button><button onclick="diceAdv('kl')">Disadvantage</button>
+            <button onclick="document.getElementById('dice-expr').value = ''">Clear</button>
+        </div>
+        <div class="dice-result" id="dice-result"></div>
+        <div class="dice-chips">
+            <button onclick="dicePut(false)">Put value in cell</button><button onclick="dicePut(true)">Put ROLL formula in cell</button><button onclick="diceAbilities()">6 ability scores</button>
+        </div>
+        <div class="dice-history" id="dice-history"></div>
+    </div>
+
     <!-- Sort a range -->
     <div class="modal-overlay hidden" id="sort-modal">
         <div class="modal">
@@ -1512,6 +1575,7 @@
         const ROWS = 200;
         const COLS = 52;
 
+        let workbookNames = []; // named ranges: [{ name, ref }], ref like 'Lists'!$B$2:$B$20 (shared by every sheet)
         let sheets = [
             { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {} }
         ];
@@ -1867,7 +1931,7 @@
 
         function encodeWorkbook() {
             syncRuleSnapshots();
-            return { app: 'QSheet', version: SAVE_VERSION, savedAt: Date.now(), current: currentSheetIdx, sheets: sheets.map(encodeSheet) };
+            return { app: 'QSheet', version: SAVE_VERSION, savedAt: Date.now(), current: currentSheetIdx, sheets: sheets.map(encodeSheet), names: workbookNames };
         }
 
         // Anything read back from storage or from an imported file is checked and cleaned before use
@@ -2003,18 +2067,33 @@
             };
         }
 
+        // Named ranges read from storage: a valid name and a reference like Sheet!$A$1:$B$9
+        function cleanNames(list) {
+            const out = [], seen = new Set();
+            (Array.isArray(list) ? list : []).slice(0, 200).forEach(n => {
+                if (!n || typeof n.name !== 'string' || typeof n.ref !== 'string') return;
+                const name = n.name.slice(0, 30), ref = n.ref.slice(0, 120);
+                if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || seen.has(name.toLowerCase())) return;
+                if (!NAME_REF_RE.test(ref)) return;
+                seen.add(name.toLowerCase());
+                out.push({ name, ref });
+            });
+            return out;
+        }
+
         function decodeWorkbook(rec) {
             if (!rec || rec.app !== 'QSheet' || !Array.isArray(rec.sheets) || !rec.sheets.length) throw new Error('This is not a QSheet workbook.');
             if (typeof rec.version !== 'number' || rec.version > SAVE_VERSION) throw new Error('This workbook was saved by a newer version of the app.');
             const decoded = rec.sheets.slice(0, 50).map(decodeSheet);
             assignTableNames(decoded);
-            return { sheets: decoded, current: cleanInt(rec.current, 0, decoded.length - 1, 0), savedAt: rec.savedAt };
+            return { sheets: decoded, current: cleanInt(rec.current, 0, decoded.length - 1, 0), savedAt: rec.savedAt, names: cleanNames(rec.names) };
         }
 
         // Replaces the open workbook with a decoded one and redraws everything
         function applyWorkbook(wb) {
             if (editingCell) endEdit(false);
             sheets = wb.sheets;
+            workbookNames = wb.names || [];
             bindSheet(wb.current);
             activeCell = { row: 0, col: 0 };
             selectionRange = { startRow: 0, startCol: 0, endRow: 0, endCol: 0 };
@@ -2159,7 +2238,7 @@
         // ----- New / export / import workbook -----
         function newWorkbook() {
             if (!confirm('Start a new, empty workbook?\n\nThe current workbook will be replaced. Use Export Workbook first if you want a backup.')) return;
-            applyWorkbook({ sheets: [makeBlankSheet('Sheet 1')], current: 0 });
+            applyWorkbook({ sheets: [makeBlankSheet('Sheet 1')], current: 0, names: [] });
             markDirty();
             if (saveState.enabled) saveWorkbookNow();
             showToast('New workbook started');
@@ -2933,6 +3012,7 @@
                         <button onclick="openTextToColumns()">Text to Columns</button>
                         <button onclick="runFlashFill()">Flash Fill</button>
                         <button onclick="rerollRandoms()">&#127922; Re&#8209;roll</button>
+                        <button onclick="openDicePanel()">&#127922; Dice</button>
                     </div>
                     <div class="ribbon-group">
                         <button onclick="openFindPanel()">Find &amp; Replace</button>
@@ -2956,6 +3036,7 @@
                         <button onclick="openFreezeModal()">Freeze Panes...</button>
                         <button id="unfreeze-btn" onclick="unfreezePanes()" ${freezeRows || freezeCols ? '' : 'disabled'}>Unfreeze</button>
                         <button onclick="openCondFormatting()">Cond. Formatting</button>
+                        <button onclick="openNamesModal()">Names</button>
                         <button onclick="openSheetModal()">Rename / Delete Sheet</button>
                         <button class="primary" onclick="openWizard()">fx Wizard</button>
                     </div>
@@ -3627,7 +3708,7 @@
 
         // Called when a value is committed (Enter, Tab, leaving the cell, formula bar, dock, wizard): validates, then stores
         function onCellInput(cellId, value) {
-            value = fixSheetRefs(capitalizeFormula(String(value)));
+            value = fixNames(fixSheetRefs(capitalizeFormula(String(value))));
             const text = String(value);
             const rules = valRulesFor(cellId);
             const typedValue = text.trim() !== '' && !text.startsWith('=');
@@ -3833,6 +3914,8 @@
         }
         // "Lists!A2:A20" (or just "A2:A20" for this sheet) -> { text: the tidy form } or { error }
         function parseListRange(input) {
+            const asName = findName(String(input || '').trim());
+            if (asName) return { text: asName.name };
             const t = String(input || '').trim().replace(/\$/g, '');
             const m = new RegExp(`^(${SHEET_PREFIX_SRC})?([A-Za-z]{1,3}\\d+(?::[A-Za-z]{1,3}\\d+)?)$`).exec(t);
             if (!m || !parseRangeText(m[2])) return { error: 'Type the range like Lists!A2:A20' };
@@ -4050,7 +4133,7 @@
             return tokens;
         }
 
-        const HELD_RANDOM = new Set(['RND', 'RNDBETWEEN']);
+        const HELD_RANDOM = new Set(['RND', 'RNDBETWEEN', 'ROLL']);
         function parseFormula(src) {
             if (astCache.has(src)) return astCache.get(src);
             const tokens = tokenizeFormula(src);
@@ -4158,7 +4241,7 @@
                     }
                     if (tok.v === 'TRUE') return { t: 'bool', v: true };
                     if (tok.v === 'FALSE') return { t: 'bool', v: false };
-                    throw new FormulaError('#NAME?');
+                    return { t: 'name', name: tok.v }; // a named range; looked up when the formula is calculated (an unknown one gives #NAME?)
                 }
                 if (tok.t === 'op' && tok.v === '(') {
                     const inner = parseComparison();
@@ -4451,8 +4534,19 @@
             return a.node.t === 'range' ? v : new RangeVal(1, 1, [v]);
         }
 
+        // ----- Named ranges: Damage -> 'Lists'!$B$2:$B$20 -----
+        const NAME_REF_RE = /^(?:'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.]*)!\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?$/;
+        const findName = name => workbookNames.find(n => n.name.toLowerCase() === String(name).toLowerCase());
+        // The reference node a name stands for (cells on a sheet), or #NAME? / #REF! when there is none
+        function resolveName(n) {
+            const def = findName(n.name);
+            if (!def) throw new FormulaError('#NAME?');
+            if (/^#REF!/.test(def.ref)) throw new FormulaError('#REF!');
+            return parseFormula(def.ref);
+        }
         // Bounds of a reference node (A1 or A1:B5), for functions that need the cells themselves (OFFSET, CELL, ISBLANK)
         function nodeBounds(node) {
+            if (node.t === 'name') { try { const t = resolveName(node); return t.t === 'xref' && sheetIndexByName(t.sheet) === engineSheetIdx() ? nodeBounds(t.node) : null; } catch (e) { return null; } }
             if (node.t === 'ref') { const c = shiftCoord(parseCellCoord(node.v), node.ca, node.ra); return { minR: c.r, minC: c.c, maxR: c.r, maxC: c.c }; }
             if (node.t === 'sref' && !node.row) {
                 const t = findTableByName(node.table), c = t ? tableColumnIndex(t, node.col) : -1;
@@ -4702,6 +4796,87 @@
             return u;
         }
         const hasRolls = cell => Array.isArray(cell.rolls) && cell.rolls.some(v => typeof v === 'number');
+        // Dice notation: 3d6+1d10+2d12kl1+3, with ( ) + - * / ; kh / kl keep the highest / lowest, dh / dl drop them (a number after it, default 1).
+        // One held roll u makes every die (a small seeded generator), so the whole expression keeps its result until it is re-rolled.
+        // Returns { total, text } where text shows every die, e.g. 3d6[4,2,5] + 2d12kl1[(9),3] + 3 = 19. Dropped dice are in ( ).
+        const DICE_MAX_PER_TERM = 100, DICE_MAX_TOTAL = 500, DICE_MAX_SIDES = 1000;
+        function rollDice(expr, u) {
+            if (/\d\s+\d/.test(String(expr))) throw new FormulaError('#VALUE!'); // "3d6 4" is not "3d64"
+            const src = String(expr).toLowerCase().replace(/\s+/g, '');
+            if (!src) throw new FormulaError('#VALUE!');
+            let seed = Math.floor(u * 4294967296) >>> 0;
+            const rnd = () => { seed = (seed + 0x6D2B79F5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+            let i = 0, diceCount = 0;
+            const rest = () => src.slice(i);
+            function primary() {
+                if (src[i] === '(') {
+                    i++;
+                    const e = sum();
+                    if (src[i] !== ')') throw new FormulaError('#VALUE!');
+                    i++;
+                    return { v: e.v, t: `(${e.t})` };
+                }
+                let m = /^(\d*)d(%|\d+)/.exec(rest());
+                if (m) {
+                    i += m[0].length;
+                    const n = m[1] === '' ? 1 : Number(m[1]), sides = m[2] === '%' ? 100 : Number(m[2]);
+                    if (n < 1 || n > DICE_MAX_PER_TERM || sides < 2 || sides > DICE_MAX_SIDES) throw new FormulaError('#NUM!');
+                    diceCount += n;
+                    if (diceCount > DICE_MAX_TOTAL) throw new FormulaError('#NUM!');
+                    let keepMode = '', k = 0;
+                    const km = /^(kh|kl|dh|dl)(\d*)/.exec(rest());
+                    if (km) {
+                        i += km[0].length;
+                        keepMode = km[1];
+                        k = km[2] === '' ? 1 : Number(km[2]);
+                        if (k < 1 || k > n) throw new FormulaError('#NUM!');
+                    }
+                    const dice = [];
+                    for (let d = 0; d < n; d++) dice.push(1 + Math.floor(rnd() * sides));
+                    const keep = dice.map(() => true);
+                    if (keepMode) {
+                        const order = dice.map((v, idx) => idx).sort((a, b) => dice[a] - dice[b] || a - b); // lowest first
+                        const high = keepMode[1] === 'h';
+                        const chosen = keepMode[0] === 'k' ? k : n - k; // how many are kept
+                        const kept = high ? order.slice(n - chosen) : order.slice(0, chosen);
+                        keep.fill(false);
+                        kept.forEach(idx => { keep[idx] = true; });
+                    }
+                    const total = dice.reduce((a, v, idx) => a + (keep[idx] ? v : 0), 0);
+                    return { v: total, t: `${n}d${m[2]}${keepMode ? keepMode + k : ''}[${dice.map((v, idx) => (keep[idx] ? v : `(${v})`)).join(',')}]` };
+                }
+                m = /^\d+(\.\d+)?/.exec(rest());
+                if (m) { i += m[0].length; return { v: Number(m[0]), t: m[0] }; }
+                throw new FormulaError('#VALUE!');
+            }
+            function unary() {
+                if (src[i] === '-') { i++; const e = unary(); return { v: -e.v, t: `-${e.t}` }; }
+                if (src[i] === '+') { i++; return unary(); }
+                return primary();
+            }
+            function product() {
+                let left = unary();
+                while (src[i] === '*' || src[i] === '/') {
+                    const op = src[i++], right = unary();
+                    if (op === '/' && right.v === 0) throw new FormulaError('#DIV/0!');
+                    left = { v: op === '*' ? left.v * right.v : left.v / right.v, t: `${left.t} ${op === '*' ? '\u00d7' : '\u00f7'} ${right.t}` };
+                }
+                return left;
+            }
+            function sum() {
+                let left = product();
+                while (src[i] === '+' || src[i] === '-') {
+                    const op = src[i++], right = product();
+                    left = { v: op === '+' ? left.v + right.v : left.v - right.v, t: `${left.t} ${op} ${right.t}` };
+                }
+                return left;
+            }
+            const res = sum();
+            if (i < src.length) throw new FormulaError('#VALUE!');
+            const total = Number(res.v.toPrecision(15));
+            return { total, text: `${res.t} = ${total}` };
+        }
+
         // A roll u (0 up to 1) becomes one of the values low, low + step ... high, each equally likely
         function betweenFromRoll(u, low, high, decimals) {
             const p = Math.pow(10, decimals);
@@ -4929,6 +5104,7 @@
             RAND: { fn: () => Math.random() },
             RANDBETWEEN: { fn: args => betweenFromRoll(Math.random(), toNumber(args[0]), toNumber(args[1]), 0) },
             RND: { fn: (args, r, c, node) => heldRoll(node && node.slot) },
+            ROLL: { fn: (args, r, c, node) => rollDice(toText(unwrap(args[0])), heldRoll(node && node.slot)).total },
             RNDBETWEEN: {
                 fn: (args, r, c, node) => {
                     const d = args.length > 2 && !isBlank(unwrap(args[2])) ? Math.trunc(toNumber(args[2])) : 0;
@@ -5582,7 +5758,7 @@
             INT: [1, 1], SQRT: [1, 1], POWER: [2, 2], CEILING: [1, 2], FLOOR: [1, 2], LARGE: [2, 2], SMALL: [2, 2], RANK: [2, 3],
             MAXIFS: [3, Infinity], MINIFS: [3, Infinity], ISEVEN: [1, 1], ISODD: [1, 1],
             TEXT: [2, 2], VALUE: [1, 1], FIND: [2, 3], SEARCH: [2, 3], REPT: [2, 2],
-            RAND: [0, 0], RANDBETWEEN: [2, 2], RND: [0, 0], RNDBETWEEN: [2, 3],
+            RAND: [0, 0], RANDBETWEEN: [2, 2], RND: [0, 0], RNDBETWEEN: [2, 3], ROLL: [1, 1],
             SUMV: [1, Infinity], AVERAGEV: [1, Infinity], COUNTV: [1, Infinity], COUNTAV: [1, Infinity], MAXV: [1, Infinity], MINV: [1, Infinity], PRODUCTV: [1, Infinity],
             ABS: [1, 1], MOD: [2, 2], ROUND: [1, 2], ROUNDUP: [1, 2], ROUNDDOWN: [1, 2], NOT: [1, 1],
             LEFT: [1, 2], RIGHT: [1, 2], LEN: [1, 1], TRIM: [1, 1], CLEAN: [1, 1], UPPER: [1, 1], LOWER: [1, 1], PROPER: [1, 1], SENTENCE: [1, 1],
@@ -5641,6 +5817,8 @@
                     const v = xrefValue(n);
                     return n.node.t === 'range' ? shrink(v) : v;
                 }
+                case 'name':
+                    return evalNode(resolveName(n), curR, curC);
                 case 'sref':
                     return shrink(structuredValue(n, curR));
                 case 'err':
@@ -5662,11 +5840,17 @@
                     const lim = ARG_LIMITS[n.name];
                     if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!');
                     // A single cell passed to a function counts as a cell (like a range of one): text in it is skipped by SUM, AVERAGE, ...
-                    const args = n.args.map(a => a.t === 'range' ? rangeValues(a) : (a.t === 'sref' ? structuredValue(a, curR) : (a.t === 'ref' ? refArg(a, curR, curC) : (a.t === 'xref' ? xrefArg(a) : evalNode(a, curR, curC)))));
+                    const args = n.args.map(a => evalArg(a, curR, curC));
                     return def.fn(args, curR, curC, n);
                 }
             }
             throw new FormulaError('#ERROR!');
+        }
+
+        // One argument of a normal function: a block of cells stays a block, a single cell counts as a block of one
+        function evalArg(a, curR, curC) {
+            if (a.t === 'name') a = resolveName(a);
+            return a.t === 'range' ? rangeValues(a) : (a.t === 'sref' ? structuredValue(a, curR) : (a.t === 'ref' ? refArg(a, curR, curC) : (a.t === 'xref' ? xrefArg(a) : evalNode(a, curR, curC))));
         }
 
         function normalizeScalar(result) {
@@ -5882,6 +6066,7 @@
                 (sh.conditionalRules || []).forEach(r => { if (typeof r.formula === 'string') r.formula = mapSheetRefs(r.formula, fix); });
                 (sh.validationRules || []).forEach(r => { if (typeof r.listRange === 'string') r.listRange = mapSheetRefs(r.listRange, fix); });
             });
+            workbookNames.forEach(n => { n.ref = mapSheetRefs(n.ref, fix); });
         }
         function countSheetUsers(name) {
             const k = name.toLowerCase();
@@ -6020,7 +6205,7 @@
                 delete cell.rolls;
                 n++;
             }
-            if (!n) { showToast(single ? 'No RND or RNDBETWEEN cells on this sheet' : 'No RND or RNDBETWEEN cells in the selection'); return; }
+            if (!n) { showToast(single ? 'No RND, RNDBETWEEN or ROLL cells on this sheet' : 'No RND, RNDBETWEEN or ROLL cells in the selection'); return; }
             recalculateAll();
             updateStats();
             applyConditionalFormattingRules();
@@ -6043,6 +6228,7 @@
             if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return 'Use letters, numbers and underscores only, and start with a letter';
             if (/^[A-Za-z]{1,3}\d+$/.test(name)) return `${name} looks like a cell address. Try another name`;
             if (/^(true|false)$/i.test(name)) return 'Try another name';
+            if (findName(name)) return 'A named range already uses that name';
             if (allTables().some(t => t !== except && t.name && t.name.toLowerCase() === name.toLowerCase())) return 'Another table already uses that name';
             return '';
         }
@@ -6403,6 +6589,14 @@
                 .replace(/(^|[^A-Za-z0-9_.])(true|false)(?![A-Za-z0-9_.(])/gi, (m, pre, w) => pre + w.toUpperCase())
             )).join('');
         }
+        // damage -> Damage: a named range is written the way it was named
+        function fixNames(f) {
+            if (typeof f !== 'string' || !f.startsWith('=') || !workbookNames.length) return f;
+            return f.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(/(^|[^A-Za-z0-9_.$'])([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_.(!\[])/g, (m, pre, w) => {
+                const def = findName(w);
+                return def ? pre + def.name : m;
+            }))).join('');
+        }
         // lists!a2 or 'Lists'!A2 -> Lists!A2: a sheet name is written as the sheet is really spelled, with quotes only when it needs them
         function fixSheetRefs(f) {
             if (typeof f !== 'string' || !f.startsWith('=')) return f;
@@ -6572,7 +6766,7 @@
                 const id = getCellId(r, c);
                 if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
                 delete data[id].spillOf; delete data[id].rolls;
-                if (t.startsWith('=') && t.length > 1) { data[id].formula = fixSheetRefs(capitalizeFormula(t)); data[id].value = ''; }
+                if (t.startsWith('=') && t.length > 1) { data[id].formula = fixNames(fixSheetRefs(capitalizeFormula(t))); data[id].value = ''; }
                 else { data[id].formula = ''; data[id].value = parseTypedValue(t, data[id].style || (data[id].style = {})); if (data[id].style.checkbox && /^(true|false)$/i.test(t.trim())) data[id].value = t.trim().toLowerCase() === 'true'; }
                 ids.push(id);
                 maxC = Math.max(maxC, j);
@@ -6984,6 +7178,7 @@
             { name: 'RAND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1. A new number every time the sheet recalculates.', kw: 'random dice chance', args: [] },
             { name: 'RANDBETWEEN', cat: 'Math & Aggregation', desc: 'A random whole number between two numbers, both included. A new number every time the sheet recalculates.', kw: 'random dice roll', args: [wa('bottom', 'The lowest number it can give', '1', { t: 'num' }), wa('top', 'The highest number it can give', '6', { t: 'num' })] },
             { name: 'RND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1 that keeps its value until you tap Re-roll (Data tab). QSheet only.', kw: 'random dice held keep', args: [] },
+            { name: 'ROLL', cat: 'Math & Aggregation', desc: 'Rolls dice written the usual way, like 3d6+2 or 3d6+1d10+2d12kl1+3, and gives the total. Keep highest / lowest with kh / kl, drop with dh / dl (4d6dl1 drops the lowest). Also + - * / and ( ). It keeps its result until you tap Re-roll (Data tab). QSheet only.', kw: 'dice roll d20 d6 advantage keep drop random held ability', args: [wa('dice', 'The dice to roll, in quotes', '"3d6+2"', { t: 'val' })] },
             { name: 'RNDBETWEEN', cat: 'Math & Aggregation', desc: 'A random number between two numbers, both included, that keeps its value until you tap Re-roll (Data tab). Give decimals for numbers like 3.47. QSheet only.', kw: 'random dice roll held keep', args: [wa('low', 'The lowest number it can give', '1', { t: 'num' }), wa('high', 'The highest number it can give', '6', { t: 'num' }), wa('decimals', 'Decimal places. 0 or blank gives whole numbers', '0', { t: 'num', opt: true })] },
             { name: 'INT', cat: 'Math & Aggregation', desc: 'Rounds down to the nearest whole number. For negative numbers that means away from zero: INT(-2.5) is -3.', kw: 'whole number round down floor integer', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
             { name: 'SQRT', cat: 'Math & Aggregation', desc: 'The square root of a number.', kw: 'root square', args: [wa('number', 'The number (0 or more)', 'A2', { t: 'num' })] },
@@ -7959,6 +8154,7 @@
         const fEl = id => document.getElementById(id);
         function openFindPanel() {
             if (editingCell) endEdit(true);
+            closeDicePanel();
             fEl('find-panel').classList.remove('hidden');
             document.body.classList.add('find-open');
             sizeFindPanel();
@@ -8264,6 +8460,202 @@
             showToast(`Removed ${removed} duplicate row${removed === 1 ? '' : 's'}, ${keep.length} left`);
         }
 
+        // ===== Named ranges =====
+        let nameEditIndex = -1;
+        function nameProblem(name, exceptIdx) {
+            if (!name) return 'Type a name';
+            if (name.length > 30) return 'Names can be up to 30 characters';
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return 'Use letters, numbers and underscores only, and start with a letter';
+            if (/^[A-Za-z]{1,3}\d+$/.test(name)) return `${name} looks like a cell address. Try another name`;
+            if (/^(true|false)$/i.test(name) || FUNCTIONS[name.toUpperCase()]) return `${name} is already used by the app. Try another name`;
+            if (allTables().some(t => t.name && t.name.toLowerCase() === name.toLowerCase())) return 'A table already uses that name';
+            const k = workbookNames.findIndex(n => n.name.toLowerCase() === name.toLowerCase());
+            if (k >= 0 && k !== exceptIdx) return `${workbookNames[k].name} is already a name`;
+            return '';
+        }
+        // "Lists!B2:B20" (or "B2:B20" for this sheet) -> { ref: "Lists!$B$2:$B$20" } or { error }
+        function normalizeNameRef(input) {
+            const t = String(input || '').trim();
+            const m = new RegExp(`^(${SHEET_PREFIX_SRC})?(\\$?[A-Za-z]{1,3}\\$?\\d+(?::\\$?[A-Za-z]{1,3}\\$?\\d+)?)$`).exec(t);
+            const cells = m && m[2].replace(/\$/g, '').toUpperCase();
+            if (!m || !parseRangeText(cells)) return { error: 'Type the cells like Lists!B2:B20' };
+            const name = m[1] ? sheetOfPrefix(m[1]) : sheets[currentSheetIdx].name;
+            const k = sheetIndexByName(name);
+            if (k < 0) return { error: `There is no sheet called ${name}` };
+            return { ref: sheetPrefix(sheets[k].name) + cells.replace(/([A-Z]{1,3})(\d+)/g, (x, c, r) => '$' + c + '$' + r) };
+        }
+        // Calls fix(word) for each bare word in a formula that could be a name; returns the new formula text
+        function mapNameWords(text, fix) {
+            if (typeof text !== 'string') return text;
+            return text.split(FORMULA_SKIP_RE).map((part, i) => (i % 2 ? part : part.replace(/(^|[^A-Za-z0-9_.$'])([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_.(!\[])/g, (m, pre, w) => { const r = fix(w); return r === null ? m : pre + r; }))).join('');
+        }
+        function openNamesModal() {
+            if (editingCell) endEdit(true);
+            nameEditIndex = -1;
+            fEl('names-name').value = '';
+            fEl('names-ref').value = '';
+            renderNamesList();
+            fEl('names-modal').classList.remove('hidden');
+        }
+        function closeNamesModal() { fEl('names-modal').classList.add('hidden'); nameEditIndex = -1; }
+        function renderNamesList() {
+            fEl('names-list').innerHTML = workbookNames.length ? workbookNames.map((n, i) => `
+                <div class="name-row${i === nameEditIndex ? ' editing' : ''}">
+                    <span class="nr-text"><strong>${escapeHtml(n.name)}</strong><small>${escapeHtml(n.ref)}</small></span>
+                    <button onclick="editName(${i})" aria-label="Edit ${escapeHtml(n.name)}">Edit</button>
+                    <button onclick="deleteName(${i})" aria-label="Delete ${escapeHtml(n.name)}">&#10005;</button>
+                </div>`).join('') : '<div class="wiz-tip">No names yet. Make one below.</div>';
+            fEl('names-form-title').textContent = nameEditIndex >= 0 ? `Editing ${workbookNames[nameEditIndex].name}` : 'New name';
+            fEl('names-save').textContent = nameEditIndex >= 0 ? 'Save changes' : 'Add name';
+        }
+        function editName(i) {
+            const n = workbookNames[i];
+            if (!n) return;
+            nameEditIndex = i;
+            fEl('names-name').value = n.name;
+            fEl('names-ref').value = n.ref.replace(/\$/g, '');
+            renderNamesList();
+        }
+        function deleteName(i) {
+            const n = workbookNames[i];
+            if (!n || !confirm(`Delete the name ${n.name}? Formulas that use it will show #NAME?`)) return;
+            workbookNames.splice(i, 1);
+            if (nameEditIndex === i) nameEditIndex = -1; else if (nameEditIndex > i) nameEditIndex--;
+            renderNamesList();
+            namesChanged(`Deleted name ${n.name}`);
+        }
+        function namesUseSelection() {
+            const b = selBounds();
+            fEl('names-ref').value = `${sheetPrefix(sheets[currentSheetIdx].name)}${selRangeText(b)}`;
+        }
+        function saveName() {
+            const name = fEl('names-name').value.trim();
+            const problem = nameProblem(name, nameEditIndex);
+            if (problem) { showToast(problem); return; }
+            const r = normalizeNameRef(fEl('names-ref').value);
+            if (r.error) { showToast(r.error); return; }
+            let label;
+            if (nameEditIndex >= 0) {
+                const old = workbookNames[nameEditIndex].name;
+                workbookNames[nameEditIndex] = { name, ref: r.ref };
+                if (old !== name) renameNameInFormulas(old, name);
+                label = `Changed name ${name}`;
+            } else {
+                workbookNames.push({ name, ref: r.ref });
+                label = `Added name ${name}`;
+            }
+            nameEditIndex = -1;
+            fEl('names-name').value = '';
+            fEl('names-ref').value = '';
+            renderNamesList();
+            namesChanged(label);
+            showToast(label);
+        }
+        // Renaming a name keeps the formulas that use it working
+        function renameNameInFormulas(oldName, newName) {
+            const key = oldName.toLowerCase();
+            const fix = w => (w.toLowerCase() === key ? newName : null);
+            sheets.forEach(sh => {
+                for (const id in sh.data) { const c = sh.data[id]; if (c.formula) c.formula = mapNameWords(c.formula, fix); }
+                (sh.conditionalRules || []).forEach(r => { if (typeof r.formula === 'string') r.formula = mapNameWords(r.formula, fix); });
+                (sh.validationRules || []).forEach(r => { if (r.listRange && r.listRange.toLowerCase() === key) r.listRange = newName; });
+            });
+        }
+        function namesChanged(label) {
+            recalculateAll();
+            applyConditionalFormattingRules();
+            updateStats();
+            setActiveCell(activeCell.row, activeCell.col);
+            recordHistory(label, { all: true });
+        }
+
+        // ===== Dice roller =====
+        let diceHistory = [], diceLast = null;
+        function openDicePanel() {
+            if (editingCell) endEdit(true);
+            closeFindPanel();
+            fEl('dice-panel').classList.remove('hidden');
+            document.body.classList.add('dice-open');
+            sizeDicePanel();
+        }
+        function closeDicePanel() {
+            fEl('dice-panel').classList.add('hidden');
+            document.body.classList.remove('dice-open');
+        }
+        function sizeDicePanel() { document.documentElement.style.setProperty('--find-h', fEl('dice-panel').offsetHeight + 'px'); }
+        function diceAdd(sides) {
+            const box = fEl('dice-expr');
+            const t = box.value.trim();
+            const m = new RegExp(`^(.*?)(^|[-+*/(])(\\d*)d${sides}$`, 'i').exec(t);
+            if (m) box.value = `${m[1]}${m[2]}${(m[3] === '' ? 1 : Number(m[3])) + 1}d${sides}`;
+            else box.value = t ? `${t}+1d${sides}` : `1d${sides}`;
+        }
+        function diceMod(delta) {
+            const box = fEl('dice-expr');
+            const t = box.value.trim();
+            const m = /^(.*?)([+-])(\d+)$/.exec(t);
+            if (m && !/d$/i.test(m[1])) {
+                const n = (m[2] === '-' ? -Number(m[3]) : Number(m[3])) + delta;
+                box.value = n === 0 ? m[1] : `${m[1]}${n < 0 ? '-' : '+'}${Math.abs(n)}`;
+            } else box.value = `${t || ''}${delta < 0 ? '-1' : (t ? '+1' : '1')}`;
+        }
+        function diceAdv(mode) {
+            const box = fEl('dice-expr');
+            const m = /([+-]\d+)$/.exec(box.value.trim().replace(/\s+/g, ''));
+            box.value = `2d20${mode}1${m && !/d$/i.test(box.value.trim().slice(0, -m[1].length)) ? m[1] : ''}`;
+        }
+        function diceShow(res, expr) {
+            fEl('dice-result').innerHTML = `<strong>${escapeHtml(String(res.total))}</strong>${escapeHtml(res.text)}`;
+            diceHistory.unshift(`${res.total}  ←  ${expr}`);
+            diceHistory = diceHistory.slice(0, 10);
+            fEl('dice-history').innerHTML = diceHistory.map(h => `<div>${escapeHtml(h)}</div>`).join('');
+            sizeDicePanel();
+        }
+        function diceRoll() {
+            const expr = fEl('dice-expr').value.trim();
+            try {
+                const res = rollDice(expr, Math.random());
+                diceLast = { expr, total: res.total };
+                diceShow(res, expr);
+            } catch (e) {
+                diceLast = null;
+                fEl('dice-result').textContent = e instanceof FormulaError && e.code === '#NUM!' ? 'Too many dice, or a die size that is not allowed (up to 100 dice in a term, 500 in all, 2 to 1000 sides)' : 'That is not dice notation. Try 3d6+2, 4d6dl1 or 2d20kh1';
+                sizeDicePanel();
+            }
+        }
+        function dicePut(asFormula) {
+            if (editingCell) endEdit(true);
+            if (!diceLast) diceRoll();
+            if (!diceLast) return;
+            const id = getCellId(activeCell.row, activeCell.col);
+            onCellInput(id, asFormula ? `=ROLL("${diceLast.expr.replace(/"/g, '')}")` : String(diceLast.total));
+            setActiveCell(activeCell.row, activeCell.col);
+            showToast(asFormula ? `${id} now rolls ${diceLast.expr}` : `${id} = ${diceLast.total}`);
+        }
+        function diceAbilities() {
+            if (editingCell) endEdit(true);
+            const r0 = activeCell.row, c0 = activeCell.col;
+            const rolls = [], lines = [], ids = [];
+            for (let k = 0; k < 6; k++) {
+                const res = rollDice('4d6dl1', Math.random());
+                rolls.push(res.total);
+                lines.push(res.text);
+                if (r0 + k >= ROWS) continue;
+                const id = getCellId(r0 + k, c0);
+                if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
+                delete data[id].spillOf; delete data[id].rolls;
+                data[id].formula = '';
+                data[id].value = res.total;
+                ids.push(id);
+            }
+            fEl('dice-result').innerHTML = `<strong>${rolls.join(', ')}</strong>6 ability scores, each 4d6 with the lowest dropped`;
+            diceHistory.unshift(`${rolls.join(', ')}  ←  6 ability scores`);
+            diceHistory = diceHistory.slice(0, 10);
+            fEl('dice-history').innerHTML = diceHistory.map(h => `<div>${escapeHtml(h)}</div>`).join('');
+            cellsChanged(ids, `Rolled ability scores in ${getCellId(r0, c0)}:${getCellId(Math.min(ROWS - 1, r0 + 5), c0)}`, { startRow: r0, startCol: c0, endRow: Math.min(ROWS - 1, r0 + 5), endCol: c0 });
+            sizeDicePanel();
+        }
+
         // Merge / Unmerge (merges are stored per sheet so they survive grid rebuilds)
         function applyMergeDOM(m) {
             const startTd = document.getElementById(`cell-${getCellId(m.r, m.c)}`);
@@ -8461,6 +8853,7 @@
         let histStartName = 'Opened workbook';
         let histShadow = new WeakMap(); // sheet -> what it looked like at the last step: { cells: Map, meta: {} }
         let histKnown = [];             // the sheets as of the last step
+        let histNamesJson = '[]';       // the named ranges as of the last step
         let histDropNoted = false;
 
         // A cell as the history sees it (null for an empty one). Values of formulas are left out, they are recalculated.
@@ -8504,6 +8897,7 @@
             histShadow = new WeakMap();
             sheets.forEach(sh => histShadow.set(sh, histSnapshotSheet(sh)));
             histKnown = sheets.slice();
+            histNamesJson = JSON.stringify(workbookNames);
             histRender();
         }
         // What changed in a sheet since the last step
@@ -8540,7 +8934,9 @@
                 const d = histDiffSheet(sh);
                 if (d.cells.length || d.meta.length) changes.push({ sh, cells: d.cells, meta: d.meta });
             });
-            if (!struct.length && !changes.length) { markDirty(); histRender(); return; }
+            const namesNow = JSON.stringify(workbookNames);
+            const names = namesNow !== histNamesJson ? [histNamesJson, namesNow] : null;
+            if (!struct.length && !changes.length && !names) { markDirty(); histRender(); return; }
             if (histPos < historyStack.length) {
                 historyStack.length = histPos; // a new change replaces the steps that were ahead
                 if (!histDropNoted) { histDropNoted = true; setTimeout(() => showToast('The steps ahead of you were dropped: a new change replaces them'), 3300); }
@@ -8551,7 +8947,8 @@
                 ch.cells.forEach(([id, , now]) => { if (now) sh.cells.set(id, now); else sh.cells.delete(id); });
                 ch.meta.forEach(([k, , now]) => { sh.meta[k] = now; });
             });
-            historyStack.push({ name: actionName, time: Date.now(), sheet: sheets[currentSheetIdx], struct, changes });
+            historyStack.push({ name: actionName, time: Date.now(), sheet: sheets[currentSheetIdx], struct, changes, names });
+            histNamesJson = namesNow;
             if (historyStack.length > HIST_MAX) historyStack.shift();
             histPos = historyStack.length;
             histKnown = sheets.slice();
@@ -8562,6 +8959,7 @@
         // Undo or redo one step
         function histApplyStep(step, dir, info) {
             const sheetsChanged = () => { histKnown = sheets.slice(); info.struct = true; };
+            if (step.names) { workbookNames = JSON.parse(dir === 'undo' ? step.names[0] : step.names[1]); histNamesJson = JSON.stringify(workbookNames); info.meta = true; }
             if (dir === 'redo') {
                 step.struct.forEach(x => {
                     if (x.op === 'add') sheets.splice(Math.min(x.index, sheets.length), 0, x.sheet);
