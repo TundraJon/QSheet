@@ -1,6 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script>
+        // Sets the theme before anything is drawn (no flash of the wrong colors): the user's choice, or the phone's setting
+        (function () {
+            try {
+                var t = localStorage.getItem('qsheet-theme') || 'auto';
+                var dark = t === 'dark' || (t === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+            } catch (e) { /* no storage: the default light theme */ }
+        })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spreadsheet Studio - Mobile Pixel 7 Edition</title>
@@ -9,18 +19,91 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Indie+Flower&family=Inter:wght@400;500;600&family=Roboto+Mono:wght@400;500&family=Shadows+Into+Light&display=swap" rel="stylesheet">
     <style>
+        /* ===== Colors =====
+           Every color the app draws with is a named role defined here, once per theme. To change how the app looks, change these blocks;
+           a new theme is one more block. (Colors a user picks for cells and for conditional formatting are saved data, not theme colors.) */
         :root {
+            color-scheme: light;
             --bg-color: #f8fafc;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --surface-3: #f1f5f9;
+            --surface-4: #e2e8f0;
             --header-bg: #f1f5f9;
-            --border-color: #cbd5e1;
-            --selection-bg: rgba(37, 99, 235, 0.15);
-            --selection-border: #2563eb;
-            --accent-color: #2563eb;
-            --text-main: #1e293b;
             --toolbar-bg: #ffffff;
             --sidebar-bg: #ffffff;
+            --border-color: #cbd5e1;
+            --border-strong: #94a3b8;
+            --line-soft: #e2e8f0;
+            --line-faint: #f1f5f9;
+            --text-strong: #0f172a;
+            --text-main: #1e293b;
+            --text-body: #334155;
+            --text-2: #475569;
+            --text-3: #64748b;
+            --text-4: #94a3b8;
+            --accent-color: #2563eb;
+            --accent-hover: #1d4ed8;
+            --accent-soft: #e0e9ff;
+            --accent-text: #2563eb;
+            --on-accent: #ffffff;
+            --selection-bg: rgba(37, 99, 235, 0.15);
+            --selection-border: #2563eb;
+            --inverse-bg: #0f172a;
+            --inverse-text: #ffffff;
+            --inverse-muted: #94a3b8;
+            --inverse-btn: rgba(255, 255, 255, 0.15);
+            --inverse-btn-hover: rgba(255, 255, 255, 0.25);
+            --table-head-bg: #1e293b;
+            --table-head-hover: #334155;
+            --table-head-border: #0f172a;
+            --ok: #16a34a;
+            --warn: #d97706;
+            --danger: #dc2626;
+            --amber-ink: #92400e;
+            --flash-bg: #fde68a;
         }
-
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg-color: #14181f;
+            --surface: #1c222b;
+            --surface-2: #222934;
+            --surface-3: #2a323e;
+            --surface-4: #343d4b;
+            --header-bg: #2a323e;
+            --toolbar-bg: #1c222b;
+            --sidebar-bg: #1c222b;
+            --border-color: #3d4756;
+            --border-strong: #5a6679;
+            --line-soft: #2f3846;
+            --line-faint: #283140;
+            --text-strong: #f3f6fa;
+            --text-main: #e4e9f0;
+            --text-body: #cdd5e0;
+            --text-2: #b5c0cf;
+            --text-3: #96a3b6;
+            --text-4: #8190a6;
+            --accent-color: #3870e0;
+            --accent-hover: #2f64d0;
+            --accent-soft: #24344f;
+            --accent-text: #8db6ff;
+            --on-accent: #ffffff;
+            --selection-bg: rgba(102, 160, 255, 0.22);
+            --selection-border: #6aa5ff;
+            --inverse-bg: #e4e9f0;
+            --inverse-text: #14181f;
+            --inverse-muted: #566274;
+            --inverse-btn: rgba(20, 24, 31, 0.1);
+            --inverse-btn-hover: rgba(20, 24, 31, 0.2);
+            --table-head-bg: #3a4658;
+            --table-head-hover: #4a586d;
+            --table-head-border: #2a3340;
+            --ok: #22a559;
+            --warn: #f0a020;
+            --danger: #ef5350;
+            --amber-ink: #fbbf24;
+            --flash-bg: #5b4a12;
+        }
         * {
             box-sizing: border-box;
             margin: 0;
@@ -42,7 +125,7 @@
 
         /* Top Header / App Title */
         header {
-            background: #ffffff;
+            background: var(--surface);
             border-bottom: 1px solid var(--border-color);
             padding: 8px 16px;
             display: flex;
@@ -56,7 +139,7 @@
         .app-title {
             font-size: 1rem;
             font-weight: 600;
-            color: #0f172a;
+            color: var(--text-strong);
         }
 
         .header-actions {
@@ -66,7 +149,7 @@
         }
 
         button, select {
-            background: #ffffff;
+            background: var(--surface);
             border: 1px solid var(--border-color);
             padding: 5px 10px;
             border-radius: 6px;
@@ -81,24 +164,24 @@
         }
 
         button:hover, select:hover {
-            background: #f1f5f9;
-            border-color: #94a3b8;
+            background: var(--surface-3);
+            border-color: var(--border-strong);
         }
 
         button.primary {
             background: var(--accent-color);
-            color: white;
+            color: var(--on-accent);
             border-color: var(--accent-color);
             font-weight: 500;
         }
 
         button.primary:hover {
-            background: #1d4ed8;
+            background: var(--accent-hover);
         }
 
         /* Zero-Chrome Ribbon Overlay (Toggled on header or ribbon button tap) */
         .ribbon-overlay {
-            background: #ffffff;
+            background: var(--surface);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
@@ -117,7 +200,7 @@
 
         .ribbon-tabs {
             display: flex;
-            background: #f8fafc;
+            background: var(--surface-2);
             border-bottom: 1px solid var(--border-color);
             padding: 0 12px;
             gap: 4px;
@@ -127,7 +210,7 @@
             padding: 8px 16px;
             font-size: 0.8rem;
             font-weight: 500;
-            color: #64748b;
+            color: var(--text-3);
             cursor: pointer;
             border-bottom: 2px solid transparent;
             background: transparent;
@@ -135,9 +218,9 @@
         }
 
         .ribbon-tab.active {
-            color: var(--accent-color);
+            color: var(--accent-text);
             border-bottom-color: var(--accent-color);
-            background: #ffffff;
+            background: var(--surface);
             font-weight: 600;
         }
 
@@ -147,7 +230,7 @@
             align-items: center;
             gap: 12px;
             overflow-x: auto;
-            background: #ffffff;
+            background: var(--surface);
             min-height: 60px;
         }
 
@@ -179,7 +262,7 @@
 
         /* Formula Bar */
         .formula-bar {
-            background: #ffffff;
+            background: var(--surface);
             border-bottom: 1px solid var(--border-color);
             padding: 6px 16px;
             display: flex;
@@ -192,13 +275,13 @@
             font-weight: 600;
             font-size: 0.85rem;
             min-width: 45px;
-            color: #475569;
+            color: var(--text-2);
             text-align: center;
         }
 
         .formula-fx {
             font-weight: bold;
-            color: #64748b;
+            color: var(--text-3);
             font-style: italic;
         }
 
@@ -228,7 +311,7 @@
             flex: 1;
             overflow: auto;
             position: relative;
-            background: #ffffff;
+            background: var(--surface);
             -webkit-overflow-scrolling: touch;
         }
 
@@ -252,7 +335,7 @@
             background-color: var(--header-bg);
             text-align: center;
             font-weight: 600;
-            color: #475569;
+            color: var(--text-2);
             user-select: none;
             position: sticky;
             top: 0;
@@ -261,7 +344,7 @@
         }
 
         table.spreadsheet th:hover {
-            background-color: #e2e8f0;
+            background-color: var(--surface-4);
         }
 
         table.spreadsheet th.row-header {
@@ -284,12 +367,12 @@
 
         /* Official Table Header Styling */
         table.spreadsheet th.table-header {
-            background-color: #1e293b !important;
-            color: #ffffff !important;
-            border-color: #0f172a !important;
+            background-color: var(--table-head-bg) !important;
+            color: var(--on-accent) !important;
+            border-color: var(--table-head-border) !important;
         }
         table.spreadsheet th.table-header:hover {
-            background-color: #334155 !important;
+            background-color: var(--table-head-hover) !important;
         }
 
         /* Table column headers show a drop-down arrow; amber when that column is filtered */
@@ -299,57 +382,63 @@
         .cm-name-row { display: flex; gap: 8px; }
         .cm-name-row input { flex: 1; min-width: 0; min-height: 44px; }
         .cm-name-row button { min-height: 44px; }
-        .cm-hint { font-size: 0.75rem; color: #64748b; word-break: break-word; }
-        .ttc-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 0.85rem; color: #475569; }
+        .cm-hint { font-size: 0.75rem; color: var(--text-3); word-break: break-word; }
+        .ttc-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 0.85rem; color: var(--text-2); }
         .ttc-check input { width: 22px; height: 22px; flex: none; }
         #ttc-other.hidden, #pick-search.hidden { display: none; }
         .tt-controls { display: flex; gap: 8px; }
         .tt-controls button { flex: 1; min-height: 44px; font-size: 0.9rem; }
         .tt-scrub { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
         .tt-scrub input[type=range] { width: 100%; min-height: 44px; margin: 0; }
-        .tt-hint { font-size: 0.75rem; color: #64748b; text-align: center; }
+        .tt-hint { font-size: 0.75rem; color: var(--text-3); text-align: center; }
         .tt-list { display: flex; flex-direction: column; gap: 6px; }
-        .tt-item { padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 44px; }
+        .tt-item { padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 44px; }
         .tt-item .tt-name { overflow-wrap: anywhere; }
-        .tt-item .tt-meta { font-size: 0.72rem; color: #94a3b8; white-space: nowrap; flex: none; }
-        .tt-item.current { border-color: var(--accent-color); background: #e0e9ff; font-weight: 600; }
-        .tt-item.current .tt-meta { color: var(--accent-color); }
+        .tt-item .tt-meta { font-size: 0.72rem; color: var(--text-4); white-space: nowrap; flex: none; }
+        .tt-item.current { border-color: var(--accent-color); background: var(--accent-soft); font-weight: 600; }
+        .tt-item.current .tt-meta { color: var(--accent-text); }
         .tt-item.ahead { opacity: 0.6; font-style: italic; }
         td.tt-flash { animation: ttFlash 1.4s ease-out; }
-        @keyframes ttFlash { 0% { box-shadow: inset 0 0 0 3px #f59e0b; background-color: #fde68a; } 100% { box-shadow: inset 0 0 0 3px rgba(245, 158, 11, 0); } }
+        @keyframes ttFlash { 0% { box-shadow: inset 0 0 0 3px #f59e0b; background-color: var(--flash-bg); } 100% { box-shadow: inset 0 0 0 3px rgba(245, 158, 11, 0); } }
         .val-sub { font-weight: 400 !important; font-size: 0.8rem; }
         .val-limits { display: flex; gap: 8px; }
         .val-limits input { flex: 1; min-width: 0; min-height: 44px; }
         .val-rules { display: flex; flex-direction: column; gap: 6px; }
-        .val-rule { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: #f8fafc; }
-        .val-rule.editing { border-color: var(--accent-color); background: #e0e9ff; }
+        .val-rule { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--surface-2); }
+        .val-rule.editing { border-color: var(--accent-color); background: var(--accent-soft); }
         .val-rule .vr-text { flex: 1; min-width: 0; font-size: 0.8rem; overflow-wrap: anywhere; }
         .val-rule button { min-height: 44px; min-width: 44px; padding: 0 10px; }
-        .val-none { color: #64748b; font-size: 0.8rem; }
+        .val-none { color: var(--text-3); font-size: 0.8rem; }
         .modal-overlay.sheet { align-items: flex-end; }
         .modal-overlay.sheet .modal { width: 100%; max-width: 100%; border-radius: 14px 14px 0 0; }
         .modal-overlay.sheet .modal-body { max-height: 52vh; }
         body.kb-open .modal-overlay.sheet .modal { margin-bottom: var(--kb, 0px); }
         .pick-list { display: flex; flex-direction: column; gap: 4px; }
         .pick-row { justify-content: flex-start; min-height: 48px; width: 100%; font-size: 0.95rem; gap: 10px; text-align: left; }
-        .pick-row .pick-tick { width: 1.2em; color: var(--accent-color); font-weight: 700; flex: none; }
-        .pick-row.chosen { border-color: var(--accent-color); background: #e0e9ff; }
+        .pick-row .pick-tick { width: 1.2em; color: var(--accent-text); font-weight: 700; flex: none; }
+        .pick-row.chosen { border-color: var(--accent-color); background: var(--accent-soft); }
         td.val-bad { position: relative; }
-        td.val-bad::after { content: ''; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 9px 9px 0; border-color: transparent #dc2626 transparent transparent; pointer-events: none; }
-        td.clip-src { outline: 2px dashed #2563eb; outline-offset: -2px; }
+        td.val-bad::after { content: ''; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 9px 9px 0; border-color: transparent var(--danger) transparent transparent; pointer-events: none; }
+        td.clip-src { outline: 2px dashed var(--accent-color); outline-offset: -2px; }
         .cm-sort { display: flex; gap: 8px; }
         .cm-sort button { flex: 1; min-height: 44px; font-size: 0.9rem; }
         .cm-tools { display: flex; gap: 8px; align-items: center; }
         .cm-tools button { min-height: 40px; }
-        .cm-count { margin-left: auto; color: #64748b; font-size: 0.8rem; }
+        .cm-count { margin-left: auto; color: var(--text-3); font-size: 0.8rem; }
         .cm-list { max-height: 34vh; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; }
-        .cm-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+        .cm-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border-bottom: 1px solid var(--line-faint); cursor: pointer; }
         .cm-row:last-child { border-bottom: none; }
         .cm-row input { width: 22px; height: 22px; flex: none; }
         .cm-row .cm-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .cm-row .cm-n { color: #94a3b8; font-size: 0.75rem; }
-        .cm-empty { padding: 14px; color: #64748b; text-align: center; }
+        .cm-row .cm-n { color: var(--text-4); font-size: 0.75rem; }
+        .cm-empty { padding: 14px; color: var(--text-3); text-align: center; }
 
+        /* Text boxes take their colors from the theme roles too (a cell's own box stays see-through) */
+        input:not(.cell-input):not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]), textarea:not(.cell-input) {
+            background: var(--surface-2);
+            color: var(--text-main);
+        }
+        select { color: var(--text-main); }
         .cell-input {
             width: 100%;
             height: 100%;
@@ -362,7 +451,7 @@
         }
 
         .cell-input:focus {
-            background: #ffffff;
+            background: var(--surface);
         }
 
         /* A cell with Wrap on is a multi-line box: the text wraps inside the row height that was set */
@@ -407,7 +496,7 @@
 
         /* Bottom Sheet Tab Bar */
         .sheet-tab-bar {
-            background: #f1f5f9;
+            background: var(--surface-3);
             border-top: 1px solid var(--border-color);
             padding: 4px 12px;
             display: flex;
@@ -420,19 +509,19 @@
 
         .sheet-tab {
             padding: 4px 12px;
-            background: #ffffff;
+            background: var(--surface);
             border: 1px solid var(--border-color);
             border-radius: 4px;
             font-size: 0.8rem;
             font-weight: 500;
             cursor: pointer;
-            color: #475569;
+            color: var(--text-2);
             white-space: nowrap;
         }
 
         .sheet-tab.active {
             background: var(--accent-color);
-            color: #ffffff;
+            color: var(--on-accent);
             border-color: var(--accent-color);
             font-weight: 600;
         }
@@ -443,8 +532,8 @@
             bottom: 78px;
             left: 50%;
             transform: translateX(-50%);
-            background: #0f172a;
-            color: #ffffff;
+            background: var(--inverse-bg);
+            color: var(--inverse-text);
             padding: 6px 12px;
             border-radius: 20px;
             display: flex;
@@ -464,7 +553,7 @@
         .cell-dock button {
             background: rgba(255,255,255,0.15);
             border: none;
-            color: #ffffff;
+            color: var(--inverse-text);
             padding: 4px 10px;
             border-radius: 12px;
             font-size: 0.75rem;
@@ -496,7 +585,7 @@
             align-items: center;
             font-weight: 600;
             font-size: 0.9rem;
-            background: #f8fafc;
+            background: var(--surface-2);
         }
 
         .sidebar-body {
@@ -522,7 +611,7 @@
         .modal-overlay.hidden { display: none; }
 
         .modal {
-            background: #ffffff;
+            background: var(--surface);
             width: 440px;
             max-width: 92%;
             border-radius: 10px;
@@ -539,7 +628,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: #f8fafc;
+            background: var(--surface-2);
         }
 
         .modal-body {
@@ -558,7 +647,7 @@
             display: flex;
             justify-content: flex-end;
             gap: 8px;
-            background: #f8fafc;
+            background: var(--surface-2);
         }
 
         .form-group {
@@ -569,7 +658,7 @@
 
         .form-group label {
             font-weight: 500;
-            color: #475569;
+            color: var(--text-2);
         }
 
         .form-group input, .form-group select {
@@ -585,8 +674,8 @@
             bottom: 92px;
             left: 50%;
             transform: translateX(-50%);
-            background: #0f172a;
-            color: #ffffff;
+            background: var(--inverse-bg);
+            color: var(--inverse-text);
             padding: 8px 16px;
             border-radius: 6px;
             font-size: 0.85rem;
@@ -601,11 +690,11 @@
 
         /* Status Bar */
         .status-bar {
-            background: #f1f5f9;
+            background: var(--surface-3);
             border-top: 1px solid var(--border-color);
             padding: 6px 16px;
             font-size: 0.8rem;
-            color: #64748b;
+            color: var(--text-3);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -619,7 +708,7 @@
         }
 
         .sparkline-box {
-            background: #f8fafc;
+            background: var(--surface-2);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             padding: 10px;
@@ -633,14 +722,14 @@
 
         /* Frozen panes: opaque so scrolling cells never show through, with a divider at the freeze edge */
         .frozen-cell {
-            background-color: #ffffff;
+            background-color: var(--surface);
             box-shadow: inset -1px -1px 0 0 var(--border-color);
         }
-        .freeze-edge-col { box-shadow: inset -2px 0 0 0 #64748b, inset 0 -1px 0 0 var(--border-color); }
-        .freeze-edge-row { box-shadow: inset 0 -2px 0 0 #64748b, inset -1px 0 0 0 var(--border-color); }
-        .freeze-edge-row.freeze-edge-col { box-shadow: inset -2px -2px 0 0 #64748b; }
-        th.freeze-edge-col { box-shadow: inset -2px 0 0 0 #64748b; }
-        th.freeze-edge-row { box-shadow: inset 0 -2px 0 0 #64748b; }
+        .freeze-edge-col { box-shadow: inset -2px 0 0 0 var(--text-3), inset 0 -1px 0 0 var(--border-color); }
+        .freeze-edge-row { box-shadow: inset 0 -2px 0 0 var(--text-3), inset -1px 0 0 0 var(--border-color); }
+        .freeze-edge-row.freeze-edge-col { box-shadow: inset -2px -2px 0 0 var(--text-3); }
+        th.freeze-edge-col { box-shadow: inset -2px 0 0 0 var(--text-3); }
+        th.freeze-edge-row { box-shadow: inset 0 -2px 0 0 var(--text-3); }
 
         button:disabled {
             opacity: 0.45;
@@ -649,12 +738,12 @@
 
         /* My Lists */
         #lists-modal .hidden, #val-modal .hidden { display: none !important; }
-        .lists-empty { padding: 14px 4px; color: #475569; line-height: 1.5; }
-        .list-card { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: #f8fafc; }
+        .lists-empty { padding: 14px 4px; color: var(--text-2); line-height: 1.5; }
+        .list-card { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--surface-2); }
         .list-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-        .list-name { font-weight: 700; color: #0f172a; }
-        .list-count { font-size: 0.72rem; color: #64748b; text-align: right; }
-        .list-preview { font-size: 0.8rem; color: #334155; word-break: break-word; }
+        .list-name { font-weight: 700; color: var(--text-strong); }
+        .list-count { font-size: 0.72rem; color: var(--text-3); text-align: right; }
+        .list-preview { font-size: 0.8rem; color: var(--text-body); word-break: break-word; }
         .list-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
         .list-item-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
         .list-item-row input { flex: 1; min-width: 0; }
@@ -674,10 +763,10 @@
             align-items: center;
             justify-content: space-between;
             padding: 0 12px;
-            background: #f1f5f9;
+            background: var(--surface-3);
             border-bottom: 1px solid var(--border-color);
             font-size: 0.72rem;
-            color: #475569;
+            color: var(--text-2);
             cursor: pointer;
             z-index: 41;
             touch-action: manipulation;
@@ -690,8 +779,8 @@
             padding: 0 9px;
             height: 17px;
             border-radius: 999px;
-            background: #2563eb;
-            color: #ffffff;
+            background: var(--accent-color);
+            color: var(--on-accent);
             font-size: 0.7rem;
             font-weight: 600;
             line-height: 1;
@@ -700,10 +789,10 @@
         .save-cue.clean { background: #6b84b4; }
         .save-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
         .save-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-        .save-dot.ok { background: #16a34a; }
-        .save-dot.busy { background: #2563eb; animation: savePulse 1s ease-in-out infinite; }
-        .save-dot.warn { background: #d97706; }
-        .save-dot.fail { background: #dc2626; }
+        .save-dot.ok { background: var(--ok); }
+        .save-dot.busy { background: var(--accent-color); animation: savePulse 1s ease-in-out infinite; }
+        .save-dot.warn { background: var(--warn); }
+        .save-dot.fail { background: var(--danger); }
         @keyframes savePulse { 50% { opacity: 0.35; } }
 
         /* Conditional Formatting */
@@ -723,22 +812,22 @@
         }
         .cond-swatch.scale { min-width: 44px; }
         .cond-pickers { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
-        .cond-pickers label { display: flex; align-items: center; gap: 6px; font-weight: 500; color: #475569; }
-        .cond-rule { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #e2e8f0; }
-        .cond-rule-text { flex: 1; font-size: 0.78rem; color: #334155; }
-        .cond-empty { font-size: 0.8rem; color: #64748b; }
+        .cond-pickers label { display: flex; align-items: center; gap: 6px; font-weight: 500; color: var(--text-2); }
+        .cond-rule { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
+        .cond-rule-text { flex: 1; font-size: 0.78rem; color: var(--text-body); }
+        .cond-empty { font-size: 0.8rem; color: var(--text-3); }
         .cond-live {
             position: sticky;
             bottom: -18px;
             margin: 0 -18px -18px;
             padding: 10px 18px;
-            background: #ffffff;
+            background: var(--surface);
             border-top: 1px solid var(--border-color);
             display: flex;
             gap: 10px;
             align-items: center;
             font-size: 0.8rem;
-            color: #334155;
+            color: var(--text-body);
         }
         .cond-sample {
             min-width: 64px;
@@ -752,7 +841,7 @@
         }
 
         /* Formula Wizard */
-        .wiz-count { font-size: 0.75rem; color: #64748b; }
+        .wiz-count { font-size: 0.75rem; color: var(--text-3); }
         .wizard-results {
             display: flex;
             flex-direction: column;
@@ -762,12 +851,12 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 4px;
-            background: #f8fafc;
+            background: var(--surface-2);
         }
         .wiz-cat-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
         /* Plain tappable text (no box): the padding is an invisible tap area that is cancelled by the negative margin, so the Category line does not grow */
-        .wiz-fav-toggle { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font: inherit; line-height: 1; font-weight: 500; color: #475569; padding: 13px 16px; margin: -13px -16px; cursor: pointer; }
-        .wiz-fav-toggle.on { color: #92400e; }
+        .wiz-fav-toggle { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font: inherit; line-height: 1; font-weight: 500; color: var(--text-2); padding: 13px 16px; margin: -13px -16px; cursor: pointer; }
+        .wiz-fav-toggle.on { color: var(--amber-ink); }
         /* One box per function: name, category and star share the first line; the description spans the whole box underneath */
         .wizard-result {
             display: grid;
@@ -779,38 +868,38 @@
             padding: 6px 10px;
             border-radius: 6px;
             width: 100%;
-            background: #ffffff;
+            background: var(--surface);
             border: 1px solid var(--border-color);
             font-size: 0.8rem;
             color: var(--text-main);
             cursor: pointer;
             flex-shrink: 0;
         }
-        .wizard-result:hover { background: #f1f5f9; border-color: #94a3b8; }
-        .wizard-result.selected { border-color: var(--accent-color); background: #e0e9ff; }
+        .wizard-result:hover { background: var(--surface-3); border-color: var(--border-strong); }
+        .wizard-result.selected { border-color: var(--accent-color); background: var(--accent-soft); }
         /* The star is small text on the line; its padding is an invisible tap area cancelled by the negative margin, so the line does not grow */
-        .wiz-star { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font-size: 0.85rem; line-height: 1; padding: 14px 15px; margin: -14px -13px; color: #94a3b8; cursor: pointer; }
+        .wiz-star { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font-size: 0.85rem; line-height: 1; padding: 14px 15px; margin: -14px -13px; color: var(--text-4); cursor: pointer; }
         .wiz-star:hover { background: none; border: none; }
         .wiz-star.on { color: #f59e0b; }
-        .wr-name { font-weight: 700; color: #0f172a; }
-        .wr-cat { font-size: 0.7rem; color: #64748b; justify-self: end; }
-        .wr-desc { grid-column: 1 / -1; font-size: 0.75rem; color: #475569; font-weight: 400; }
-        .wiz-info { font-size: 0.85rem; color: #334155; display: flex; flex-direction: column; gap: 4px; }
-        .wiz-syntax { font-family: 'Roboto Mono', monospace; font-size: 0.8rem; font-weight: 600; color: var(--accent-color); word-break: break-word; }
+        .wr-name { font-weight: 700; color: var(--text-strong); }
+        .wr-cat { font-size: 0.7rem; color: var(--text-3); justify-self: end; }
+        .wr-desc { grid-column: 1 / -1; font-size: 0.75rem; color: var(--text-2); font-weight: 400; }
+        .wiz-info { font-size: 0.85rem; color: var(--text-body); display: flex; flex-direction: column; gap: 4px; }
+        .wiz-syntax { font-family: 'Roboto Mono', monospace; font-size: 0.8rem; font-weight: 600; color: var(--accent-text); word-break: break-word; }
         .wiz-arg label { display: flex; gap: 6px; align-items: baseline; }
-        .wiz-desc { font-size: 0.75rem; color: #64748b; }
-        .wiz-tag { font-size: 0.65rem; font-weight: 400; color: #94a3b8; }
-        .wiz-tag.req { color: #b45309; }
+        .wiz-desc { font-size: 0.75rem; color: var(--text-3); }
+        .wiz-tag { font-size: 0.65rem; font-weight: 400; color: var(--text-4); }
+        .wiz-tag.req { color: var(--amber-ink); }
         .wiz-repeat { display: flex; gap: 8px; flex-wrap: wrap; }
-        .wiz-formula { font-family: 'Roboto Mono', monospace; font-size: 0.8rem; padding: 8px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; word-break: break-all; }
-        .wiz-tip { font-size: 0.72rem; color: #64748b; }
+        .wiz-formula { font-family: 'Roboto Mono', monospace; font-size: 0.8rem; padding: 8px; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 4px; word-break: break-all; }
+        .wiz-tip { font-size: 0.72rem; color: var(--text-3); }
         /* Formula + live result stay pinned at the bottom of the dialog while you scroll through the argument boxes */
         .wiz-live {
             position: sticky;
             bottom: -18px;
             margin: 0 -18px -18px;
             padding: 10px 18px;
-            background: #ffffff;
+            background: var(--surface);
             border-top: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
@@ -874,7 +963,7 @@
         .modal-footer { gap: 8px; }
         .size-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
         /* Find & Replace: a panel at the bottom, so the grid stays visible and the match can be seen */
-        .find-panel { position: fixed; left: 0; right: 0; bottom: 70px; z-index: 60; background: #ffffff; border-top: 1px solid var(--border-color); border-radius: 14px 14px 0 0; box-shadow: 0 -6px 20px rgba(0,0,0,0.15); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; animation: sheetUp 0.2s ease; }
+        .find-panel { position: fixed; left: 0; right: 0; bottom: 70px; z-index: 60; background: var(--surface); border-top: 1px solid var(--border-color); border-radius: 14px 14px 0 0; box-shadow: 0 -6px 20px rgba(0,0,0,0.15); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; animation: sheetUp 0.2s ease; }
         .find-panel.hidden { display: none; }
         body.kb-open .find-panel { bottom: var(--kb, 0px); }
         body.find-open .cell-dock { display: none; }
@@ -886,12 +975,16 @@
         .find-opts { display: flex; flex-wrap: wrap; gap: 0 16px; }
         .find-opts.hidden { display: none; }
         .find-opts label { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 0.85rem; }
-        .find-status { font-size: 0.8rem; color: #64748b; min-height: 1.1em; }
+        .find-status { font-size: 0.8rem; color: var(--text-3); min-height: 1.1em; }
         .dedup-col { display: flex; align-items: center; gap: 10px; min-height: 40px; }
         /* Charts: the colors are roles, so a dark theme only has to change these */
         .chart-root, .chart-legend {
             --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948; --series-other: #9a9994;
-            --chart-surface: #ffffff; --chart-ink: #0b0b0b; --chart-ink-2: #52514e; --chart-grid: #e6e5e1;
+            --chart-surface: #ffffff; --chart-ink: #0b0b0b; --chart-ink-2: #52514e; --chart-grid: #e6e5e1; --chart-hit: rgba(11, 11, 11, 0.06);
+        }
+        :root[data-theme="dark"] .chart-root, :root[data-theme="dark"] .chart-legend {
+            --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767; --series-other: #8a8984;
+            --chart-surface: #1c222b; --chart-ink: #f0efec; --chart-ink-2: #c3c2b7; --chart-grid: #39414d; --chart-hit: rgba(255, 255, 255, 0.08);
         }
         .chart-root { position: relative; background: var(--chart-surface); color: var(--chart-ink); }
         .chart-root svg { width: 100%; height: auto; display: block; touch-action: manipulation; }
@@ -899,38 +992,38 @@
         .chart-root .ch-grid { stroke: var(--chart-grid); stroke-width: 1; }
         .chart-root .ch-axis { stroke: var(--chart-grid); stroke-width: 1; }
         .chart-root .ch-hit { fill: transparent; cursor: pointer; }
-        .chart-root .ch-hit.on { fill: rgba(11, 11, 11, 0.06); }
+        .chart-root .ch-hit.on { fill: var(--chart-hit); }
         .chart-root .ch-xhair { stroke: var(--chart-ink-2); stroke-width: 1; opacity: 0.5; }
-        .chart-tip { position: absolute; z-index: 5; background: #0f172a; color: #ffffff; font-size: 0.78rem; padding: 6px 9px; border-radius: 6px; pointer-events: none; max-width: 70%; line-height: 1.35; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+        .chart-tip { position: absolute; z-index: 5; background: var(--inverse-bg); color: var(--inverse-text); font-size: 0.78rem; padding: 6px 9px; border-radius: 6px; pointer-events: none; max-width: 70%; line-height: 1.35; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
         .chart-tip.hidden { display: none; }
         .chart-tip i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
-        .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.82rem; color: #52514e; }
+        .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.82rem; color: var(--chart-ink-2); }
         .chart-legend .ch-key { display: inline-flex; align-items: center; gap: 6px; min-height: 22px; }
         .chart-legend .ch-key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
         .chart-table { overflow: auto; max-height: 40vh; border: 1px solid var(--border-color); border-radius: 6px; }
         .chart-table table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
-        .chart-table th, .chart-table td { border: 1px solid #eceae6; padding: 4px 8px; text-align: right; white-space: nowrap; }
+        .chart-table th, .chart-table td { border: 1px solid var(--line-soft); padding: 4px 8px; text-align: right; white-space: nowrap; }
         .chart-table th:first-child, .chart-table td:first-child { text-align: left; }
         .chart-table.hidden { display: none; }
         #chart-modal .modal-body { max-height: 80vh; }
-        #chart-types button.on { background: var(--accent-color); color: #ffffff; border-color: var(--accent-color); }
+        #chart-types button.on { background: var(--accent-color); color: var(--on-accent); border-color: var(--accent-color); }
         .chart-check { flex-direction: row; align-items: center; justify-content: space-between; }
         .chart-check label { flex: 1; min-height: 40px; display: flex; align-items: center; }
         .chart-check input { width: 20px; height: 20px; }
-        .chart-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+        .chart-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line-faint); }
         .chart-row .cr-text { flex: 1; min-width: 0; word-break: break-word; font-size: 0.85rem; }
-        .chart-row .cr-text small { display: block; color: #64748b; }
+        .chart-row .cr-text small { display: block; color: var(--text-3); }
         .dice-chips { display: flex; flex-wrap: wrap; gap: 6px; }
         .dice-chips button { flex: 1 1 auto; }
-        .dice-result { min-height: 2.4em; font-size: 0.85rem; color: #334155; word-break: break-word; }
-        .dice-result strong { font-size: 1.6rem; color: #0f172a; margin-right: 8px; }
-        .dice-history { max-height: 64px; overflow-y: auto; font-size: 0.78rem; color: #64748b; }
+        .dice-result { min-height: 2.4em; font-size: 0.85rem; color: var(--text-body); word-break: break-word; }
+        .dice-result strong { font-size: 1.6rem; color: var(--text-strong); margin-right: 8px; }
+        .dice-history { max-height: 64px; overflow-y: auto; font-size: 0.78rem; color: var(--text-3); }
         .dice-history div { padding: 1px 0; }
         body.dice-open .cell-dock { display: none; }
         body.dice-open .grid-container { padding-bottom: var(--find-h, 220px); }
-        .name-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+        .name-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line-faint); }
         .name-row .nr-text { flex: 1; min-width: 0; word-break: break-word; font-size: 0.85rem; }
-        .name-row .nr-text small { display: block; color: #64748b; }
+        .name-row .nr-text small { display: block; color: var(--text-3); }
         .form-group:has(> input[type="checkbox"]) { min-height: 40px; }
         .form-group:has(> input[type="checkbox"]) > label { flex: 1; min-height: 40px; display: flex; align-items: center; }
     </style>
@@ -986,7 +1079,7 @@
                 <button onclick="toggleSidebar('insights-sidebar')">&times;</button>
             </div>
             <div class="sidebar-body" id="insights-body">
-                <p style="color: #64748b;">Highlight a range of numbers on the grid to generate live insights instantly.</p>
+                <p style="color: var(--text-3);">Highlight a range of numbers on the grid to generate live insights instantly.</p>
             </div>
         </div>
 
@@ -1034,7 +1127,7 @@
 
     <!-- Cell Bottom Action Dock (Quick fx & validation pickers) -->
     <div class="cell-dock hidden" id="cell-dock">
-        <span id="cell-dock-title" style="font-size: 0.75rem; font-weight: 600; color: #94a3b8;">CELL ACTIONS:</span>
+        <span id="cell-dock-title" style="font-size: 0.75rem; font-weight: 600; color: var(--inverse-muted);">CELL ACTIONS:</span>
         <div id="cell-dock-buttons" style="display: flex; gap: 6px; align-items: center;"></div>
     </div>
 
@@ -1074,7 +1167,7 @@
                     </div>
                     <div class="form-group">
                         <label>Live Preview Result</label>
-                        <div id="wizard-preview" style="padding: 8px; background: #f1f5f9; border-radius: 4px; font-weight: 600; word-break: break-word;">--</div>
+                        <div id="wizard-preview" style="padding: 8px; background: var(--surface-3); border-radius: 4px; font-weight: 600; word-break: break-word;">--</div>
                     </div>
                 </div>
             </div>
@@ -1124,7 +1217,7 @@
                     <label for="cond-entire-row" style="cursor: pointer;">Entire row highlighting</label>
                 </div>
                 <div class="form-group">
-                    <label>Rules on this sheet <small style="font-weight: 400; color: #64748b;">(later rules paint over earlier ones)</small></label>
+                    <label>Rules on this sheet <small style="font-weight: 400; color: var(--text-3);">(later rules paint over earlier ones)</small></label>
                     <div id="cond-rule-list"></div>
                 </div>
                 <div class="cond-live">
@@ -1342,11 +1435,11 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>Freeze Rows (Top N rows) <small id="freeze-rows-hint" style="color: #64748b; font-weight: 400;"></small></label>
+                    <label>Freeze Rows (Top N rows) <small id="freeze-rows-hint" style="color: var(--text-3); font-weight: 400;"></small></label>
                     <input type="number" id="freeze-rows-input" min="0" max="50" value="1">
                 </div>
                 <div class="form-group">
-                    <label>Freeze Columns (Left N columns, e.g. 1 for Col A) <small id="freeze-cols-hint" style="color: #64748b; font-weight: 400;"></small></label>
+                    <label>Freeze Columns (Left N columns, e.g. 1 for Col A) <small id="freeze-cols-hint" style="color: var(--text-3); font-weight: 400;"></small></label>
                     <input type="number" id="freeze-cols-input" min="0" max="10" value="1">
                 </div>
             </div>
@@ -1645,7 +1738,7 @@
                     <input type="checkbox" id="setting-autosave" checked style="width: 20px; height: 20px;" onchange="onAutosaveToggle()">
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between; gap: 10px;">
-                    <label>My Lists <small style="font-weight: 400; color: #64748b;">(reusable drop-down lists, kept with the app)</small></label>
+                    <label>My Lists <small style="font-weight: 400; color: var(--text-3);">(reusable drop-down lists, kept with the app)</small></label>
                     <button type="button" onclick="openListsFromSettings()">Manage…</button>
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
@@ -1655,6 +1748,14 @@
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
                     <label for="setting-val-picker">Enable Data Validation Pickers on Cell Tap</label>
                     <input type="checkbox" id="setting-val-picker" checked style="width: 20px; height: 20px;" onchange="saveSettings()">
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between; gap: 10px;">
+                    <label for="setting-theme">Theme</label>
+                    <select id="setting-theme" onchange="onThemeChange()">
+                        <option value="auto">Match my phone</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
                     <label for="setting-remember-tab">Remember Last Used Ribbon Tab</label>
@@ -2226,8 +2327,24 @@
         // ----- Settings (kept separately so they stick even when AutoSave is off) -----
         function currentSettings() {
             const on = id => { const el = document.getElementById(id); return el ? !!el.checked : true; };
-            return { version: 1, autosave: on('setting-autosave'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab') };
+            const th = document.getElementById('setting-theme');
+            return { version: 1, autosave: on('setting-autosave'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto' };
         }
+        // ----- Theme: Match my phone / Light / Dark. The colors themselves live in the color roles at the top of the style sheet. -----
+        const phoneDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+        function applyTheme(choice) {
+            const t = choice === 'light' || choice === 'dark' ? choice : 'auto';
+            const dark = t === 'dark' || (t === 'auto' && !!phoneDark && phoneDark.matches);
+            document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+            try { localStorage.setItem('qsheet-theme', t); } catch (e) { /* the choice is also kept with the other settings */ }
+            const sel = document.getElementById('setting-theme');
+            if (sel && sel.value !== t) sel.value = t;
+        }
+        function onThemeChange() {
+            applyTheme(document.getElementById('setting-theme').value);
+            saveSettings();
+        }
+        if (phoneDark && phoneDark.addEventListener) phoneDark.addEventListener('change', () => { if ((document.getElementById('setting-theme') || { value: 'auto' }).value === 'auto') applyTheme('auto'); });
         function applySettings(st) {
             if (!st || typeof st !== 'object') return;
             const set = (id, v) => { const el = document.getElementById(id); if (el && typeof v === 'boolean') el.checked = v; };
@@ -2235,6 +2352,7 @@
             set('setting-quick-fx', st.quickFx);
             set('setting-val-picker', st.valPicker);
             set('setting-remember-tab', st.rememberTab);
+            if (st.theme === 'light' || st.theme === 'dark' || st.theme === 'auto') applyTheme(st.theme);
             saveState.enabled = document.getElementById('setting-autosave').checked;
         }
         function saveSettings() {
@@ -2551,7 +2669,7 @@
                 </div>
                 ${used ? `<div class="wiz-tip">Used by ${used} validation rule${used === 1 ? '' : 's'} in this workbook. Changes here carry through to them.</div>` : ''}
                 <div class="form-group">
-                    <label>Items <small style="font-weight: 400; color: #64748b;">(in this order)</small></label>
+                    <label>Items <small style="font-weight: 400; color: var(--text-3);">(in this order)</small></label>
                     <div id="list-items">
                         ${e.items.map((it, i) => `
                         <div class="list-item-row">
@@ -2564,7 +2682,7 @@
                     <button type="button" onclick="listAddItem()">+ Add item</button>
                 </div>
                 <div class="form-group">
-                    <label for="list-paste">Add many at once <small style="font-weight: 400; color: #64748b;">(separate with commas or new lines)</small></label>
+                    <label for="list-paste">Add many at once <small style="font-weight: 400; color: var(--text-3);">(separate with commas or new lines)</small></label>
                     <textarea id="list-paste" rows="3" placeholder="Str, Dex, Con, Int, Wis, Cha" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
                     <button type="button" onclick="listAddPasted()">Add these to the list</button>
                 </div>`;
@@ -6091,7 +6209,7 @@
 
             const body = document.getElementById('insights-body');
             if (nums.length === 0) {
-                body.innerHTML = `<p style="color: #64748b;">Highlight a numeric range to see sparklines, extremes, and distributions.</p>`;
+                body.innerHTML = `<p style="color: var(--text-3);">Highlight a numeric range to see sparklines, extremes, and distributions.</p>`;
                 return;
             }
 
@@ -6103,7 +6221,7 @@
             body.innerHTML = `
                 <div class="sparkline-box">
                     <strong>Trend Sparkline</strong>
-                    <div style="font-family: monospace; font-size: 1.1rem; color: var(--accent-color);">
+                    <div style="font-family: monospace; font-size: 1.1rem; color: var(--accent-text);">
                         ${nums.map(n => n > avg ? '▲' : '▼').join(' ')}
                     </div>
                 </div>
@@ -7553,7 +7671,7 @@
             const container = document.getElementById('wizard-args-container');
             const repeatBox = document.getElementById('wizard-repeat-controls');
             if (!fn) {
-                info.innerHTML = '<span style="color: #64748b;">Pick a function from the list above.</span>';
+                info.innerHTML = '<span style="color: var(--text-3);">Pick a function from the list above.</span>';
                 container.innerHTML = '';
                 repeatBox.innerHTML = '';
                 previewWizard();
@@ -8088,7 +8206,7 @@
             if (td) {
                 td.style.backgroundColor = st.bgColor || '';
                 const bd = st.borders || '';
-                const line = '2px solid #0f172a'; // wide enough to win over the grid lines where two cells meet
+                const line = '2px solid var(--text-strong)'; // the ink color of the theme, wide enough to win over the grid lines where two cells meet
                 td.style.borderTop = bd.includes('t') ? line : '';
                 td.style.borderBottom = bd.includes('b') ? line : '';
                 td.style.borderLeft = bd.includes('l') ? line : '';
