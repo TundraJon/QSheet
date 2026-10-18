@@ -1616,6 +1616,7 @@
         }
 
         function cellDisplayText(cell) {
+            if (cell.style && cell.style.checkbox && typeof cell.value === 'boolean') return cell.value ? '\u2611' : '\u2610';
             const shown = formatNumberStyle(cell.value, cell.style);
             return shown !== undefined ? shown : displayValue(cell.value);
         }
@@ -1635,6 +1636,7 @@
         function effectiveAlign(cell) {
             const st = cell.style || {};
             if (st.textAlign) return st.textAlign;
+            if (st.checkbox) return 'center';
             return (typeof cell.value === 'number' && isFinite(cell.value) && st.numFormat !== 'text') ? 'right' : '';
         }
 
@@ -1943,6 +1945,7 @@
             if (NUM_FORMATS.includes(st.numFormat)) out.numFormat = st.numFormat;
             if (Number.isInteger(st.decimals) && st.decimals >= 0 && st.decimals <= MAX_DECIMALS) out.decimals = st.decimals;
             if (st.wrap === true) out.wrap = true;
+            if (st.checkbox === true) out.checkbox = true;
             if (typeof st.borders === 'string') { const b = [...'tbrl'].filter(ch => st.borders.includes(ch)).join(''); if (b) out.borders = b; }
             return out;
         }
@@ -2856,6 +2859,7 @@
                         <button onclick="pasteCells(true)" title="Paste only the values">Paste values</button>
                         <button onclick="fillCells('down')" title="Fill down">Fill &darr;</button>
                         <button onclick="fillCells('right')" title="Fill right">Fill &rarr;</button>
+                        <button onclick="seriesFill()" title="Continue a pattern: 1, 2, 3 / Mon, Tue / Item 1, Item 2 / one of your lists">Series</button>
                     </div>
                     <div class="ribbon-group">
                         <button onclick="formatCell('bold')" title="Bold"><b>B</b></button>
@@ -2889,6 +2893,7 @@
                     </div>
                     <div class="ribbon-group">
                         <button id="wrap-btn" onclick="toggleWrap()" title="Wrap text inside the cell (make the row taller with Size... to see more lines)">Wrap</button>
+                        <button id="checkbox-btn" onclick="toggleCheckboxStyle()" title="Turn the selected cells into tick boxes (or back)">Checkbox</button>
                         <select id="border-menu" onchange="applyBorders(this.value); this.value = ''" title="Cell borders">
                             <option value="">Borders</option>
                             <option value="all">All borders</option>
@@ -2995,6 +3000,9 @@
                 html += `<button data-cell="${cellId}" onclick="openDatePicker(this.dataset.cell)">&#128197; Pick date</button>`;
             }
 
+            const here = data[cellId];
+            if (here && here.style && here.style.checkbox) html += `<button onclick="toggleCheckbox()">&#9745; Toggle</button>`;
+
             // Cells are marked by Copy / Cut: a phone has no Escape key, so the bar carries the way out
             if (clip) html += `<button onclick="clipClear()">&#10005; Clear ${clip.cut ? 'cut' : 'copy'}</button>`;
 
@@ -3043,7 +3051,11 @@
             grid.addEventListener('pointercancel', onGridPointerCancel);
             grid.addEventListener('touchmove', e => { if (rangeDragMode) e.preventDefault(); }, { passive: false });
             grid.addEventListener('contextmenu', e => e.preventDefault());
-            grid.addEventListener('dblclick', () => startEdit(activeCell.row, activeCell.col));
+            grid.addEventListener('dblclick', () => {
+                const hit = data[getCellId(activeCell.row, activeCell.col)];
+                if (hit && hit.style && hit.style.checkbox) toggleCheckbox(); // with a mouse, a double-click ticks a checkbox
+                else startEdit(activeCell.row, activeCell.col);
+            });
             document.addEventListener('keydown', handleGlobalKey);
         }
 
@@ -3116,7 +3128,9 @@
             } else if (!s.moved) {
                 // A plain tap
                 if (s.wasActive) {
-                    startEdit(s.r, s.c);
+                    const hit = data[getCellId(s.r, s.c)];
+                    if (hit && hit.style && hit.style.checkbox) toggleCheckbox(); // a second tap ticks a checkbox instead of editing it
+                    else startEdit(s.r, s.c);
                 } else {
                     selectSingle(s.r, s.c);
                     updateStats();
@@ -3939,6 +3953,7 @@
                 delete cell.rolls;
                 cell.formula = '';
                 cell.value = parseTypedValue(value, cell.style);
+                if (cell.style.checkbox && /^\s*(true|false)\s*$/i.test(value)) cell.value = value.trim().toLowerCase() === 'true'; // typing TRUE / FALSE into a checkbox cell
             }
             recalculateAll();
             updateStats();
@@ -6459,7 +6474,7 @@
                     vrow.push(v);
                     // For other apps: dates and text as they look, numbers as the real number
                     const st = (cell && cell.style) || {};
-                    const t = (typeof v === 'number' && !DATE_FORMATS.includes(st.numFormat)) ? String(v) : String(cell ? cellDisplayText(cell) : '');
+                    const t = (typeof v === 'number' && !DATE_FORMATS.includes(st.numFormat)) ? String(v) : (typeof v === 'boolean' ? displayValue(v) : String(cell ? cellDisplayText(cell) : ''));
                     text.push(t.replace(/[\t\r\n]+/g, ' '));
                 }
                 cells.push(row); vals.push(vrow); lines.push(text.join('\t'));
@@ -6558,7 +6573,7 @@
                 if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
                 delete data[id].spillOf; delete data[id].rolls;
                 if (t.startsWith('=') && t.length > 1) { data[id].formula = fixSheetRefs(capitalizeFormula(t)); data[id].value = ''; }
-                else { data[id].formula = ''; data[id].value = parseTypedValue(t, data[id].style || (data[id].style = {})); }
+                else { data[id].formula = ''; data[id].value = parseTypedValue(t, data[id].style || (data[id].style = {})); if (data[id].style.checkbox && /^(true|false)$/i.test(t.trim())) data[id].value = t.trim().toLowerCase() === 'true'; }
                 ids.push(id);
                 maxC = Math.max(maxC, j);
             }));
@@ -6607,6 +6622,143 @@
             const first = getCellId(r1, c1);
             cellsChanged(ids, `Filled ${clipRange(r1, c1, r2, c2)} ${down ? 'down' : 'right'}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 });
             showToast(`Filled ${clipRange(down ? r1 + 1 : r1, down ? c1 : c1 + 1, r2, c2)} from ${first}`);
+        }
+
+        // ===== Checkboxes =====
+        // A checkbox cell holds TRUE or FALSE and shows a tick box. Tap it once to select it, tap again to tick / untick it.
+        function toggleCheckboxStyle() {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            const cur = data[getCellId(activeCell.row, activeCell.col)];
+            const turnOn = !(cur && cur.style && cur.style.checkbox);
+            const ids = [];
+            let skipped = 0;
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) {
+                const id = getCellId(r, c);
+                const x = data[id];
+                if (!turnOn) {
+                    if (x && x.style && x.style.checkbox) { delete x.style.checkbox; ids.push(id); }
+                    continue;
+                }
+                if (x && x.spillOf) { skipped++; continue; }
+                const v = x ? x.value : '';
+                if (x && x.formula) { ensureCellForStyle(id).checkbox = true; ids.push(id); continue; }
+                if (isBlank(v)) { const st = ensureCellForStyle(id); data[id].value = false; st.checkbox = true; ids.push(id); continue; }
+                if (typeof v === 'boolean') { x.style.checkbox = true; ids.push(id); continue; }
+                if (typeof v === 'string' && /^\s*(true|false)\s*$/i.test(v)) { x.value = v.trim().toLowerCase() === 'true'; ensureCellForStyle(id).checkbox = true; ids.push(id); continue; }
+                skipped++; // text and numbers are left as they are
+            }
+            const where = selRangeText(b);
+            if (!ids.length) { showToast(skipped ? 'Those cells hold text or numbers. Clear them first to make checkboxes' : 'Nothing to change'); return; }
+            cellsChanged(ids, `Checkbox ${turnOn ? 'on' : 'off'} for ${where}`, { startRow: b.minR, startCol: b.minC, endRow: b.maxR, endCol: b.maxC });
+            showToast(turnOn ? `Checkboxes on ${where}${skipped ? `. ${skipped} cell${skipped === 1 ? '' : 's'} with text or numbers skipped` : ''}` : `Checkboxes removed from ${where} (the cells keep TRUE / FALSE)`);
+        }
+        function toggleCheckbox() {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            const cur = data[getCellId(activeCell.row, activeCell.col)];
+            if (!(cur && cur.style && cur.style.checkbox)) return;
+            if (cur.formula) { showToast('This box shows the result of a formula. Change the formula instead'); return; }
+            const next = cur.value !== true;
+            const ids = [];
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) {
+                const id = getCellId(r, c), x = data[id];
+                if (!x || !x.style || !x.style.checkbox || x.formula || x.spillOf) continue;
+                if (typeof x.value !== 'boolean' && !isBlank(x.value)) continue;
+                x.value = next;
+                ids.push(id);
+            }
+            if (!ids.length) return;
+            cellsChanged(ids, ids.length === 1 ? `${ids[0]} ${next ? 'ticked' : 'unticked'}` : `${next ? 'Ticked' : 'Unticked'} ${selRangeText(b)}`, null);
+            setActiveCell(activeCell.row, activeCell.col);
+        }
+
+        // ===== Series: continue a pattern =====
+        const SERIES_CYCLES = [
+            ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
+            ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+            ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'],
+            ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+        ];
+        const matchCase = (word, like) => (like === like.toUpperCase() && like.length > 1 ? word.toUpperCase() : (like === like.toLowerCase() ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()));
+        // Works out how to continue the seed cells: returns next(k) -> the value k steps after the last seed (k = 1, 2, ...), or null to just repeat the seeds
+        function seriesRule(seeds) {
+            const vals = seeds.map(x => x.value);
+            if (vals.every(v => typeof v === 'number' && isFinite(v))) {
+                const step = vals.length > 1 ? (vals[vals.length - 1] - vals[0]) / (vals.length - 1) : 1;
+                return k => Number((vals[vals.length - 1] + step * k).toPrecision(15));
+            }
+            if (!vals.every(v => typeof v === 'string' && v.trim() !== '')) return null;
+            const low = vals.map(v => v.trim().toLowerCase());
+            const cycleStep = (list, idx) => (idx.length > 1 ? ((idx[1] - idx[0]) % list.length + list.length) % list.length || 1 : 1);
+            const cycleRule = (items, label) => {
+                const idx = low.map(v => items.map(i => i.toLowerCase()).indexOf(v));
+                if (idx.some(i => i < 0)) return null;
+                const step = cycleStep(items, idx), last = idx[idx.length - 1];
+                return k => matchCase(items[((last + step * k) % items.length + items.length) % items.length], vals[vals.length - 1].trim());
+            };
+            for (const cyc of SERIES_CYCLES) { const rule = cycleRule(cyc); if (rule) return rule; }
+            for (const list of myLists) { // one of the user's own lists
+                if (list.items && list.items.length > 1) { const rule = cycleRule(list.items.map(i => String(i).trim())); if (rule) return rule; }
+            }
+            const parts = vals.map(v => /^(.*?)(\d+)$/.exec(v.trim()));
+            if (parts.every(Boolean) && parts.every(p => p[1] === parts[0][1])) {
+                const nums = parts.map(p => Number(p[2]));
+                const width = parts[parts.length - 1][2].length, padded = parts[parts.length - 1][2].startsWith('0');
+                const step = nums.length > 1 ? (nums[nums.length - 1] - nums[0]) / (nums.length - 1) : 1;
+                return k => { const n = Math.max(0, Math.round(nums[nums.length - 1] + step * k)); return parts[0][1] + (padded ? String(n).padStart(width, '0') : String(n)); };
+            }
+            return null;
+        }
+        function seriesFill() {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            const filled = (r, c) => hasContent(data[getCellId(r, c)]);
+            let down;
+            let r1 = b.minR, r2 = b.maxR, c1 = b.minC, c2 = b.maxC;
+            if (r1 === r2 && c1 === c2) {
+                // one start cell: continue as far as the data beside it goes
+                const sideCol = (c1 > 0 && filled(r1 + 1, c1 - 1)) ? c1 - 1 : ((c1 + 1 < COLS && filled(r1 + 1, c1 + 1)) ? c1 + 1 : -1);
+                const sideRow = (r1 > 0 && filled(r1 - 1, c1 + 1)) ? r1 - 1 : ((r1 + 1 < ROWS && filled(r1 + 1, c1 + 1)) ? r1 + 1 : -1);
+                if (sideCol >= 0) { down = true; while (r2 + 1 < ROWS && filled(r2 + 1, sideCol)) r2++; }
+                else if (sideRow >= 0) { down = false; while (c2 + 1 < COLS && filled(sideRow, c2 + 1)) c2++; }
+                else { showToast('Select the start of the pattern plus the cells to fill, or put data beside this cell first'); return; }
+                if (r2 === r1 && c2 === c1) { showToast('Nothing to fill: the data beside this cell ends here'); return; }
+            } else {
+                down = (b.maxR - b.minR) >= (b.maxC - b.minC);
+            }
+            const sheet = sheets[currentSheetIdx];
+            const ids = [];
+            let filledCount = 0;
+            const lanes = down ? (c2 - c1 + 1) : (r2 - r1 + 1), len = down ? (r2 - r1 + 1) : (c2 - c1 + 1);
+            const at = (lane, i) => (down ? getCellId(r1 + i, c1 + lane) : getCellId(r1 + lane, c1 + i));
+            for (let lane = 0; lane < lanes; lane++) {
+                let n = 0; // seeds: the filled cells at the start of the lane
+                while (n < len && filled(...(down ? [r1 + n, c1 + lane] : [r1 + lane, c1 + n]))) n++;
+                if (n === 0 || n >= len) continue;
+                const seeds = [];
+                for (let i = 0; i < n; i++) { const x = data[at(lane, i)]; seeds.push({ value: x.value, formula: x.formula, cs: histCapture(x) }); }
+                const hasFormula = seeds.some(x => x.formula);
+                const rule = hasFormula ? null : seriesRule(seeds);
+                const lastCs = seeds[n - 1].cs;
+                for (let i = n; i < len; i++) {
+                    const id = at(lane, i);
+                    ids.push(id);
+                    filledCount++;
+                    if (rule) {
+                        const v = rule(i - n + 1);
+                        histWrite(sheet, id, { v, f: '', s: lastCs && lastCs.s ? { ...lastCs.s } : null, r: null });
+                    } else {
+                        const src = (i - n) % n, cs = seeds[src].cs; // repeat the seeds; formulas adjust as if copied
+                        if (!cs) delete data[id];
+                        else histWrite(sheet, id, { v: cs.v, f: shiftFormula(cs.f, down ? i - src : 0, down ? 0 : i - src), s: cs.s ? { ...cs.s } : null, r: null });
+                    }
+                }
+            }
+            if (!ids.length) { showToast('Select the start of the pattern (filled cells) followed by the empty cells to fill'); return; }
+            const where = clipRange(r1, c1, r2, c2);
+            cellsChanged(ids, `Series ${where} ${down ? 'down' : 'right'}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 });
+            showToast(`Series filled ${filledCount} cell${filledCount === 1 ? '' : 's'} ${down ? 'down' : 'right'}`);
         }
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && clip && !editingCell) clipClear(); });
 
@@ -7614,6 +7766,7 @@
                 input.style.fontStyle = st.fontStyle || '';
                 input.style.textDecoration = st.textDecoration || '';
                 input.style.fontFamily = st.fontFamily || '';
+                input.style.fontSize = st.checkbox ? '1.2rem' : '';
                 input.style.color = st.color || '';
                 input.style.textAlign = data[cellId] ? effectiveAlign(data[cellId]) : (st.textAlign || '');
             }
