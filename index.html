@@ -888,6 +888,38 @@
         .find-opts label { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 0.85rem; }
         .find-status { font-size: 0.8rem; color: #64748b; min-height: 1.1em; }
         .dedup-col { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+        /* Charts: the colors are roles, so a dark theme only has to change these */
+        .chart-root, .chart-legend {
+            --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948; --series-other: #9a9994;
+            --chart-surface: #ffffff; --chart-ink: #0b0b0b; --chart-ink-2: #52514e; --chart-grid: #e6e5e1;
+        }
+        .chart-root { position: relative; background: var(--chart-surface); color: var(--chart-ink); }
+        .chart-root svg { width: 100%; height: auto; display: block; touch-action: manipulation; }
+        .chart-root text { fill: var(--chart-ink-2); font-size: 9px; font-family: inherit; }
+        .chart-root .ch-grid { stroke: var(--chart-grid); stroke-width: 1; }
+        .chart-root .ch-axis { stroke: var(--chart-grid); stroke-width: 1; }
+        .chart-root .ch-hit { fill: transparent; cursor: pointer; }
+        .chart-root .ch-hit.on { fill: rgba(11, 11, 11, 0.06); }
+        .chart-root .ch-xhair { stroke: var(--chart-ink-2); stroke-width: 1; opacity: 0.5; }
+        .chart-tip { position: absolute; z-index: 5; background: #0f172a; color: #ffffff; font-size: 0.78rem; padding: 6px 9px; border-radius: 6px; pointer-events: none; max-width: 70%; line-height: 1.35; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+        .chart-tip.hidden { display: none; }
+        .chart-tip i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+        .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.82rem; color: #52514e; }
+        .chart-legend .ch-key { display: inline-flex; align-items: center; gap: 6px; min-height: 22px; }
+        .chart-legend .ch-key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+        .chart-table { overflow: auto; max-height: 40vh; border: 1px solid var(--border-color); border-radius: 6px; }
+        .chart-table table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+        .chart-table th, .chart-table td { border: 1px solid #eceae6; padding: 4px 8px; text-align: right; white-space: nowrap; }
+        .chart-table th:first-child, .chart-table td:first-child { text-align: left; }
+        .chart-table.hidden { display: none; }
+        #chart-modal .modal-body { max-height: 80vh; }
+        #chart-types button.on { background: var(--accent-color); color: #ffffff; border-color: var(--accent-color); }
+        .chart-check { flex-direction: row; align-items: center; justify-content: space-between; }
+        .chart-check label { flex: 1; min-height: 40px; display: flex; align-items: center; }
+        .chart-check input { width: 20px; height: 20px; }
+        .chart-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+        .chart-row .cr-text { flex: 1; min-width: 0; word-break: break-word; font-size: 0.85rem; }
+        .chart-row .cr-text small { display: block; color: #64748b; }
         .dice-chips { display: flex; flex-wrap: wrap; gap: 6px; }
         .dice-chips button { flex: 1 1 auto; }
         .dice-result { min-height: 2.4em; font-size: 0.85rem; color: #334155; word-break: break-word; }
@@ -1405,6 +1437,62 @@
         <div class="dice-history" id="dice-history"></div>
     </div>
 
+    <!-- Chart viewer / editor -->
+    <div class="modal-overlay sheet hidden" id="chart-modal" onclick="if (event.target === this) closeChart()">
+        <div class="modal">
+            <div class="modal-header">
+                <span id="chart-head">Chart</span>
+                <button onclick="closeChart()" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="chart-root" id="chart-root">
+                    <div id="chart-view"></div>
+                    <div class="chart-tip hidden" id="chart-tip"></div>
+                </div>
+                <div class="chart-legend" id="chart-legend"></div>
+                <div class="wiz-tip" id="chart-note"></div>
+                <div id="chart-table" class="chart-table hidden"></div>
+                <div class="size-presets" id="chart-types">
+                    <button onclick="chartEdit('type', 'column')" data-type="column">Column</button><button onclick="chartEdit('type', 'bar')" data-type="bar">Bar</button><button onclick="chartEdit('type', 'line')" data-type="line">Line</button><button onclick="chartEdit('type', 'pie')" data-type="pie">Pie</button>
+                </div>
+                <div class="form-group">
+                    <label for="chart-title">Title</label>
+                    <input type="text" id="chart-title" maxlength="60" autocomplete="off" oninput="chartEdit('title', this.value)">
+                </div>
+                <div class="form-group">
+                    <label for="chart-range">Cells to chart (like Sheet 1!A1:C6)</label>
+                    <input type="text" id="chart-range" autocomplete="off" autocapitalize="off" onchange="chartEdit('ref', this.value)">
+                    <div class="size-presets"><button type="button" onclick="chartUseSelection()">Use the selected cells</button></div>
+                </div>
+                <div class="form-group chart-check"><label for="chart-header">First row holds the titles</label><input type="checkbox" id="chart-header" onchange="chartEdit('header', this.checked)"></div>
+                <div class="form-group chart-check"><label for="chart-labels">First column holds the labels</label><input type="checkbox" id="chart-labels" onchange="chartEdit('labels', this.checked)"></div>
+                <div class="form-group chart-check"><label for="chart-byrows">Each row is a series (instead of each column)</label><input type="checkbox" id="chart-byrows" onchange="chartEdit('byRows', this.checked)"></div>
+                <div class="form-group chart-check"><label for="chart-legend-on">Show the key (legend)</label><input type="checkbox" id="chart-legend-on" onchange="chartEdit('legend', this.checked)"></div>
+                <div class="form-group chart-check"><label for="chart-values">Show values on the chart</label><input type="checkbox" id="chart-values" onchange="chartEdit('values', this.checked)"></div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="chartDelete()">Delete chart</button>
+                <button onclick="chartToggleTable()" id="chart-table-btn">Show table</button>
+                <button class="primary" onclick="closeChart()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts on this sheet -->
+    <div class="modal-overlay hidden" id="charts-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Charts on this sheet</span>
+                <button onclick="closeChartsList()">&times;</button>
+            </div>
+            <div class="modal-body"><div id="charts-list"></div></div>
+            <div class="modal-footer">
+                <button onclick="closeChartsList()">Close</button>
+                <button class="primary" onclick="closeChartsList(); newChartFromSelection()">New chart from selection</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Sort a range -->
     <div class="modal-overlay hidden" id="sort-modal">
         <div class="modal">
@@ -1577,7 +1665,7 @@
 
         let workbookNames = []; // named ranges: [{ name, ref }], ref like 'Lists'!$B$2:$B$20 (shared by every sheet)
         let sheets = [
-            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {} }
+            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {}, charts: [] }
         ];
         let currentSheetIdx = 0;
         let data = sheets[0].data;
@@ -1832,7 +1920,7 @@
         const escapeHtml = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
         function makeBlankSheet(name) {
-            return { name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {} };
+            return { name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {}, charts: [] };
         }
 
         // ----- Storage (IndexedDB, with localStorage only if IndexedDB cannot be opened at all) -----
@@ -1926,7 +2014,7 @@
                     cells[id] = o;
                 }
             }
-            return { name: s.name, cells, styles, cf: s.conditionalRules, dv: s.validationRules, tb: s.tableObjects, mg: s.merges || [], fr: s.freezeRows, fc: s.freezeCols, cw: s.colWidths || {}, rh: s.rowHeights || {} };
+            return { name: s.name, cells, styles, cf: s.conditionalRules, dv: s.validationRules, tb: s.tableObjects, mg: s.merges || [], fr: s.freezeRows, fc: s.freezeCols, cw: s.colWidths || {}, rh: s.rowHeights || {}, ct: s.charts || [] };
         }
 
         function encodeWorkbook() {
@@ -2014,6 +2102,22 @@
             return out;
         }
 
+        // A chart read from storage
+        const CHART_TYPES = { column: 'Column', bar: 'Bar', line: 'Line', pie: 'Pie' };
+        function cleanChart(c) {
+            if (!c || typeof c !== 'object' || typeof c.ref !== 'string') return null;
+            const ref = c.ref.slice(0, 120);
+            if (!NAME_REF_RE.test(ref) && !/^#REF!/.test(ref)) return null;
+            return {
+                id: cleanText(c.id || ('c' + Math.random().toString(36).slice(2, 8)), 20).replace(/[^A-Za-z0-9_-]/g, ''),
+                title: cleanText(c.title, 60),
+                type: CHART_TYPES[c.type] ? c.type : 'column',
+                ref,
+                header: c.header !== false, labels: c.labels !== false, byRows: c.byRows === true,
+                legend: c.legend !== false, values: c.values === true
+            };
+        }
+
         // Column widths / row heights read from storage: { index: pixels }, only sizes that differ from the normal one
         function cleanSizes(o, count, lo, hi, normal) {
             const out = {};
@@ -2063,7 +2167,8 @@
                 freezeRows: cleanInt(es.fr, 0, 50, 0),
                 freezeCols: cleanInt(es.fc, 0, 10, 0),
                 colWidths: cleanSizes(es.cw, COLS, MIN_COL_W, MAX_COL_W, DEFAULT_COL_W),
-                rowHeights: cleanSizes(es.rh, ROWS, MIN_ROW_H, MAX_ROW_H, DEFAULT_ROW_H)
+                rowHeights: cleanSizes(es.rh, ROWS, MIN_ROW_H, MAX_ROW_H, DEFAULT_ROW_H),
+                charts: (Array.isArray(es.ct) ? es.ct : []).slice(0, 30).map(cleanChart).filter(Boolean)
             };
         }
 
@@ -3036,6 +3141,8 @@
                         <button onclick="openFreezeModal()">Freeze Panes...</button>
                         <button id="unfreeze-btn" onclick="unfreezePanes()" ${freezeRows || freezeCols ? '' : 'disabled'}>Unfreeze</button>
                         <button onclick="openCondFormatting()">Cond. Formatting</button>
+                        <button onclick="newChartFromSelection()">New Chart</button>
+                        <button onclick="openChartsList()">Charts</button>
                         <button onclick="openNamesModal()">Names</button>
                         <button onclick="openSheetModal()">Rename / Delete Sheet</button>
                         <button class="primary" onclick="openWizard()">fx Wizard</button>
@@ -3916,13 +4023,13 @@
         function parseListRange(input) {
             const asName = findName(String(input || '').trim());
             if (asName) return { text: asName.name };
-            const t = String(input || '').trim().replace(/\$/g, '');
-            const m = new RegExp(`^(${SHEET_PREFIX_SRC})?([A-Za-z]{1,3}\\d+(?::[A-Za-z]{1,3}\\d+)?)$`).exec(t);
-            if (!m || !parseRangeText(m[2])) return { error: 'Type the range like Lists!A2:A20' };
-            const name = m[1] ? sheetOfPrefix(m[1]) : sheets[currentSheetIdx].name;
+            const sp = splitSheetCells(input);
+            const cellsText = sp && sp.cells.replace(/\$/g, '').toUpperCase();
+            if (!sp || !parseRangeText(cellsText)) return { error: 'Type the range like Lists!A2:A20' };
+            const name = sp.sheet !== null ? sp.sheet : sheets[currentSheetIdx].name;
             const k = sheetIndexByName(name);
             if (k < 0) return { error: `There is no sheet called ${name}` };
-            return { text: sheetPrefix(sheets[k].name) + m[2].toUpperCase() };
+            return { text: sheetPrefix(sheets[k].name) + cellsText };
         }
         function applyDataValidation() {
             const rangeText = valEl('val-range').value.trim().toUpperCase().replace(/\$/g, '');
@@ -6020,6 +6127,7 @@
             if (!s.merges) s.merges = [];
             if (!s.colWidths) s.colWidths = {};
             if (!s.rowHeights) s.rowHeights = {};
+            if (!s.charts) s.charts = [];
             data = s.data;
             conditionalRules = s.conditionalRules;
             validationRules = s.validationRules;
@@ -6067,6 +6175,7 @@
                 (sh.validationRules || []).forEach(r => { if (typeof r.listRange === 'string') r.listRange = mapSheetRefs(r.listRange, fix); });
             });
             workbookNames.forEach(n => { n.ref = mapSheetRefs(n.ref, fix); });
+            sheets.forEach(sh => (sh.charts || []).forEach(c => { c.ref = mapSheetRefs(c.ref, fix); }));
         }
         function countSheetUsers(name) {
             const k = name.toLowerCase();
@@ -8474,12 +8583,20 @@
             return '';
         }
         // "Lists!B2:B20" (or "B2:B20" for this sheet) -> { ref: "Lists!$B$2:$B$20" } or { error }
-        function normalizeNameRef(input) {
+        // Splits "Lists!B2:B20", "'My Sheet'!B2" or "My Sheet!B2" (quotes optional) into the sheet name (null when missing) and the cells
+        function splitSheetCells(input) {
             const t = String(input || '').trim();
-            const m = new RegExp(`^(${SHEET_PREFIX_SRC})?(\\$?[A-Za-z]{1,3}\\$?\\d+(?::\\$?[A-Za-z]{1,3}\\$?\\d+)?)$`).exec(t);
-            const cells = m && m[2].replace(/\$/g, '').toUpperCase();
-            if (!m || !parseRangeText(cells)) return { error: 'Type the cells like Lists!B2:B20' };
-            const name = m[1] ? sheetOfPrefix(m[1]) : sheets[currentSheetIdx].name;
+            const m = /^(?:(.+)!)?(\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?)$/.exec(t);
+            if (!m) return null;
+            let sheet = m[1] === undefined ? null : m[1].trim();
+            if (sheet && sheet.length > 1 && sheet.startsWith("'") && sheet.endsWith("'")) sheet = sheet.slice(1, -1).replace(/''/g, "'");
+            return { sheet, cells: m[2] };
+        }
+        function normalizeNameRef(input) {
+            const sp = splitSheetCells(input);
+            const cells = sp && sp.cells.replace(/\$/g, '').toUpperCase();
+            if (!sp || !parseRangeText(cells)) return { error: 'Type the cells like Lists!B2:B20' };
+            const name = sp.sheet !== null ? sp.sheet : sheets[currentSheetIdx].name;
             const k = sheetIndexByName(name);
             if (k < 0) return { error: `There is no sheet called ${name}` };
             return { ref: sheetPrefix(sheets[k].name) + cells.replace(/([A-Z]{1,3})(\d+)/g, (x, c, r) => '$' + c + '$' + r) };
@@ -8655,6 +8772,388 @@
             cellsChanged(ids, `Rolled ability scores in ${getCellId(r0, c0)}:${getCellId(Math.min(ROWS - 1, r0 + 5), c0)}`, { startRow: r0, startCol: c0, endRow: Math.min(ROWS - 1, r0 + 5), endCol: c0 });
             sizeDicePanel();
         }
+
+        // ===== Charts =====
+        // A chart keeps the cells it draws (not a copy of the numbers), so it always shows what the sheet shows now.
+        const CHART_MAX_SERIES = 8, CHART_MAX_POINTS = 200, CHART_MAX_CHARTS = 30;
+        let chartOpen = null;   // the chart being viewed
+        let chartViewData = null; // { model, geometry } of the drawing on screen, for the tap tooltips
+        const chartList = () => sheets[currentSheetIdx].charts;
+        const chartEsc = t => escapeHtml(String(t));
+        const chartPx = v => Math.round(v * 100) / 100;
+
+        // Reads the cells a chart points at and sorts them into series and categories
+        function chartModel(c) {
+            if (/^#REF!/.test(c.ref)) return { error: 'The sheet this chart used was deleted. Type the cells to chart below.' };
+            const m = new RegExp(`^(${SHEET_PREFIX_SRC})(\\$?[A-Za-z]{1,3}\\$?\\d+(?::\\$?[A-Za-z]{1,3}\\$?\\d+)?)$`).exec(c.ref);
+            if (!m) return { error: 'Type the cells like Sheet 1!A1:C6' };
+            const idx = sheetIndexByName(sheetOfPrefix(m[1]));
+            const bounds = parseRangeText(m[2].replace(/\$/g, '').toUpperCase());
+            if (idx < 0 || !bounds) return { error: 'These cells are not on a sheet that exists' };
+            let res;
+            try { res = evaluateFormula('=' + c.ref, 0, 0, true); } catch (e) { return { error: 'These cells could not be read' }; }
+            if (typeof res === 'string' && ERROR_CODES.includes(res)) return { error: 'These cells could not be read' };
+            const rv = isRange(res) ? res : new RangeVal(1, 1, [res]);
+            const rows = rv.rows, cols = rv.cols;
+            const d0 = c.header ? 1 : 0, c0 = c.labels ? 1 : 0;
+            const label = (r, k) => {
+                const v = rv.get(r, k);
+                if (isBlank(v)) return '';
+                const src = sheets[idx].data[getCellId(bounds.minR + r, bounds.minC + k)];
+                if (typeof v === 'number' && src && src.style && Object.keys(src.style).length) return String(cellDisplayText({ value: v, style: src.style, formula: '' }));
+                return displayValue(v) + '';
+            };
+            const num = v => (typeof v === 'number' && isFinite(v) ? v : (typeof v === 'string' && v.trim() !== '' && isFinite(Number(v)) ? Number(v) : null));
+            let series = [], cats = [], notes = [];
+            if (!c.byRows) {
+                if (rows - d0 < 1 || cols - c0 < 1) return { error: 'Pick at least one row of numbers and one column of numbers' };
+                for (let r = d0; r < rows; r++) cats.push(c.labels ? label(r, 0) : String(r - d0 + 1));
+                for (let k = c0; k < cols; k++) {
+                    const vals = [];
+                    for (let r = d0; r < rows; r++) vals.push(num(rv.get(r, k)));
+                    series.push({ name: c.header ? (label(0, k) || `Series ${k - c0 + 1}`) : `Series ${k - c0 + 1}`, values: vals });
+                }
+            } else {
+                if (rows - d0 < 1 || cols - c0 < 1) return { error: 'Pick at least one row of numbers and one column of numbers' };
+                for (let k = c0; k < cols; k++) cats.push(c.header ? label(0, k) : String(k - c0 + 1));
+                for (let r = d0; r < rows; r++) {
+                    const vals = [];
+                    for (let k = c0; k < cols; k++) vals.push(num(rv.get(r, k)));
+                    series.push({ name: c.labels ? (label(r, 0) || `Series ${r - d0 + 1}`) : `Series ${r - d0 + 1}`, values: vals });
+                }
+            }
+            series = series.filter(x => x.values.some(v => v !== null));
+            if (!series.length) return { error: 'There are no numbers in those cells to chart' };
+            if (series.length > CHART_MAX_SERIES) { notes.push(`Showing the first ${CHART_MAX_SERIES} of ${series.length} series`); series = series.slice(0, CHART_MAX_SERIES); }
+            if (cats.length > CHART_MAX_POINTS) { notes.push(`Showing the first ${CHART_MAX_POINTS} of ${cats.length} points`); cats = cats.slice(0, CHART_MAX_POINTS); series.forEach(x => { x.values = x.values.slice(0, CHART_MAX_POINTS); }); }
+            return { series, cats, notes };
+        }
+        // 1500 -> 1.5K, 2500000 -> 2.5M
+        function chartNum(v) {
+            const a = Math.abs(v);
+            const f = (x, suffix) => `${Number(x.toFixed(x >= 100 ? 0 : 1))}${suffix}`;
+            if (a >= 1e9) return (v < 0 ? '-' : '') + f(a / 1e9, 'B');
+            if (a >= 1e6) return (v < 0 ? '-' : '') + f(a / 1e6, 'M');
+            if (a >= 1e4) return (v < 0 ? '-' : '') + f(a / 1e3, 'K');
+            return String(Number(v.toFixed(2)));
+        }
+        function chartTicks(lo, hi) {
+            if (!(hi > lo)) hi = lo + 1;
+            const raw = (hi - lo) / 5, mag = Math.pow(10, Math.floor(Math.log10(raw))), norm = raw / mag;
+            const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+            const start = Math.floor(lo / step + 1e-9) * step, end = Math.ceil(hi / step - 1e-9) * step;
+            const ticks = [];
+            for (let t = start; t <= end + step / 2; t += step) ticks.push(Number(t.toPrecision(12)));
+            return ticks;
+        }
+        const chartShort = (t, n) => (t.length > n ? t.slice(0, n - 1) + '…' : t);
+        const seriesVar = i => `var(--series-${(i % 8) + 1})`;
+        // A bar with a rounded far end and a square end on the baseline (dir: -1 grows up, 1 grows down; horizontal for bar charts)
+        function chartBarPath(x, y, w, h, up, horizontal) {
+            const r = Math.max(0, Math.min(4, (horizontal ? h : w) / 2, (horizontal ? w : h)));
+            if (!horizontal) {
+                return up
+                    ? `M${x},${y + h} V${y + r} Q${x},${y} ${x + r},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h} Z`
+                    : `M${x},${y} V${y + h - r} Q${x},${y + h} ${x + r},${y + h} H${x + w - r} Q${x + w},${y + h} ${x + w},${y + h - r} V${y} Z`;
+            }
+            return up
+                ? `M${x},${y} H${x + w - r} Q${x + w},${y} ${x + w},${y + r} V${y + h - r} Q${x + w},${y + h} ${x + w - r},${y + h} H${x} Z`
+                : `M${x + w},${y} H${x + r} Q${x},${y} ${x},${y + r} V${y + h - r} Q${x},${y + h} ${x + r},${y + h} H${x + w} Z`;
+        }
+
+        // Draws the chart; returns { svg, geo } (geo is what the tap tooltips need)
+        function chartDraw(c, model) {
+            const W = 360;
+            const nS = model.series.length, nC = model.cats.length;
+            if (c.type === 'pie') return chartDrawPie(c, model, W);
+            const horizontal = c.type === 'bar';
+            const all = model.series.flatMap(x => x.values).filter(v => v !== null);
+            let lo = Math.min(...all), hi = Math.max(...all);
+            if (c.type !== 'line' || !(lo > 0 && lo > 0.5 * hi)) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+            else lo = lo - (hi - lo) * 0.1;
+            const ticks = chartTicks(lo, hi);
+            lo = ticks[0]; hi = ticks[ticks.length - 1];
+            const longest = Math.max(...model.cats.map(t => Math.min(t.length, 12)));
+            const H = horizontal ? Math.max(180, 40 + nC * (nS * 14 + 8)) : 240;
+            const m = horizontal ? { l: Math.min(96, 12 + longest * 5.2), r: 16, t: 8, b: 22 } : { l: 38, r: 10, t: 12, b: 28 };
+            const pw = W - m.l - m.r, ph = H - m.t - m.b;
+            const val = v => (horizontal ? m.l + (v - lo) / (hi - lo) * pw : m.t + ph - (v - lo) / (hi - lo) * ph);
+            const zero = val(0);
+            let out = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${chartEsc(c.title || 'Chart')}">`;
+            // grid and value axis
+            ticks.forEach(t => {
+                const p = chartPx(val(t));
+                out += horizontal
+                    ? `<line class="ch-grid" x1="${p}" x2="${p}" y1="${m.t}" y2="${m.t + ph}"/><text x="${p}" y="${H - 8}" text-anchor="middle">${chartNum(t)}</text>`
+                    : `<line class="ch-grid" x1="${m.l}" x2="${m.l + pw}" y1="${p}" y2="${p}"/><text x="${m.l - 5}" y="${p + 3}" text-anchor="end">${chartNum(t)}</text>`;
+            });
+            // category axis
+            const band = (horizontal ? ph : pw) / nC;
+            const maxLabels = Math.max(1, Math.floor((horizontal ? ph : pw) / (horizontal ? 14 : 38)));
+            const every = Math.ceil(nC / maxLabels);
+            model.cats.forEach((t, i) => {
+                if (i % every) return;
+                const mid = (horizontal ? m.t : m.l) + band * (i + 0.5);
+                out += horizontal
+                    ? `<text x="${m.l - 5}" y="${chartPx(mid + 3)}" text-anchor="end">${chartEsc(chartShort(t, 14))}</text>`
+                    : `<text x="${chartPx(mid)}" y="${H - 10}" text-anchor="middle">${chartEsc(chartShort(t, Math.max(3, Math.floor(band * every / 5))))}</text>`;
+            });
+            out += horizontal ? `<line class="ch-axis" x1="${chartPx(zero)}" x2="${chartPx(zero)}" y1="${m.t}" y2="${m.t + ph}"/>` : `<line class="ch-axis" x1="${m.l}" x2="${m.l + pw}" y1="${chartPx(zero)}" y2="${chartPx(zero)}"/>`;
+            const geo = { type: c.type, band, m, pw, ph, horizontal, W, H };
+            if (c.type === 'line') {
+                model.series.forEach((sr, si) => {
+                    let d = '', pen = false;
+                    sr.values.forEach((v, i) => {
+                        if (v === null) { pen = false; return; }
+                        const x = chartPx(m.l + band * (i + 0.5)), y = chartPx(val(v));
+                        d += `${pen ? 'L' : 'M'}${x},${y} `;
+                        pen = true;
+                    });
+                    out += `<path d="${d.trim()}" fill="none" stroke="${seriesVar(si)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+                });
+                if (nC <= 40) model.series.forEach((sr, si) => sr.values.forEach((v, i) => {
+                    if (v === null) return;
+                    out += `<circle cx="${chartPx(m.l + band * (i + 0.5))}" cy="${chartPx(val(v))}" r="4" fill="${seriesVar(si)}" stroke="var(--chart-surface)" stroke-width="2"/>`;
+                }));
+                if (c.values) model.series.forEach((sr, si) => {
+                    let last = sr.values.length - 1;
+                    while (last >= 0 && sr.values[last] === null) last--;
+                    if (last >= 0) out += `<text x="${chartPx(m.l + band * (last + 0.5))}" y="${chartPx(val(sr.values[last]) - 8)}" text-anchor="end" style="fill:var(--chart-ink)">${chartNum(sr.values[last])}</text>`;
+                });
+                out += `<line class="ch-xhair" id="ch-xhair" x1="0" x2="0" y1="${m.t}" y2="${m.t + ph}" style="display:none"/>`;
+                model.cats.forEach((t, i) => { out += `<rect class="ch-hit" data-i="${i}" x="${chartPx(m.l + band * i)}" y="${m.t}" width="${chartPx(band)}" height="${ph}"/>`; });
+            } else {
+                // columns / bars: up to 24 px thick, 2 px of surface between neighbours
+                const group = band * 0.8, gap = 2;
+                const thick = Math.max(2, Math.min(24, (group - gap * (nS - 1)) / nS));
+                const total = thick * nS + gap * (nS - 1);
+                model.series.forEach((sr, si) => sr.values.forEach((v, i) => {
+                    if (v === null) return;
+                    const start = (horizontal ? m.t : m.l) + band * i + (band - total) / 2 + si * (thick + gap);
+                    const up = v >= 0;
+                    const lenPx = Math.abs(val(v) - zero);
+                    if (lenPx < 0.5) return;
+                    let x, y, w, h;
+                    if (horizontal) { x = up ? zero : zero - lenPx; y = start; w = lenPx; h = thick; }
+                    else { x = start; y = up ? zero - lenPx : zero; w = thick; h = lenPx; }
+                    out += `<path d="${chartBarPath(chartPx(x), chartPx(y), chartPx(w), chartPx(h), up, horizontal)}" fill="${seriesVar(si)}"/>`;
+                    if (c.values) {
+                        const txt = chartNum(v), tw = txt.length * 5;
+                        if (horizontal) { if (m.l + pw - (x + w) > tw + 6 || !up) out += `<text x="${chartPx(up ? x + w + 4 : x - 4)}" y="${chartPx(y + thick / 2 + 3)}" text-anchor="${up ? 'start' : 'end'}" style="fill:var(--chart-ink)">${txt}</text>`; }
+                        else if (tw <= band * 0.95) out += `<text x="${chartPx(x + thick / 2)}" y="${chartPx(up ? y - 4 : y + h + 10)}" text-anchor="middle" style="fill:var(--chart-ink)">${txt}</text>`;
+                    }
+                }));
+                // tap targets: the whole band of one category
+                model.cats.forEach((t, i) => {
+                    out += horizontal
+                        ? `<rect class="ch-hit" data-i="${i}" x="${m.l}" y="${chartPx(m.t + band * i)}" width="${pw}" height="${chartPx(band)}"/>`
+                        : `<rect class="ch-hit" data-i="${i}" x="${chartPx(m.l + band * i)}" y="${m.t}" width="${chartPx(band)}" height="${ph}"/>`;
+                });
+            }
+            out += '</svg>';
+            return { svg: out, geo };
+        }
+        function chartDrawPie(c, model, W) {
+            const sr = model.series[0];
+            let slices = sr.values.map((v, i) => ({ name: model.cats[i], v: v !== null && v > 0 ? v : 0 })).filter(x => x.v > 0);
+            if (!slices.length) return { svg: '', geo: null, empty: 'A pie chart needs numbers above zero' };
+            let note = '';
+            if (slices.length > 8) {
+                slices.sort((a, b) => b.v - a.v);
+                const other = slices.slice(7).reduce((a, x) => a + x.v, 0);
+                slices = slices.slice(0, 7).concat([{ name: 'Other', v: other, other: true }]);
+                note = 'The smallest slices are grouped as Other';
+            }
+            const total = slices.reduce((a, x) => a + x.v, 0);
+            const H = 230, cx = W / 2, cy = H / 2, r = 92;
+            let out = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${chartEsc(c.title || 'Chart')}">`;
+            let a0 = -Math.PI / 2;
+            slices.forEach((sl, i) => {
+                const ang = sl.v / total * Math.PI * 2, a1 = a0 + ang;
+                sl.pct = sl.v / total * 100;
+                sl.color = sl.other ? 'var(--series-other)' : seriesVar(i);
+                if (slices.length === 1) out += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${sl.color}" data-i="${i}" class="ch-slice"/>`;
+                else {
+                    const large = ang > Math.PI ? 1 : 0;
+                    const p = (a, rr) => `${chartPx(cx + rr * Math.cos(a))},${chartPx(cy + rr * Math.sin(a))}`;
+                    out += `<path class="ch-slice" data-i="${i}" d="M${cx},${cy} L${p(a0, r)} A${r},${r} 0 ${large} 1 ${p(a1, r)} Z" fill="${sl.color}" stroke="var(--chart-surface)" stroke-width="2" stroke-linejoin="round"/>`;
+                }
+                if (c.values && sl.pct >= 7) {
+                    const am = (a0 + a1) / 2;
+                    out += `<text x="${chartPx(cx + r * 0.62 * Math.cos(am))}" y="${chartPx(cy + r * 0.62 * Math.sin(am) + 3)}" text-anchor="middle" style="fill:#ffffff;font-weight:600">${Math.round(sl.pct)}%</text>`;
+                }
+                a0 = a1;
+            });
+            out += '</svg>';
+            return { svg: out, geo: { type: 'pie', slices, total }, note };
+        }
+
+        // --- the viewer ---
+        function chartFind(id) { return chartList().find(x => x.id === id); }
+        function chartRender(keepInputs) {
+            const c = chartOpen;
+            if (!c) return;
+            fEl('chart-head').textContent = c.title || 'Chart';
+            document.querySelectorAll('#chart-types button').forEach(b => b.classList.toggle('on', b.dataset.type === c.type));
+            const model = chartModel(c);
+            const view = fEl('chart-view'), legend = fEl('chart-legend'), note = fEl('chart-note');
+            fEl('chart-tip').classList.add('hidden');
+            chartViewData = null;
+            if (model.error) {
+                view.innerHTML = `<div class="wiz-tip" style="padding:20px 0">${chartEsc(model.error)}</div>`;
+                legend.innerHTML = ''; note.textContent = ''; fEl('chart-table').innerHTML = '';
+                if (!keepInputs) { fEl('chart-title').value = c.title; fEl('chart-range').value = c.ref.replace(/\$/g, ''); fEl('chart-header').checked = c.header; fEl('chart-labels').checked = c.labels; fEl('chart-byrows').checked = c.byRows; fEl('chart-legend-on').checked = c.legend; fEl('chart-values').checked = c.values; }
+                return;
+            }
+            const drawn = chartDraw(c, model);
+            if (drawn.empty) { view.innerHTML = `<div class="wiz-tip" style="padding:20px 0">${chartEsc(drawn.empty)}</div>`; legend.innerHTML = ''; }
+            else view.innerHTML = (c.title ? `<div style="font-weight:600;font-size:0.95rem;margin:0 0 4px">${chartEsc(c.title)}</div>` : '') + drawn.svg;
+            chartViewData = { model, geo: drawn.geo, chart: c };
+            // key: needed for two or more series (a pie always names its slices)
+            let keys = '';
+            if (c.type === 'pie' && drawn.geo) keys = drawn.geo.slices.map(sl => `<span class="ch-key"><i style="background:${sl.color}"></i>${chartEsc(sl.name)} ${Math.round(sl.pct)}%</span>`).join('');
+            else if (c.legend && model.series.length > 1) keys = model.series.map((sr, i) => `<span class="ch-key"><i style="background:${seriesVar(i)}"></i>${chartEsc(sr.name)}</span>`).join('');
+            legend.innerHTML = keys;
+            const notes = (model.notes || []).concat(drawn.note ? [drawn.note] : []);
+            if (c.type === 'pie' && model.series.length > 1) notes.push(`A pie shows one series: ${model.series[0].name}`);
+            note.textContent = notes.join('. ');
+            // data table (the same numbers in words)
+            let t = '<table><tr><th></th>' + model.series.map(sr => `<th>${chartEsc(sr.name)}</th>`).join('') + '</tr>';
+            model.cats.forEach((cat, i) => { t += `<tr><td>${chartEsc(cat)}</td>` + model.series.map(sr => `<td>${sr.values[i] === null ? '' : chartEsc(chartNum(sr.values[i]).length < 8 && Math.abs(sr.values[i]) < 1e4 ? String(Number(sr.values[i].toFixed(4))) : String(sr.values[i]))}</td>`).join('') + '</tr>'; });
+            fEl('chart-table').innerHTML = t + '</table>';
+            if (keepInputs) return;
+            fEl('chart-title').value = c.title;
+            fEl('chart-range').value = c.ref.replace(/\$/g, '');
+            fEl('chart-header').checked = c.header; fEl('chart-labels').checked = c.labels; fEl('chart-byrows').checked = c.byRows;
+            fEl('chart-legend-on').checked = c.legend; fEl('chart-values').checked = c.values;
+        }
+        function openChart(id) {
+            const c = chartFind(id);
+            if (!c) return;
+            if (editingCell) endEdit(true);
+            closeChartsList();
+            chartOpen = c;
+            fEl('chart-table').classList.add('hidden');
+            fEl('chart-table-btn').textContent = 'Show table';
+            fEl('chart-modal').classList.remove('hidden');
+            chartRender();
+        }
+        function closeChart() {
+            if (!chartOpen) { fEl('chart-modal').classList.add('hidden'); return; }
+            const c = chartOpen;
+            chartOpen = null;
+            fEl('chart-modal').classList.add('hidden');
+            recordHistory(`Changed chart ${c.title || ''}`.trim());
+        }
+        function chartEdit(prop, value) {
+            const c = chartOpen;
+            if (!c) return;
+            if (prop === 'ref') {
+                const r = normalizeNameRef(value);
+                if (r.error) { showToast(r.error); fEl('chart-range').value = c.ref.replace(/\$/g, ''); return; }
+                c.ref = r.ref;
+            } else if (prop === 'type') c.type = CHART_TYPES[value] ? value : c.type;
+            else if (prop === 'title') c.title = String(value).slice(0, 60);
+            else c[prop] = !!value;
+            chartRender(prop === 'title'); // typing a title must not rewrite the text box under the caret
+        }
+        function chartUseSelection() {
+            const b = toolBounds();
+            fEl('chart-range').value = `${sheetPrefix(sheets[currentSheetIdx].name)}${selRangeText(b)}`;
+            chartEdit('ref', fEl('chart-range').value);
+        }
+        function chartToggleTable() {
+            const t = fEl('chart-table');
+            t.classList.toggle('hidden');
+            fEl('chart-table-btn').textContent = t.classList.contains('hidden') ? 'Show table' : 'Hide table';
+        }
+        function chartDelete() {
+            const c = chartOpen;
+            if (!c || !confirm(`Delete the chart ${c.title || ''}? You can undo this in Time Travel.`)) return;
+            const list = chartList();
+            list.splice(list.indexOf(c), 1);
+            chartOpen = null;
+            fEl('chart-modal').classList.add('hidden');
+            showToast('Chart deleted');
+            recordHistory(`Deleted chart ${c.title || ''}`.trim());
+        }
+        // A first guess at which row / column hold the titles: titles are text, the rest are numbers
+        function chartGuess(b) {
+            const val = (r, k) => { const x = data[getCellId(r, k)]; return x ? x.value : ''; };
+            const isNum = v => typeof v === 'number';
+            const isText = v => typeof v === 'string' && v.trim() !== '' && !isFinite(Number(v));
+            let header = false, labels = false;
+            if (b.maxR > b.minR) {
+                let tops = 0, cols = 0;
+                for (let k = b.minC; k <= b.maxC; k++) { cols++; if (isText(val(b.minR, k)) || (k === b.minC && isBlank(val(b.minR, k)))) tops++; }
+                header = tops === cols && cols > 0;
+            }
+            if (b.maxC > b.minC) {
+                let texts = 0, rows = 0;
+                for (let r = b.minR + (header ? 1 : 0); r <= b.maxR; r++) { rows++; if (isText(val(r, b.minC))) texts++; }
+                labels = rows > 0 && texts >= rows / 2;
+            }
+            if (b.maxC === b.minC) header = header && b.maxR > b.minR;
+            return { header, labels };
+        }
+        function newChartFromSelection() {
+            if (editingCell) endEdit(true);
+            if (chartList().length >= CHART_MAX_CHARTS) { showToast(`A sheet can have up to ${CHART_MAX_CHARTS} charts`); return; }
+            const b = toolBounds();
+            if ((b.maxR - b.minR + 1) * (b.maxC - b.minC + 1) < 2) { showToast('Select the cells to chart (the numbers, and the titles and labels next to them), or tap one cell inside your data'); return; }
+            const g = chartGuess(b);
+            const ids = new Set(chartList().map(x => x.id));
+            let id; do { id = 'c' + Math.random().toString(36).slice(2, 8); } while (ids.has(id));
+            const cells = selRangeText(b).replace(/([A-Z]{1,3})(\d+)/g, (x, col, row) => '$' + col + '$' + row);
+            const chart = { id, title: `Chart ${chartList().length + 1}`, type: 'column', ref: sheetPrefix(sheets[currentSheetIdx].name) + cells, header: g.header, labels: g.labels, byRows: false, legend: true, values: false };
+            chartList().push(chart);
+            recordHistory(`Added ${chart.title}`);
+            openChart(id);
+        }
+        function openChartsList() {
+            if (editingCell) endEdit(true);
+            const list = chartList();
+            fEl('charts-list').innerHTML = list.length ? list.map(c => `
+                <div class="chart-row">
+                    <span class="cr-text"><strong>${chartEsc(c.title || 'Chart')}</strong><small>${chartEsc(CHART_TYPES[c.type])} · ${chartEsc(c.ref.replace(/\$/g, ''))}</small></span>
+                    <button onclick="openChart('${c.id}')">Open</button>
+                </div>`).join('') : '<div class="wiz-tip">No charts on this sheet yet. Select some cells and tap New Chart.</div>';
+            fEl('charts-modal').classList.remove('hidden');
+        }
+        function closeChartsList() { fEl('charts-modal').classList.add('hidden'); }
+
+        // --- tap a bar, point or slice for its numbers ---
+        function chartShowTip(html, px, py) {
+            const tip = fEl('chart-tip'), root = fEl('chart-root');
+            tip.innerHTML = html;
+            tip.classList.remove('hidden');
+            const rr = root.getBoundingClientRect();
+            const left = Math.min(Math.max(4, px - rr.left - tip.offsetWidth / 2), rr.width - tip.offsetWidth - 4);
+            const top = Math.max(4, py - rr.top - tip.offsetHeight - 14);
+            tip.style.left = left + 'px';
+            tip.style.top = top + 'px';
+        }
+        function chartTap(e) {
+            const v = chartViewData;
+            if (!v || !v.geo) return;
+            const hit = e.target.closest && e.target.closest('[data-i]');
+            document.querySelectorAll('#chart-view .ch-hit.on').forEach(el => el.classList.remove('on'));
+            const xh = fEl('ch-xhair');
+            if (xh) xh.style.display = 'none';
+            if (!hit) { fEl('chart-tip').classList.add('hidden'); return; }
+            const i = Number(hit.dataset.i);
+            if (v.geo.type === 'pie') {
+                const sl = v.geo.slices[i];
+                chartShowTip(`<i style="background:${sl.color}"></i>${chartEsc(sl.name)}<br>${chartEsc(String(Number(sl.v.toFixed(4))))} (${sl.pct.toFixed(1)}%)`, e.clientX, e.clientY);
+                return;
+            }
+            hit.classList.add('on');
+            if (v.geo.type === 'line' && xh) { const x = v.geo.m.l + v.geo.band * (i + 0.5); xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.style.display = ''; }
+            let html = `<strong>${chartEsc(v.model.cats[i])}</strong>`;
+            v.model.series.forEach((sr, si) => { const x = sr.values[i]; if (x !== null) html += `<br><i style="background:${seriesVar(si)}"></i>${v.model.series.length > 1 ? chartEsc(sr.name) + ': ' : ''}${chartEsc(String(Number(x.toFixed(4))))}`; });
+            chartShowTip(html, e.clientX, e.clientY);
+        }
+        document.addEventListener('pointerdown', e => { if (chartOpen && e.target.closest && e.target.closest('#chart-view')) chartTap(e); });
 
         // Merge / Unmerge (merges are stored per sheet so they survive grid rebuilds)
         function applyMergeDOM(m) {
@@ -8848,7 +9347,7 @@
         // whole workbook, so recording is quick and 25 steps cost little memory. Going back or forward applies those changes.
         // `historyStack` holds the steps; `histPos` is how many of them are applied (the rest are "ahead" and can be redone).
         const HIST_MAX = 25;
-        const HIST_META = ['name', 'conditionalRules', 'validationRules', 'tableObjects', 'merges', 'freezeRows', 'freezeCols', 'colWidths', 'rowHeights'];
+        const HIST_META = ['name', 'conditionalRules', 'validationRules', 'tableObjects', 'merges', 'freezeRows', 'freezeCols', 'colWidths', 'rowHeights', 'charts'];
         let histPos = 0;
         let histStartName = 'Opened workbook';
         let histShadow = new WeakMap(); // sheet -> what it looked like at the last step: { cells: Map, meta: {} }
