@@ -2441,8 +2441,9 @@
         }
 
         function initAutosave() {
-            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
-            window.addEventListener('pagehide', flushSave);
+            const commitAndSave = () => { if (editingCell) endEdit(true); flushSave(); }; // what is half typed is not in the sheet yet
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') commitAndSave(); });
+            window.addEventListener('pagehide', commitAndSave);
             window.addEventListener('beforeunload', e => {
                 if (saveState.dirty && (!saveState.enabled || saveState.failed)) { e.preventDefault(); e.returnValue = ''; }
             });
@@ -2905,7 +2906,7 @@
         // The box a cell is typed into: a one-line input, or a multi-line box when the cell wraps its text
         function cellEditorHTML(r, c, wrap) {
             const cellId = columnToLetter(c) + (r + 1);
-            const attrs = `class="cell-input" id="input-${cellId}" data-cell="${cellId}" readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="setCellContent('${cellId}', this.value)" onblur="onCellBlur(${r}, ${c})" onkeydown="handleCellKey(event, ${r}, ${c})"`;
+            const attrs = `class="cell-input" id="input-${cellId}" data-cell="${cellId}" readonly autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="markTyped()" onblur="onCellBlur(${r}, ${c})" onkeydown="handleCellKey(event, ${r}, ${c})"`;
             return wrap ? `<textarea ${attrs} rows="1"></textarea>` : `<input type="text" ${attrs}>`;
         }
         // Swaps a cell's box when its Wrap setting changed (never while the cell is being typed in)
@@ -3537,19 +3538,22 @@
             if (editingCell) endEdit(true);
             if (activeCell.row !== r || activeCell.col !== c) selectSingle(r, c);
             if (clip) clipClear(true); // starting to edit drops the copy outline, as in Excel
-            editingCell = { row: r, col: c, original: cellEditText(cellId) };
+            editingCell = { row: r, col: c, original: cellEditText(cellId), typed: replaceWith !== undefined };
             input.readOnly = false;
             input.classList.add('editing');
             input.value = replaceWith !== undefined ? replaceWith : cellEditText(cellId);
             input.focus();
             const len = input.value.length;
             try { input.setSelectionRange(len, len); } catch (err) {}
-            if (replaceWith !== undefined) setCellContent(cellId, replaceWith);
+            // Nothing is calculated while typing: the entry is accepted (and the sheet calculated, once) by endEdit
         }
 
+        // Typing only notes that something was typed (no calculation): an entry that equals the old text is still accepted and read again,
+        // which is how retyping 5 into a cell that was Text turns it into a number
+        function markTyped() { if (editingCell) editingCell.typed = true; }
         function endEdit(commit) {
             if (!editingCell) return;
-            const { row, col, original } = editingCell;
+            const { row, col, original, typed } = editingCell;
             editingCell = null;
             const cellId = getCellId(row, col);
             const input = document.getElementById(`input-${cellId}`);
@@ -3559,19 +3563,21 @@
                 input.classList.remove('editing');
                 input.blur();
             }
+            let accepted = false; // an accepted entry is calculated once, inside onCellInput
             if (commit) {
-                if (String(val) !== String(original)) {
+                if (typed || String(val) !== String(original)) {
                     const sm = smartEntry(row, col, val);
                     if (sm) {
                         const f = applySmartEntry(sm, original);
-                        if (f === null) setCellContent(cellId, String(original)); // nothing sensible to put in: the cell goes back to what it held
-                        else onCellInput(cellId, f);
-                    } else onCellInput(cellId, val);
+                        if (f !== null) { onCellInput(cellId, f); accepted = true; } // (null: nothing sensible to put in, the cell stays as it was)
+                    } else { onCellInput(cellId, val); accepted = true; }
                 }
-            } else {
-                setCellContent(cellId, String(original));
             }
-            recalculateAll();
+            if (!accepted && input) { // Escape, no change, or nothing sensible: the box shows what the cell holds again
+                const held = data[cellId];
+                input.value = held ? cellDisplayText(held) : '';
+                input.style.textAlign = held ? effectiveAlign(held) : '';
+            }
             if (activeCell.row === row && activeCell.col === col) {
                 document.getElementById('formula-input').value = cellEditText(cellId);
             }
@@ -5854,19 +5860,43 @@
                 }
             },
             INDEX: {
-                fn: args => {
-                    if (args.length < 2) throw new FormulaError('#VALUE!');
-                    const arr = asRange(args[0]);
-                    let r = Math.floor(toNumber(args[1])), c;
-                    if (args.length > 2) c = Math.floor(toNumber(args[2]));
-                    else if (arr.cols === 1) c = 1;
-                    else if (arr.rows === 1) { c = r; r = 1; }
+                // When the first argument is a block of cells (on this sheet, another sheet, or a named range) only the cell asked for is read,
+                // not a copy of the whole block. Anything else (the result of FILTER, SORT ...) is handled as before.
+                lazy: true,
+                fn: (nodes, ev, curR, curC) => {
+                    if (nodes.length < 2) throw new FormulaError('#VALUE!');
+                    let first = nodes[0];
+                    if (first.t === 'name') first = resolveName(first);
+                    let idx = null, bounds = null;
+                    if (first.t === 'range') { idx = engineSheetIdx(); bounds = nodeBounds(first); }
+                    else if (first.t === 'xref' && first.node.t === 'range') {
+                        idx = sheetIndexByName(first.sheet);
+                        if (idx < 0) throw new FormulaError('#REF!');
+                        bounds = nodeBounds(first.node);
+                    }
+                    const num = node => toNumber(ev(node));
+                    if (!bounds) { // the general case: the argument is evaluated to a block of cells first
+                        const arr = asRange(evalArg(first, curR, curC));
+                        return indexOfRange(arr, num(nodes[1]), nodes.length > 2 ? num(nodes[2]) : undefined);
+                    }
+                    if (bounds.minR < 0 || bounds.maxR >= ROWS || bounds.minC < 0 || bounds.maxC >= COLS || bounds.minR > bounds.maxR || bounds.minC > bounds.maxC) throw new FormulaError('#REF!');
+                    const rows = bounds.maxR - bounds.minR + 1, cols = bounds.maxC - bounds.minC + 1;
+                    let r = Math.floor(num(nodes[1])), c;
+                    if (nodes.length > 2) c = Math.floor(num(nodes[2]));
+                    else if (cols === 1) c = 1;
+                    else if (rows === 1) { c = r; r = 1; }
                     else c = 0;
-                    if (r < 0 || c < 0 || r > arr.rows || c > arr.cols) throw new FormulaError('#REF!');
-                    if (r > 0 && c > 0) return arr.get(r - 1, c - 1);
-                    if (r > 0) return shrink(arr.row(r - 1));
-                    if (c > 0) return shrink(arr.col(c - 1));
-                    return shrink(arr);
+                    if (r < 0 || c < 0 || r > rows || c > cols) throw new FormulaError('#REF!');
+                    if (r > 0 && c > 0) { const id = getCellId(bounds.minR + r - 1, bounds.minC + c - 1); return inSheet(idx, () => refValue(id)); }
+                    // a whole row or column (or all of it): only that part is read
+                    const part = inSheet(idx, () => {
+                        if (r > 0) return rangeFromBounds(bounds.minR + r - 1, bounds.minC, bounds.minR + r - 1, bounds.maxC);
+                        if (c > 0) return rangeFromBounds(bounds.minR, bounds.minC + c - 1, bounds.maxR, bounds.minC + c - 1);
+                        return rangeFromBounds(bounds.minR, bounds.minC, bounds.maxR, bounds.maxC);
+                    });
+                    if (r > 0 || c > 0) delete part.origin;
+                    else if (idx !== engineSheetIdx()) delete part.origin;
+                    return shrink(part);
                 }
             },
             MATCH: {
@@ -6087,6 +6117,20 @@
         function evalArg(a, curR, curC) {
             if (a.t === 'name') a = resolveName(a);
             return a.t === 'range' ? rangeValues(a) : (a.t === 'sref' ? structuredValue(a, curR) : (a.t === 'ref' ? refArg(a, curR, curC) : (a.t === 'xref' ? xrefArg(a) : evalNode(a, curR, curC))));
+        }
+
+        // INDEX on a block of cells that is already read (the general case)
+        function indexOfRange(arr, r, c) {
+            r = Math.floor(r);
+            if (c !== undefined) c = Math.floor(c);
+            else if (arr.cols === 1) c = 1;
+            else if (arr.rows === 1) { c = r; r = 1; }
+            else c = 0;
+            if (r < 0 || c < 0 || r > arr.rows || c > arr.cols) throw new FormulaError('#REF!');
+            if (r > 0 && c > 0) return arr.get(r - 1, c - 1);
+            if (r > 0) return shrink(arr.row(r - 1));
+            if (c > 0) return shrink(arr.col(c - 1));
+            return shrink(arr);
         }
 
         function normalizeScalar(result) {
