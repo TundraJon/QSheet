@@ -2471,7 +2471,7 @@
 
         // ----- New / export / import workbook -----
         function newWorkbook() {
-            if (!confirm('Start a new, empty workbook?\n\nThe current workbook will be replaced. Use Export Workbook first if you want a backup.')) return;
+            if (!confirm(`Start a new, empty workbook?\n\nThe current workbook will be replaced. Use Export Workbook first if you want a backup.\n\nEvery sheet is ${ROWS} rows by ${COLS} columns (A to ${columnToLetter(COLS - 1)}).`)) return;
             applyWorkbook({ sheets: [makeBlankSheet('Sheet 1')], current: 0, names: [] });
             markDirty();
             if (saveState.enabled) saveWorkbookNow();
