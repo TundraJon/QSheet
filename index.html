@@ -19,8 +19,22 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Indie+Flower&family=Inter:wght@400;500;600&family=Noto+Sans+Symbols:wght@400&family=Noto+Sans+Symbols+2&family=Roboto+Mono:wght@400;500&family=Shadows+Into+Light&display=swap" rel="stylesheet">
     <!-- Icon fonts for interface buttons (not offered as cell fonts). display=block keeps the icon hidden until the font has loaded, so a button never shows the plain word.
-         A browser only downloads these once something on the page uses them. Use <span class="material-symbols-outlined">settings</span> or <span class="material-icons">settings</span>. -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Material+Icons&display=block" rel="stylesheet">
+         Material Symbols is cut down to the icons the buttons use (a few KB instead of 320 KB): when a button gets a new icon, add its name to icon_names (keep them in alphabetical order).
+         Use <span class="material-symbols-outlined">settings</span>. Material Icons is loaded but not used yet. -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_forward,autorenew,bar_chart,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,find_replace,format_align_center,format_align_left,format_align_right,function,functions,redo,settings,sort,straighten,undo,wrap_text&display=block" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Icons&display=block" rel="stylesheet">
+    <script>
+        // If the icon font cannot load (for example offline the very first time), buttons show their words instead of icons
+        (function () {
+            var root = document.documentElement, ok = false;
+            function fail() { if (!ok) root.classList.add('icons-failed'); }
+            if (!document.fonts || !document.fonts.load) return;
+            setTimeout(fail, 4000);
+            document.fonts.load('24px "Material Symbols Outlined"', 'settings').then(function (r) {
+                if (r.length) { ok = true; root.classList.remove('icons-failed'); } else fail();
+            }).catch(fail);
+        })();
+    </script>
     <style>
         /* ===== Colors =====
            Every color the app draws with is a named role defined here, once per theme. To change how the app looks, change these blocks;
@@ -521,12 +535,35 @@
         .wiz-context { padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--text-main); font-size: 0.85rem; line-height: 1.4; }
         .wiz-context.hidden { display: none; }
 
+        /* Analyze sheet (Quick Analysis) */
+        .qa-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+        .qa-tabs button { flex: 1; min-width: 0; padding: 4px 6px; }
+        .qa-tabs button.on { background: var(--accent-soft); border-color: var(--accent-color); color: var(--accent-text); font-weight: 600; }
+        .qa-note { color: var(--text-3); font-size: 0.85rem; line-height: 1.4; margin-bottom: 10px; min-height: 1.2em; }
+        .qa-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .qa-tile { flex-direction: column; gap: 2px; min-height: 56px; text-align: center; line-height: 1.2; }
+        .qa-tile small { color: var(--text-3); font-size: 0.72rem; font-weight: 400; }
+        .qa-param { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+        .qa-param.hidden { display: none; }
+        .qa-param label { white-space: nowrap; }
+        .qa-param input { flex: 1; min-width: 0; }
+        .modal button.qa-tile { min-height: 56px; }
+
         /* Icon fonts for interface buttons */
         .material-symbols-outlined, .material-icons {
-            font-weight: normal; font-style: normal; font-size: 1.2em; line-height: 1;
+            font-weight: normal; font-style: normal; font-size: 20px; line-height: 1;
             letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal;
             direction: ltr; -webkit-font-smoothing: antialiased; font-feature-settings: 'liga';
+            width: 1em; height: 1em; overflow: hidden; flex: none; /* the icon's name never widens the button, even before the font arrives */
         }
+        .mi-lead { margin-right: 4px; }
+        .ribbon-group button:has(> .ico-label) { padding: 5px 6px; }
+        .ico-label { display: none; }
+        html.icons-failed .material-symbols-outlined { display: none; }
+        html.icons-failed .ico-label { display: inline; }
+        header .header-actions .material-symbols-outlined { font-size: 22px; }
+        .modal-header .material-symbols-outlined, .sidebar-header .material-symbols-outlined, .find-head .material-symbols-outlined { font-size: 24px; }
+        .dd-arrow .material-symbols-outlined { font-size: 24px; }
         .material-symbols-outlined { font-family: 'Material Symbols Outlined'; }
         .material-icons { font-family: 'Material Icons'; }
 
@@ -751,6 +788,8 @@
             transition: opacity 0.3s ease;
         }
         .toast.hidden { opacity: 0; pointer-events: none; }
+        .toast-msg { vertical-align: middle; }
+        .toast-undo { margin-left: 12px; min-height: 32px; padding: 4px 12px; border: 1px solid var(--inverse-muted); background: var(--inverse-btn); color: var(--inverse-text); font-weight: 600; }
         /* With the keyboard open the cell-actions bar sits right above it and the toast just above that bar */
         body.kb-open .cell-dock { bottom: calc(var(--kb, 0px) + 10px); }
         body.kb-open .toast { bottom: calc(var(--kb, 0px) + 64px); }
@@ -1106,7 +1145,7 @@
         <div class="header-actions">
             <button class="primary" onclick="toggleRibbon()">Ribbon Menu</button>
             <button onclick="toggleSidebar('timeline-sidebar'); histRender()">Time Travel</button>
-            <button onclick="openSettingsModal()" title="Settings">⚙️</button>
+            <button onclick="openSettingsModal()" title="Settings" aria-label="Settings"><span class="material-symbols-outlined" aria-hidden="true">settings</span><span class="ico-label">Settings</span></button>
         </div>
     </header>
 
@@ -1143,7 +1182,7 @@
         <div class="sidebar hidden" id="timeline-sidebar">
             <div class="sidebar-header">
                 <span>Time Travel History</span>
-                <button onclick="toggleSidebar('timeline-sidebar')">&times;</button>
+                <button onclick="toggleSidebar('timeline-sidebar')" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="sidebar-body" id="timeline-body">
                 <div class="tt-controls">
@@ -1164,7 +1203,7 @@
         <!-- Rendered dynamically -->
         <button class="sheet-tab active" onclick="switchSheet(0)">Sheet 1</button>
         <button class="sheet-tab" onclick="switchSheet(1)">Sheet 2</button>
-        <button class="sheet-tab" onclick="addNewSheet()">+ Add Sheet</button>
+        <button class="sheet-tab" onclick="addNewSheet()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add</span>Add Sheet</button>
     </div>
 
     <!-- Status Bar (live Count / Sum / Average for the selection) -->
@@ -1196,7 +1235,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Interactive Formula Wizard</span>
-                <button onclick="closeWizard()">&times;</button>
+                <button onclick="closeWizard()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="wiz-context hidden" id="wizard-context"></div>
@@ -1241,7 +1280,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Conditional Formatting Manager</span>
-                <button onclick="closeCondFormatting()">&times;</button>
+                <button onclick="closeCondFormatting()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -1295,7 +1334,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Data Validation & Drop-Downs</span>
-                <button onclick="closeDataValidation()">&times;</button>
+                <button onclick="closeDataValidation()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="form-group" id="val-rules-wrap">
@@ -1367,6 +1406,31 @@
         </div>
     </div>
 
+    <!-- Analyze: one-tap totals, formatting, charts and tidying for the selected cells -->
+    <div class="modal-overlay sheet hidden" id="qa-sheet" onclick="if (event.target === this) closeQuickAnalysis()">
+        <div class="modal">
+            <div class="modal-header">
+                <span id="qa-title">Analyze</span>
+                <button onclick="closeQuickAnalysis()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="qa-tabs" id="qa-tabs">
+                    <button type="button" data-tab="totals" onclick="qaShowTab('totals')">Totals</button>
+                    <button type="button" data-tab="format" onclick="qaShowTab('format')">Format</button>
+                    <button type="button" data-tab="charts" onclick="qaShowTab('charts')">Charts</button>
+                    <button type="button" data-tab="tidy" onclick="qaShowTab('tidy')">Tidy</button>
+                </div>
+                <div class="qa-note" id="qa-note"></div>
+                <div class="qa-tiles" id="qa-tiles"></div>
+                <div class="qa-param hidden" id="qa-param">
+                    <label for="qa-gt">Greater than</label>
+                    <input type="text" id="qa-gt" inputmode="decimal" placeholder="e.g. 60" autocomplete="off" onkeydown="if (event.key === 'Enter') qaApplyGt()">
+                    <button type="button" class="primary" onclick="qaApplyGt()">Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- The drop-down under a list cell's arrow -->
     <div class="dd-pop hidden" id="dd-pop"></div>
 
@@ -1375,7 +1439,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span id="pick-title">Pick a value</span>
-                <button onclick="closePicker()">&times;</button>
+                <button onclick="closePicker()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <input type="text" id="pick-search" placeholder="Search" autocomplete="off" oninput="renderPicker()">
@@ -1393,7 +1457,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span id="date-title">Pick a date</span>
-                <button onclick="closeDatePicker()">&times;</button>
+                <button onclick="closeDatePicker()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <input type="date" id="date-pick" style="min-height: 48px; font-size: 1rem;">
@@ -1413,7 +1477,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span id="cm-title">Column</span>
-                <button onclick="closeColumnMenu()">&times;</button>
+                <button onclick="closeColumnMenu()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -1452,7 +1516,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Text to Columns Wizard</span>
-                <button onclick="closeTextToColumns()">&times;</button>
+                <button onclick="closeTextToColumns()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -1492,7 +1556,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Flexible Freeze Panes Configuration</span>
-                <button onclick="closeFreezeModal()">&times;</button>
+                <button onclick="closeFreezeModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -1517,7 +1581,7 @@
             <span>Find &amp; Replace</span>
             <span style="display: flex; gap: 8px;">
                 <button id="find-opts-btn" onclick="toggleFindOptions()">Options &#9662;</button>
-                <button onclick="closeFindPanel()" aria-label="Close">&times;</button>
+                <button onclick="closeFindPanel()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </span>
         </div>
         <div class="find-row">
@@ -1544,7 +1608,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Named ranges</span>
-                <button onclick="closeNamesModal()">&times;</button>
+                <button onclick="closeNamesModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div id="names-list"></div>
@@ -1570,7 +1634,7 @@
     <div class="find-panel dice-panel hidden" id="dice-panel">
         <div class="find-row find-head">
             <span>Dice roller</span>
-            <button onclick="closeDicePanel()" aria-label="Close">&times;</button>
+            <button onclick="closeDicePanel()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
         </div>
         <div class="find-row">
             <input type="text" id="dice-expr" value="1d20" placeholder="3d6+1d10+2d12kl1+3" autocomplete="off" autocapitalize="off" onkeydown="if (event.key === 'Enter') diceRoll()">
@@ -1596,7 +1660,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span id="chart-head">Chart</span>
-                <button onclick="closeChart()" aria-label="Close">&times;</button>
+                <button onclick="closeChart()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="chart-root" id="chart-root">
@@ -1646,7 +1710,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Charts on this sheet</span>
-                <button onclick="closeChartsList()">&times;</button>
+                <button onclick="closeChartsList()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body"><div id="charts-list"></div></div>
             <div class="modal-footer">
@@ -1661,7 +1725,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Sort a range</span>
-                <button onclick="closeSortModal()">&times;</button>
+                <button onclick="closeSortModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="wiz-tip" id="sort-target"></div>
@@ -1694,7 +1758,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Remove duplicates</span>
-                <button onclick="closeDedupModal()">&times;</button>
+                <button onclick="closeDedupModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="wiz-tip" id="dedup-target"></div>
@@ -1720,7 +1784,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Column width and row height</span>
-                <button onclick="closeSizeModal()">&times;</button>
+                <button onclick="closeSizeModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="wiz-tip" id="size-target"></div>
@@ -1757,7 +1821,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Sheet options</span>
-                <button onclick="closeSheetModal()">&times;</button>
+                <button onclick="closeSheetModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -1779,7 +1843,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span id="lists-title">My Lists</span>
-                <button onclick="closeListsModal()">&times;</button>
+                <button onclick="closeListsModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body" id="lists-body"></div>
             <div class="modal-footer" id="lists-footer" style="flex-wrap: wrap;"></div>
@@ -1791,7 +1855,7 @@
         <div class="modal">
             <div class="modal-header">
                 <span>Settings & Cell Dock Preferences</span>
-                <button onclick="closeSettingsModal()">&times;</button>
+                <button onclick="closeSettingsModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="modal-body">
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
@@ -1866,6 +1930,16 @@
         // A message stays up 0.3 seconds per word (at least 3 seconds) so long ones can be read; a new message restarts the clock
         let toastTimer = null;
         const toastMillis = msg => Math.max(3000, String(msg).trim().split(/\s+/).filter(Boolean).length * 300);
+        // A toast with an Undo button (it undoes the last Time Travel step); stays a little longer
+        function showUndoToast(msg) {
+            const toast = document.getElementById('app-toast');
+            toast.innerHTML = '<span class="toast-msg"></span><button type="button" class="toast-undo">Undo</button>';
+            toast.querySelector('.toast-msg').textContent = msg;
+            toast.querySelector('.toast-undo').onclick = () => { toast.classList.add('hidden'); histUndo(); };
+            toast.classList.remove('hidden');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toast.classList.add('hidden'), toastMillis(msg) + 3000);
+        }
         function showToast(msg) {
             const toast = document.getElementById('app-toast');
             toast.innerText = msg;
@@ -3223,16 +3297,16 @@
             if (tab === 'home') {
                 area.innerHTML = `
                     <div class="ribbon-group">
-                        <button id="undo-btn" onclick="histUndo()" title="Undo" aria-label="Undo" ${histPos > 0 ? '' : 'disabled'}>&#8630;</button>
-                        <button id="redo-btn" onclick="histRedo()" title="Redo" aria-label="Redo" ${histPos < historyStack.length ? '' : 'disabled'}>&#8631;</button>
+                        <button id="undo-btn" onclick="histUndo()" title="Undo" aria-label="Undo" ${histPos > 0 ? '' : 'disabled'}><span class="material-symbols-outlined" aria-hidden="true">undo</span><span class="ico-label">Undo</span></button>
+                        <button id="redo-btn" onclick="histRedo()" title="Redo" aria-label="Redo" ${histPos < historyStack.length ? '' : 'disabled'}><span class="material-symbols-outlined" aria-hidden="true">redo</span><span class="ico-label">Redo</span></button>
                     </div>
                     <div class="ribbon-group">
-                        <button onclick="copyCells(false)" title="Copy the selected cells">Copy</button>
-                        <button onclick="copyCells(true)" title="Cut the selected cells">Cut</button>
-                        <button onclick="pasteCells(false)" title="Paste (formulas move with the cells)">Paste</button>
+                        <button onclick="copyCells(false)" title="Copy the selected cells" aria-label="Copy"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span><span class="ico-label">Copy</span></button>
+                        <button onclick="copyCells(true)" title="Cut the selected cells" aria-label="Cut"><span class="material-symbols-outlined" aria-hidden="true">content_cut</span><span class="ico-label">Cut</span></button>
+                        <button onclick="pasteCells(false)" title="Paste (formulas move with the cells)" aria-label="Paste"><span class="material-symbols-outlined" aria-hidden="true">content_paste</span><span class="ico-label">Paste</span></button>
                         <button onclick="pasteCells(true)" title="Paste only the values">Paste values</button>
-                        <button onclick="fillCells('down')" title="Fill down">Fill &darr;</button>
-                        <button onclick="fillCells('right')" title="Fill right">Fill &rarr;</button>
+                        <button onclick="fillCells('down')" title="Fill down" aria-label="Fill down"><span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span><span class="ico-label">Fill &darr;</span></button>
+                        <button onclick="fillCells('right')" title="Fill right" aria-label="Fill right"><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span><span class="ico-label">Fill &rarr;</span></button>
                         <button onclick="seriesFill()" title="Continue a pattern: 1, 2, 3 / Mon, Tue / Item 1, Item 2 / one of your lists">Series</button>
                     </div>
                     <div class="ribbon-group">
@@ -3259,17 +3333,17 @@
                         <input type="color" id="bg-color-picker" onchange="formatCell('bgColor', this.value)" title="Fill Color" value="#ffffff">
                     </div>
                     <div class="ribbon-group">
-                        <button onclick="formatCell('align', 'left')">L</button>
-                        <button onclick="formatCell('align', 'center')">C</button>
-                        <button onclick="formatCell('align', 'right')">R</button>
+                        <button onclick="formatCell('align', 'left')" title="Align left" aria-label="Align left"><span class="material-symbols-outlined" aria-hidden="true">format_align_left</span><span class="ico-label">L</span></button>
+                        <button onclick="formatCell('align', 'center')" title="Align center" aria-label="Align center"><span class="material-symbols-outlined" aria-hidden="true">format_align_center</span><span class="ico-label">C</span></button>
+                        <button onclick="formatCell('align', 'right')" title="Align right" aria-label="Align right"><span class="material-symbols-outlined" aria-hidden="true">format_align_right</span><span class="ico-label">R</span></button>
                     </div>
                     <div class="ribbon-group">
-                        <button onclick="mergeCells()" title="Merge Cells">Merge</button>
+                        <button onclick="mergeCells()" title="Merge Cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">cell_merge</span>Merge</button>
                         <button onclick="unmergeCells()" title="Unmerge Cells">Unmerge</button>
                     </div>
                     <div class="ribbon-group">
-                        <button id="wrap-btn" onclick="toggleWrap()" title="Wrap text inside the cell (make the row taller with Size... to see more lines)">Wrap</button>
-                        <button id="checkbox-btn" onclick="toggleCheckboxStyle()" title="Turn the selected cells into tick boxes (or back)">Checkbox</button>
+                        <button id="wrap-btn" onclick="toggleWrap()" title="Wrap text inside the cell (make the row taller with Size... to see more lines)"><span class="material-symbols-outlined mi-lead" aria-hidden="true">wrap_text</span>Wrap</button>
+                        <button id="checkbox-btn" onclick="toggleCheckboxStyle()" title="Turn the selected cells into tick boxes (or back)"><span class="material-symbols-outlined mi-lead" aria-hidden="true">check_box</span>Checkbox</button>
                         <select id="border-menu" onchange="applyBorders(this.value); this.value = ''" title="Cell borders">
                             <option value="">Borders</option>
                             <option value="all">All borders</option>
@@ -3280,7 +3354,7 @@
                             <option value="right">Right</option>
                             <option value="none">No borders</option>
                         </select>
-                        <button onclick="openSizeModal()" title="Column width and row height of the selected cells">Size...</button>
+                        <button onclick="openSizeModal()" title="Column width and row height of the selected cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">straighten</span>Size...</button>
                     </div>
                     <div class="ribbon-group">
                         <select id="number-format" onchange="formatCell('numFormat', this.value)">
@@ -3297,7 +3371,7 @@
                         <button onclick="changeDecimals(-1)" title="Fewer decimal places">−.0</button>
                     </div>
                     <div class="ribbon-group">
-                        <button onclick="triggerAutoSum()" title="AutoSum">Σ AutoSum</button>
+                        <button onclick="triggerAutoSum()" title="AutoSum"><span class="material-symbols-outlined mi-lead" aria-hidden="true">functions</span>AutoSum</button>
                     </div>
                 `;
                 syncNumberFormatSelect();
@@ -3308,12 +3382,12 @@
                         <button onclick="openDataValidation()">Validation</button>
                         <button onclick="openTextToColumns()">Text to Columns</button>
                         <button onclick="runFlashFill()">Flash Fill</button>
-                        <button onclick="rerollRandoms()">&#127922; Re&#8209;roll</button>
-                        <button onclick="openDicePanel()">&#127922; Dice</button>
+                        <button onclick="rerollRandoms()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">autorenew</span>Re&#8209;roll</button>
+                        <button onclick="openDicePanel()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">casino</span>Dice</button>
                     </div>
                     <div class="ribbon-group">
-                        <button onclick="openFindPanel()">Find &amp; Replace</button>
-                        <button onclick="openSortModal()">Sort...</button>
+                        <button onclick="openFindPanel()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">find_replace</span>Find &amp; Replace</button>
+                        <button onclick="openSortModal()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">sort</span>Sort...</button>
                         <button onclick="openDedupModal()">Remove Duplicates</button>
                     </div>
                     <div class="ribbon-group">
@@ -3330,14 +3404,14 @@
             } else if (tab === 'view') {
                 area.innerHTML = `
                     <div class="ribbon-group">
-                        <button onclick="openFreezeModal()">Freeze Panes...</button>
+                        <button onclick="openFreezeModal()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">ac_unit</span>Freeze Panes...</button>
                         <button id="unfreeze-btn" onclick="unfreezePanes()" ${freezeRows || freezeCols ? '' : 'disabled'}>Unfreeze</button>
                         <button onclick="openCondFormatting()">Cond. Formatting</button>
-                        <button onclick="newChartFromSelection()">New Chart</button>
-                        <button onclick="openChartsList()">Charts</button>
+                        <button onclick="newChartFromSelection()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add_chart</span>New Chart</button>
+                        <button onclick="openChartsList()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">bar_chart</span>Charts</button>
                         <button onclick="openNamesModal()">Names</button>
                         <button onclick="openSheetModal()">Rename / Delete Sheet</button>
-                        <button class="primary" onclick="openWizard()">fx Wizard</button>
+                        <button class="primary" onclick="openWizard()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span>fx Wizard</button>
                     </div>
                 `;
             }
@@ -3361,17 +3435,19 @@
             let showVal = document.getElementById('setting-val-picker')?.checked;
 
             let html = '';
+            const sel = selBounds();
+            if (!editingCell && (sel.maxR > sel.minR || sel.maxC > sel.minC)) html += `<button class="qa-btn" onclick="openQuickAnalysis()">\u26A1 Analyze</button>`;
             if (showFx) {
                 html += `<button onclick="insertQuickFn('SUM')">SUM</button>`;
                 html += `<button onclick="insertQuickFn('AVERAGE')">AVERAGE</button>`;
-                html += `<button onclick="openWizard()">fx Wizard</button>`;
+                html += `<button onclick="openWizard()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span>fx Wizard</button>`;
             }
 
             // A cell with a drop-down list or a date rule gets a picker button (short lists also show their values)
             const matchedRule = valRulesFor(cellId).find(r => r.type === 'list' || r.type === 'date');
             if (showVal && matchedRule && matchedRule.type === 'list') {
                 const opts = validationOptions(matchedRule);
-                html += `<button data-cell="${cellId}" onclick="openPicker(this.dataset.cell)">&#9662; Pick</button>`;
+                html += `<button data-cell="${cellId}" onclick="openPicker(this.dataset.cell)"><span class="material-symbols-outlined mi-lead" aria-hidden="true">arrow_drop_down</span>Pick</button>`;
                 if (opts.length <= 6) opts.forEach(opt => {
                     html += `<button data-cell="${cellId}" data-val="${escapeHtml(opt.trim())}" onclick="setValidationValue(this.dataset.cell, this.dataset.val)">${escapeHtml(opt.trim())}</button>`;
                 });
@@ -3538,6 +3614,7 @@
             rangeDragMode = false;
             lastDragPoint = null;
             updateStats();
+            updateCellDock(getCellId(activeCell.row, activeCell.col)); // the Analyze button follows the selection
         }
 
         function extendSelectionTo(x, y) {
@@ -4302,7 +4379,7 @@
             ddArrow.className = 'dd-arrow';
             ddArrow.type = 'button';
             ddArrow.setAttribute('aria-label', `Open the list for ${id}`);
-            ddArrow.textContent = '\u25BC';
+            ddArrow.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">\u25BC</span>';
             ddArrow.onclick = () => { if (ddCell === id) closeDropdown(); else openDropdown(id); };
             td.classList.add('has-dd');
             td.appendChild(ddArrow);
@@ -6390,7 +6467,7 @@
             sheets.forEach((s, idx) => {
                 html += `<button class="sheet-tab ${idx === currentSheetIdx ? 'active' : ''}" onclick="${idx === currentSheetIdx ? 'openSheetModal()' : `switchSheet(${idx})`}">${escapeHtml(s.name)}</button>`;
             });
-            html += `<button class="sheet-tab" onclick="addNewSheet()">+ Add Sheet</button>`;
+            html += `<button class="sheet-tab" onclick="addNewSheet()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add</span>Add Sheet</button>`;
             bar.innerHTML = html;
         }
 
@@ -8970,13 +9047,15 @@
             sel.value = String(Number.isFinite(was) && was >= b.minC && was <= b.maxC ? was : b.minC);
         }
         function applySort() {
-            const b = sortBounds;
+            const r = sortRowsIn(sortBounds, fEl('sort-header').checked ? 1 : 0, Number(fEl('sort-col').value), fEl('sort-order').value === 'desc');
+            if (r.status === 'same' || r.status === 'done') closeSortModal();
+        }
+        // Sorts the rows of a range by one column. Returns { status: 'problem' | 'single' | 'same' | 'done', name }
+        function sortRowsIn(b, hdr, col, desc) {
             const problem = rearrangeProblem(b);
-            if (problem) { showToast(problem); return; }
-            const hdr = fEl('sort-header').checked ? 1 : 0;
+            if (problem) { showToast(problem); return { status: 'problem' }; }
             const first = b.minR + hdr;
-            if (b.maxR < first + 1) { showToast('There is only one row to sort'); return; }
-            const col = Number(fEl('sort-col').value), desc = fEl('sort-order').value === 'desc';
+            if (b.maxR < first + 1) { showToast('There is only one row to sort'); return { status: 'single' }; }
             const rows = [];
             for (let r = first; r <= b.maxR; r++) rows.push({ r, key: getCellValue(getCellId(r, col)) });
             rows.sort((x, y) => {
@@ -8986,13 +9065,13 @@
                 return desc ? -cmp : cmp;
             });
             const order = rows.map(x => x.r);
-            if (order.every((r, i) => r === first + i)) { closeSortModal(); showToast('Already in that order'); return; }
+            if (order.every((r, i) => r === first + i)) { showToast('Already in that order'); return { status: 'same' }; }
             const ids = placeRows(b, first, order);
-            closeSortModal();
             const hdrCell = hdr ? data[getCellId(b.minR, col)] : null;
             const name = `Sorted ${selRangeText(b)} by ${hdrCell && !isBlank(hdrCell.value) ? String(hdrCell.value).slice(0, 20) : 'column ' + columnToLetter(col)} (${desc ? 'Z to A' : 'A to Z'})`;
             cellsChanged(ids, name, { startRow: b.minR, startCol: b.minC, endRow: b.maxR, endCol: b.maxC });
             showToast(name);
+            return { status: 'done', name };
         }
 
         // --- Remove duplicates ---
@@ -9031,7 +9110,13 @@
             if (problem) { showToast(problem); return; }
             const cols = [...document.querySelectorAll('#dedup-cols input:checked')].map(i => Number(i.value));
             if (!cols.length) { showToast('Tick at least one column'); return; }
-            const hdr = fEl('dedup-header').checked ? 1 : 0;
+            closeDedupModal();
+            dedupRowsIn(b, fEl('dedup-header').checked ? 1 : 0, cols);
+        }
+        // Removes repeated rows from a range, comparing the given columns. Returns { status: 'problem' | 'none' | 'done', name }
+        function dedupRowsIn(b, hdr, cols) {
+            const problem = rearrangeProblem(b);
+            if (problem) { showToast(problem); return { status: 'problem' }; }
             const first = b.minR + hdr;
             const seen = new Set(), keep = [];
             const emptyKey = dedupKey(-1, cols);
@@ -9041,13 +9126,187 @@
                 keep.push(r);
             }
             const removed = (b.maxR - first + 1) - keep.length;
-            closeDedupModal();
-            if (!removed) { showToast('No duplicates found'); return; }
+            if (!removed) { showToast('No duplicates found'); return { status: 'none' }; }
             const order = keep.concat(new Array(removed).fill(-1));
             const ids = placeRows(b, first, order);
             const name = `Removed ${removed} duplicate row${removed === 1 ? '' : 's'} in ${selRangeText(b)}`;
             cellsChanged(ids, name, { startRow: b.minR, startCol: b.minC, endRow: b.maxR, endCol: b.maxC });
             showToast(`Removed ${removed} duplicate row${removed === 1 ? '' : 's'}, ${keep.length} left`);
+            return { status: 'done', name };
+        }
+
+        // ===== Analyze (Quick Analysis) =====
+        // Select two or more cells and tap Analyze: one-tap totals, formatting, charts and tidying that suit the data.
+        // Everything here reuses what already exists (formulas, conditional-format rules, New Chart, Sort, Remove Duplicates),
+        // and every action is one Time Travel step with an Undo button in the toast.
+        let qaBounds = null, qaTab = 'totals';
+
+        // The selection to analyze: whole columns / rows are cut down to the cells that hold something
+        function qaSelection() {
+            const b = selBounds();
+            const wholeCols = b.minR === 0 && b.maxR === ROWS - 1, wholeRows = b.minC === 0 && b.maxC === COLS - 1;
+            if (!wholeCols && !wholeRows) return b;
+            let maxR = -1, maxC = -1;
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) {
+                if (!isBlank(getCellValue(getCellId(r, c)))) { if (r > maxR) maxR = r; if (c > maxC) maxC = c; }
+            }
+            if (maxR < 0) return b;
+            return { minR: b.minR, maxR: wholeCols ? maxR : b.maxR, minC: b.minC, maxC: wholeRows ? maxC : b.maxC };
+        }
+        function qaInfo(b) {
+            const hdr = looksLikeHeader(b) ? 1 : 0;
+            const numCols = [];
+            let nums = 0, filled = 0;
+            for (let c = b.minC; c <= b.maxC; c++) {
+                let colNums = 0;
+                for (let r = b.minR + hdr; r <= b.maxR; r++) {
+                    const v = getCellValue(getCellId(r, c));
+                    if (!isBlank(v)) filled++;
+                    if (typeof v === 'number' && !isNaN(v)) { nums++; colNums++; }
+                }
+                if (colNums) numCols.push(c);
+            }
+            return { hdr, nums, filled, numCols, rows: b.maxR - b.minR + 1 - hdr };
+        }
+        // The range a rule or formula should cover: the selection without its header row
+        const qaDataRange = (b, info) => selRangeText({ minR: b.minR + info.hdr, maxR: b.maxR, minC: b.minC, maxC: b.maxC });
+
+        function openQuickAnalysis() {
+            if (editingCell) endEdit(true);
+            const sel = selBounds();
+            if (sel.maxR === sel.minR && sel.maxC === sel.minC) { showToast('Select two or more cells to analyze'); return; }
+            qaBounds = qaSelection();
+            valEl('qa-title').textContent = `Analyze ${selRangeText(qaBounds)}`;
+            valEl('qa-sheet').classList.remove('hidden');
+            qaShowTab(qaTab);
+        }
+        function closeQuickAnalysis() { valEl('qa-sheet').classList.add('hidden'); }
+        function qaShowTab(tab) { qaTab = tab; valEl('qa-param').classList.add('hidden'); qaRender(); }
+
+        function qaRender() {
+            const b = qaBounds, info = qaInfo(b);
+            document.querySelectorAll('#qa-tabs button').forEach(t => t.classList.toggle('on', t.dataset.tab === qaTab));
+            const tile = (label, act, arg, hint, off) => `<button type="button" class="qa-tile" data-act="${act}" data-arg="${arg || ''}" onclick="qaTile(this)"${off ? ' disabled' : ''}><span>${label}</span>${hint ? `<small>${hint}</small>` : ''}</button>`;
+            let note = '', tiles = '';
+            if (!info.filled) {
+                note = 'These cells are empty. Select cells that hold data.';
+            } else if (qaTab === 'totals') {
+                if (!info.nums) note = 'Totals need numbers. Select cells that hold numbers.';
+                else {
+                    const oneRow = b.minR === b.maxR;
+                    note = oneRow ? `The result goes in ${getCellId(b.minR, b.maxC + 1)}, beside the row.` : `Each column with numbers gets its total in row ${b.maxR + 2}, under the selection.`;
+                    tiles = [['Sum', 'SUM'], ['Avg', 'AVERAGE'], ['Cnt', 'COUNT'], ['Min', 'MIN'], ['Max', 'MAX']].map(t => tile(t[0], 'total', t[1])).join('');
+                }
+            } else if (qaTab === 'format') {
+                note = info.nums ? 'Colors the cells with a rule that keeps up as your numbers change.' : 'Only the duplicates rule suits text. Select numbers for the rest.';
+                if (info.nums) tiles += tile('Top 10', 'rule', 'top') + tile('Bottom 10', 'rule', 'bottom') + tile('Above average', 'rule', 'above') + tile('Below average', 'rule', 'below') + tile('Greater than…', 'gt', '') + tile('Color scale', 'rule', 'scale');
+                tiles += tile('Flag duplicates', 'rule', 'dups');
+            } else if (qaTab === 'charts') {
+                if (!info.nums) note = 'Charts need numbers. Select the numbers, and the labels beside them.';
+                else { note = 'Makes a chart from the selected cells. You can change it afterwards.'; tiles = Object.keys(CHART_TYPES).map(k => tile(CHART_TYPES[k], 'chart', k)).join(''); }
+            } else {
+                const col = qaSortColumn(b);
+                const h = info.hdr ? data[getCellId(b.minR, col)] : null;
+                const colName = h && !isBlank(h.value) ? `${columnToLetter(col)} (${String(h.value).slice(0, 16)})` : columnToLetter(col);
+                const enough = info.rows >= 2;
+                note = enough ? 'Rearranges the rows of the selection. Undo puts them back.' : 'Select at least two rows of data.';
+                tiles = tile('Sort A to Z', 'sort', 'asc', `by column ${colName}`, !enough) + tile('Sort Z to A', 'sort', 'desc', `by column ${colName}`, !enough) + tile('Remove duplicates', 'dedup', '', 'rows that repeat', !enough);
+            }
+            valEl('qa-note').textContent = note;
+            valEl('qa-tiles').innerHTML = tiles;
+        }
+        function qaSortColumn(b) { return activeCell.col >= b.minC && activeCell.col <= b.maxC ? activeCell.col : b.minC; }
+
+        function qaTile(el) {
+            const act = el.dataset.act, arg = el.dataset.arg;
+            if (act === 'gt') { valEl('qa-param').classList.remove('hidden'); valEl('qa-gt').focus(); return; }
+            closeQuickAnalysis();
+            if (act === 'total') qaTotals(arg);
+            else if (act === 'rule') qaRule(arg);
+            else if (act === 'chart') newChartFromSelection(arg);
+            else if (act === 'sort') qaSort(arg === 'desc');
+            else if (act === 'dedup') qaDedup();
+        }
+
+        // Totals: a real formula under each column of numbers (or beside a single row), only into empty cells
+        function qaTotals(fn) {
+            const b = qaBounds, info = qaInfo(b);
+            const oneRow = b.minR === b.maxR;
+            const targets = [];
+            if (oneRow) targets.push({ r: b.minR, c: b.maxC + 1, range: selRangeText(b), src: getCellId(b.minR, b.maxC) });
+            else info.numCols.forEach(c => {
+                const L = columnToLetter(c);
+                let last = b.maxR;
+                while (last > b.minR && !(typeof getCellValue(getCellId(last, c)) === 'number')) last--;
+                targets.push({ r: b.maxR + 1, c, range: `${L}${b.minR + info.hdr + 1}:${L}${b.maxR + 1}`, src: getCellId(last, c) });
+            });
+            if (!targets.length) { showToast('Totals need numbers'); return; }
+            for (const t of targets) {
+                if (t.r >= ROWS || t.c >= COLS) { showToast(`No room: the ${oneRow ? 'column beside' : 'row under'} the selection is off the sheet`); return; }
+                const id = getCellId(t.r, t.c), x = data[id];
+                if (x && (x.formula || !isBlank(x.value))) { showToast(`No room: ${id} is not empty`); return; }
+            }
+            const names = { SUM: 'Sum', AVERAGE: 'Avg', COUNT: 'Cnt', MIN: 'Min', MAX: 'Max' };
+            const ids = [];
+            targets.forEach(t => {
+                const id = getCellId(t.r, t.c);
+                ensureCellForStyle(id);
+                const cell = data[id];
+                cell.formula = `=${fn}(${t.range})`;
+                cell.value = '';
+                if (!cell.style.fontWeight) cell.style.fontWeight = 'bold';
+                const src = data[t.src];
+                if (fn !== 'COUNT' && src && src.style && src.style.numFormat && !cell.style.numFormat) cell.style.numFormat = src.style.numFormat;
+                ids.push(id);
+            });
+            const where = oneRow ? getCellId(targets[0].r, targets[0].c) : `${getCellId(targets[0].r, targets[0].c)}${targets.length > 1 ? ':' + getCellId(targets[targets.length - 1].r, targets[targets.length - 1].c) : ''}`;
+            const name = `Added ${names[fn]} in ${where}`;
+            cellsChanged(ids, name);
+            showUndoToast(name);
+        }
+
+        // Format: one conditional-format rule over the selection (without its header row)
+        function qaRule(kind, extra) {
+            const b = qaBounds, info = qaInfo(b);
+            const range = qaDataRange(b, info);
+            const green = CF_PALETTES[1], red = CF_PALETTES[0], amber = CF_PALETTES[2];
+            const first = getCellId(b.minR + info.hdr, b.minC);
+            const abs = range.split(':').map(c => c.replace(/^([A-Z]+)(\d+)$/, '$$$1$$$2')).join(':');
+            const base = { range, entireRow: false };
+            let rule, name;
+            if (kind === 'top') { rule = { ...base, type: 'top', n: 10, fill: green.fill, color: green.color }; name = `Highlighted the top 10 in ${range}`; }
+            else if (kind === 'bottom') { rule = { ...base, type: 'bottom', n: 10, fill: red.fill, color: red.color }; name = `Highlighted the bottom 10 in ${range}`; }
+            else if (kind === 'above') { rule = { ...base, type: 'above', fill: green.fill, color: green.color }; name = `Highlighted above average in ${range}`; }
+            else if (kind === 'below') { rule = { ...base, type: 'below', fill: red.fill, color: red.color }; name = `Highlighted below average in ${range}`; }
+            else if (kind === 'gt') { rule = { ...base, type: 'gt', v1: String(extra), fill: green.fill, color: green.color }; name = `Highlighted numbers over ${extra} in ${range}`; }
+            else if (kind === 'scale') { rule = { range, entireRow: false, type: 'scale', scale: CF_SCALES[0].colors.slice() }; name = `Added a color scale to ${range}`; }
+            else { rule = { ...base, type: 'formula', formula: `AND(${first}<>"",COUNTIF(${abs},${first})>1)`, fill: amber.fill, color: amber.color }; name = `Flagged duplicates in ${range}`; }
+            const same = conditionalRules.some(r => JSON.stringify(normalizeRule(r)) === JSON.stringify(normalizeRule(rule)));
+            if (same) { showToast('That rule is already on these cells'); return; }
+            conditionalRules.push(rule);
+            sheets[currentSheetIdx].conditionalRules = conditionalRules;
+            applyConditionalFormattingRules();
+            recordHistory(name);
+            showUndoToast(name);
+        }
+        function qaApplyGt() {
+            const v = valEl('qa-gt').value.trim();
+            if (v === '' || isNaN(Number(v))) { showToast('Enter a number'); return; }
+            closeQuickAnalysis();
+            qaRule('gt', v);
+            valEl('qa-gt').value = '';
+        }
+
+        function qaSort(desc) {
+            const b = qaBounds, info = qaInfo(b);
+            const r = sortRowsIn(b, info.hdr, qaSortColumn(b), desc);
+            if (r.status === 'done') showUndoToast(r.name);
+        }
+        function qaDedup() {
+            const b = qaBounds, info = qaInfo(b);
+            const cols = []; for (let c = b.minC; c <= b.maxC; c++) cols.push(c);
+            const r = dedupRowsIn(b, info.hdr, cols);
+            if (r.status === 'done') showUndoToast(r.name);
         }
 
         // ===== Named ranges =====
@@ -9591,7 +9850,7 @@
             if (b.maxC === b.minC) header = header && b.maxR > b.minR;
             return { header, labels };
         }
-        function newChartFromSelection() {
+        function newChartFromSelection(type) {
             if (editingCell) endEdit(true);
             if (chartList().length >= CHART_MAX_CHARTS) { showToast(`A sheet can have up to ${CHART_MAX_CHARTS} charts`); return; }
             const b = toolBounds();
@@ -9600,7 +9859,7 @@
             const ids = new Set(chartList().map(x => x.id));
             let id; do { id = 'c' + Math.random().toString(36).slice(2, 8); } while (ids.has(id));
             const cells = selRangeText(b).replace(/([A-Z]{1,3})(\d+)/g, (x, col, row) => '$' + col + '$' + row);
-            const chart = { id, title: `Chart ${chartList().length + 1}`, type: 'column', ref: sheetPrefix(sheets[currentSheetIdx].name) + cells, header: g.header, labels: g.labels, byRows: false, legend: true, values: false, pop: 'none', popped: [] };
+            const chart = { id, title: `Chart ${chartList().length + 1}`, type: CHART_TYPES[type] ? type : 'column', ref: sheetPrefix(sheets[currentSheetIdx].name) + cells, header: g.header, labels: g.labels, byRows: false, legend: true, values: false, pop: 'none', popped: [] };
             chartList().push(chart);
             recordHistory(`Added ${chart.title}`);
             openChart(id);
