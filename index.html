@@ -13,11 +13,14 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spreadsheet Studio - Mobile Pixel 7 Edition</title>
+    <title>Quick Sheet</title>
     <!-- Google Fonts: Inter, Roboto Mono, Georgia, Courier New, plus 3 Handwriting Fonts (Caveat, Indie Flower, Shadows Into Light) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Indie+Flower&family=Inter:wght@400;500;600&family=Roboto+Mono:wght@400;500&family=Shadows+Into+Light&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Indie+Flower&family=Inter:wght@400;500;600&family=Noto+Sans+Symbols:wght@400&family=Noto+Sans+Symbols+2&family=Roboto+Mono:wght@400;500&family=Shadows+Into+Light&display=swap" rel="stylesheet">
+    <!-- Icon fonts for interface buttons (not offered as cell fonts). display=block keeps the icon hidden until the font has loaded, so a button never shows the plain word.
+         A browser only downloads these once something on the page uses them. Use <span class="material-symbols-outlined">settings</span> or <span class="material-icons">settings</span>. -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined&family=Material+Icons&display=block" rel="stylesheet">
     <style>
         /* ===== Colors =====
            Every color the app draws with is a named role defined here, once per theme. To change how the app looks, change these blocks;
@@ -518,6 +521,15 @@
         .wiz-context { padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--text-main); font-size: 0.85rem; line-height: 1.4; }
         .wiz-context.hidden { display: none; }
 
+        /* Icon fonts for interface buttons */
+        .material-symbols-outlined, .material-icons {
+            font-weight: normal; font-style: normal; font-size: 1.2em; line-height: 1;
+            letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal;
+            direction: ltr; -webkit-font-smoothing: antialiased; font-feature-settings: 'liga';
+        }
+        .material-symbols-outlined { font-family: 'Material Symbols Outlined'; }
+        .material-icons { font-family: 'Material Icons'; }
+
         /* Drop-down arrow: sits inside the selected cell when it has a list rule (like Excel) */
         td.has-dd:not(.frozen-cell) { position: relative; }
         td.has-dd .cell-input { padding-right: 34px; }
@@ -759,14 +771,14 @@
 
         .stats-display {
             display: flex;
-            gap: 16px;
+            gap: 12px;
             min-width: 0;
             overflow-x: auto;
             white-space: nowrap;
             scrollbar-width: none;
         }
         .stats-display::-webkit-scrollbar { display: none; }
-        #ready-status { flex-shrink: 0; margin-right: 12px; }
+
 
         /* Row numbers scroll with their rows (they only stick to the left) */
         table.spreadsheet th.row-header { top: auto; }
@@ -929,7 +941,9 @@
         .wizard-result:hover { background: var(--surface-3); border-color: var(--border-strong); }
         .wizard-result.selected { border-color: var(--accent-color); background: var(--accent-soft); }
         /* The star is small text on the line; its padding is an invisible tap area cancelled by the negative margin, so the line does not grow */
-        .wiz-star { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font-size: 0.85rem; line-height: 1; padding: 14px 15px; margin: -14px -13px; color: var(--text-4); cursor: pointer; }
+        .wiz-star { background: none; border: none; border-radius: 0; box-shadow: none; transition: none; min-height: 0; height: auto; font-size: 0.85rem; line-height: 1; padding: 14px 14px; margin: -14px -13px; color: var(--text-4); cursor: pointer; }
+        .wiz-star-icon { width: 1em; height: 1em; display: block; pointer-events: none; }
+        .wiz-fav-toggle .wiz-star-icon { display: inline-block; vertical-align: -0.14em; margin-right: 0.3em; }
         .wiz-star:hover { background: none; border: none; }
         .wiz-star.on { color: #f59e0b; }
         .wr-name { font-weight: 700; color: var(--text-strong); }
@@ -1003,6 +1017,8 @@
         /* Touch targets: ribbon buttons are at least 30 px wide and tall; the cell-actions bar, modal buttons, close buttons,
            modal inputs and checkbox rows are at least 40 px. */
         .ribbon-group button, .ribbon-group select, .ribbon-group input[type="color"] { min-width: 30px; }
+        /* The font name field is as wide as "System Default"; longer names are cut with … in the closed field (the pop-up list shows them whole) */
+        #font-family-selector { width: 8.6rem; text-overflow: ellipsis; }
         .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 14px; }
         #cell-dock-buttons { gap: 8px !important; }
         .modal button, .modal select { min-height: 40px; min-width: 40px; }
@@ -1086,7 +1102,7 @@
     <div class="save-status" id="save-status" role="button" tabindex="0" onclick="onSaveStatusTap()"><span class="save-label">AutoSave ON</span><span class="save-state"><span class="save-dot ok"></span>Loading…</span></div>
 
     <header>
-        <div class="app-title">Spreadsheet Studio</div>
+        <div class="app-title">Quick Sheet</div>
         <div class="header-actions">
             <button class="primary" onclick="toggleRibbon()">Ribbon Menu</button>
             <button onclick="toggleSidebar('timeline-sidebar'); histRender()">Time Travel</button>
@@ -1153,11 +1169,10 @@
 
     <!-- Status Bar (live Count / Sum / Average for the selection) -->
     <div class="status-bar">
-        <div id="ready-status">Ready</div>
         <div class="stats-display" id="stats-display">
-            <span>Count: 0</span>
+            <span>Cnt: 0</span>
             <span>Sum: 0</span>
-            <span>Average: 0</span>
+            <span>Avg: 0</span>
             <span>Min: –</span>
             <span>Max: –</span>
         </div>
@@ -2358,6 +2373,8 @@
             sheets = wb.sheets;
             workbookNames = wb.names || [];
             bindSheet(wb.current);
+            shownSheet = sheets[wb.current];
+            sheetViews = new WeakMap();
             activeCell = { row: 0, col: 0 };
             selectionRange = { startRow: 0, startCol: 0, endRow: 0, endCol: 0 };
             historyStack = [];
@@ -3233,6 +3250,8 @@
                             <option value="'Caveat', cursive">Caveat (Handwriting)</option>
                             <option value="'Indie Flower', cursive">Indie Flower (Handwriting)</option>
                             <option value="'Shadows Into Light', cursive">Shadows Into Light (Handwriting)</option>
+                            <option value="'Noto Sans Symbols', sans-serif">Noto Sans Symbols</option>
+                            <option value="'Noto Sans Symbols 2', sans-serif">Noto Sans Symbols 2</option>
                         </select>
                     </div>
                     <div class="ribbon-group">
@@ -6344,8 +6363,8 @@
             for (let r = b.minR; r <= b.maxR; r++) {
                 if (filteredRows.has(r)) continue;
                 for (let c = b.minC; c <= b.maxC; c++) {
-                    count++;
                     let val = getCellValue(getCellId(r, c));
+                    if (val !== '') count++; // Cnt is the filled cells
                     if (typeof val === 'number' && !isNaN(val)) {
                         sum += val;
                         numericCount++;
@@ -6356,11 +6375,11 @@
             }
             let avg = numericCount ? sum / numericCount : 0;
             document.getElementById('stats-display').innerHTML = `
-                <span>Count: ${count}</span>
-                <span>Sum: ${sum.toLocaleString(undefined, {maximumFractionDigits: 10})}</span>
-                <span>Average: ${avg.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
-                <span>Min: ${numericCount ? min.toLocaleString(undefined, {maximumFractionDigits: 10}) : '–'}</span>
-                <span>Max: ${numericCount ? max.toLocaleString(undefined, {maximumFractionDigits: 10}) : '–'}</span>
+                <span>Cnt: ${count}</span>
+                <span>Sum: ${sum.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+                <span>Avg: ${avg.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+                <span>Min: ${numericCount ? min.toLocaleString(undefined, {maximumFractionDigits: 2}) : '–'}</span>
+                <span>Max: ${numericCount ? max.toLocaleString(undefined, {maximumFractionDigits: 2}) : '–'}</span>
             `;
         }
 
@@ -6392,13 +6411,38 @@
             freezeCols = s.freezeCols;
         }
 
+        // Each sheet remembers its own selection and scroll spot while the workbook is open (not saved in the file); a sheet not visited yet starts at A1
+        let shownSheet = null; // the sheet the grid is showing
+        let sheetViews = new WeakMap();
         function switchSheet(idx) {
             if (editingCell) endEdit(true);
+            const grid = document.getElementById('grid-container');
+            const prev = shownSheet || sheets[currentSheetIdx];
+            const next = sheets[idx];
+            const sameSheet = prev === next; // (a redraw of the sheet already shown keeps its selection and scroll)
+            if (!sameSheet) {
+                if (prev) sheetViews.set(prev, { sel: { ...selectionRange }, active: { ...activeCell }, top: grid.scrollTop, left: grid.scrollLeft });
+                const view = sheetViews.get(next);
+                selectionRange = view ? { ...view.sel } : { startRow: 0, startCol: 0, endRow: 0, endCol: 0 };
+                activeCell = view ? { ...view.active } : { row: 0, col: 0 };
+            }
+            shownSheet = next;
             bindSheet(idx);
             const s = sheets[idx];
             renderSheetTabs();
             buildGridDOM();
             updateUnfreezeButton();
+            if (!sameSheet) {
+                const view = sheetViews.get(next);
+                grid.scrollTop = view ? view.top : 0;
+                grid.scrollLeft = view ? view.left : 0;
+            }
+            // Everything that shows the selected cell is read again from this sheet
+            fxCaret = null;
+            fxHide();
+            closeDropdown();
+            setActiveCell(activeCell.row, activeCell.col);
+            updateStats();
             showToast(`Switched to ${s.name}`);
             markDirty();
         }
@@ -7751,7 +7795,7 @@
                 list.sort((a, b) => a.name.localeCompare(b.name));
             }
             const toggle = document.getElementById('wizard-fav-toggle');
-            toggle.innerHTML = `${wizFavOnly ? '\u2B50' : '\u2729'} Favorites`;
+            toggle.innerHTML = `${wizStar(wizFavOnly)} Favorites`;
             toggle.classList.toggle('on', wizFavOnly);
             toggle.setAttribute('aria-pressed', String(wizFavOnly));
             const none = wizFavOnly && !wizFavs.size ? 'No favorites yet. Turn Favorites off and tap the \u2729 beside a function to add it.' : 'No functions match. Try another word or category.';
@@ -7760,9 +7804,14 @@
                 <div class="wizard-result${f.name === chosen ? ' selected' : ''}" role="button" tabindex="0" data-fn="${f.name}" onclick="selectWizardFunction('${f.name}')" onkeydown="if (event.target === this && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); selectWizardFunction('${f.name}'); }">
                     <span class="wr-name">${f.name}</span>
                     <span class="wr-cat">${f.cat}</span>
-                    <button type="button" class="wiz-star${wizFavs.has(f.name) ? ' on' : ''}" data-star="${f.name}" aria-pressed="${wizFavs.has(f.name)}" aria-label="${wizFavs.has(f.name) ? 'Remove ' + f.name + ' from favorites' : 'Add ' + f.name + ' to favorites'}" onclick="event.stopPropagation(); toggleWizardFavorite('${f.name}')">${wizFavs.has(f.name) ? '\u2B50' : '\u2729'}</button>
+                    <button type="button" class="wiz-star${wizFavs.has(f.name) ? ' on' : ''}" data-star="${f.name}" aria-pressed="${wizFavs.has(f.name)}" aria-label="${wizFavs.has(f.name) ? 'Remove ' + f.name + ' from favorites' : 'Add ' + f.name + ' to favorites'}" onclick="event.stopPropagation(); toggleWizardFavorite('${f.name}')">${wizStar(wizFavs.has(f.name))}</button>
                     <span class="wr-desc">${f.desc}</span>
                 </div>`).join('');
+        }
+
+        // Both stars are drawn shapes of the same size (a text star and a filled star come out different sizes on different phones)
+        function wizStar(on) {
+            return `<svg class="wiz-star-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2.6l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.6l-5.9 3 1.2-6.5L2.5 9.5l6.6-.9z" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
         }
 
         function toggleWizardFavOnly() {
