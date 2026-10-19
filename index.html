@@ -49,6 +49,8 @@
             --on-accent: #ffffff;
             --selection-bg: rgba(37, 99, 235, 0.15);
             --selection-border: #2563eb;
+            --ref-bg: rgba(147, 51, 234, 0.12);
+            --ref-border: #9333ea;
             --inverse-bg: #0f172a;
             --inverse-text: #ffffff;
             --inverse-muted: #94a3b8;
@@ -90,6 +92,8 @@
             --on-accent: #ffffff;
             --selection-bg: rgba(102, 160, 255, 0.22);
             --selection-border: #6aa5ff;
+            --ref-bg: rgba(196, 161, 255, 0.18);
+            --ref-border: #c4a1ff;
             --inverse-bg: #e4e9f0;
             --inverse-text: #14181f;
             --inverse-muted: #566274;
@@ -494,6 +498,57 @@
             box-shadow: inset 0 0 0 2px var(--selection-border);
         }
 
+        /* The cells a formula reference points at, while the caret is on that reference in a formula being edited */
+        td.fx-ref {
+            background-image: linear-gradient(var(--ref-bg), var(--ref-bg));
+            box-shadow: inset 0 0 0 2px var(--ref-border);
+        }
+
+        /* Hint line under the formula bar: the function the caret is in, with its current argument in bold */
+        .formula-bar { position: relative; }
+        .fx-hint {
+            position: absolute; left: 0; right: 0; top: 100%;
+            padding: 5px 16px; background: var(--surface-3); color: var(--text-2);
+            border-bottom: 1px solid var(--border-color);
+            font-family: 'Roboto Mono', monospace; font-size: 0.8rem;
+            white-space: nowrap; overflow-x: auto; pointer-events: none;
+        }
+        .fx-hint.hidden { display: none; }
+        .fx-hint b { color: var(--accent-text); font-weight: 700; }
+        .wiz-context { padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--text-main); font-size: 0.85rem; line-height: 1.4; }
+        .wiz-context.hidden { display: none; }
+
+        /* Drop-down arrow: sits inside the selected cell when it has a list rule (like Excel) */
+        td.has-dd:not(.frozen-cell) { position: relative; }
+        td.has-dd .cell-input { padding-right: 34px; }
+        .dd-arrow {
+            position: absolute; top: 0; right: 0; bottom: 0; width: 30px;
+            min-height: 0; min-width: 0; margin: 0; padding: 0;
+            border: none; border-left: 1px solid var(--border-color); border-radius: 0;
+            background: var(--surface-2); color: var(--text-2);
+            font-size: 0.7rem; line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 2;
+        }
+        .dd-pop {
+            position: fixed; z-index: 400; display: flex; flex-direction: column; overflow: hidden;
+            background: var(--surface); color: var(--text-main);
+            border: 1px solid var(--border-color); border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+        }
+        .dd-pop.hidden { display: none; }
+        .dd-pop input { margin: 6px; min-height: 36px; flex: none; }
+        .dd-list { overflow-y: auto; flex: 1; }
+        .dd-row {
+            display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+            width: 100%; min-height: 40px; margin: 0; padding: 0 12px;
+            border: none; border-radius: 0; background: transparent; color: inherit;
+            font-size: 0.95rem; text-align: left;
+        }
+        .dd-row.chosen { background: var(--accent-soft); }
+        .dd-row .pick-tick { width: 1.2em; color: var(--accent-text); font-weight: 700; flex: none; }
+        .dd-none { padding: 12px; color: var(--text-3); }
+
         /* Bottom Sheet Tab Bar */
         .sheet-tab-bar {
             background: var(--surface-3);
@@ -705,17 +760,13 @@
         .stats-display {
             display: flex;
             gap: 16px;
+            min-width: 0;
+            overflow-x: auto;
+            white-space: nowrap;
+            scrollbar-width: none;
         }
-
-        .sparkline-box {
-            background: var(--surface-2);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
+        .stats-display::-webkit-scrollbar { display: none; }
+        #ready-status { flex-shrink: 0; margin-right: 12px; }
 
         /* Row numbers scroll with their rows (they only stick to the left) */
         table.spreadsheet th.row-header { top: auto; }
@@ -915,7 +966,7 @@
             max-width: var(--col-width);
         }
 
-        /* Phone layout: Insights / Time Travel slide up from the bottom as a sheet instead of squeezing the grid */
+        /* Phone layout: Time Travel slides up from the bottom as a sheet instead of squeezing the grid */
         @keyframes sheetUp {
             from { transform: translateY(30px); opacity: 0; }
             to { transform: none; opacity: 1; }
@@ -1038,7 +1089,6 @@
         <div class="app-title">Spreadsheet Studio</div>
         <div class="header-actions">
             <button class="primary" onclick="toggleRibbon()">Ribbon Menu</button>
-            <button onclick="toggleSidebar('insights-sidebar')">Insights</button>
             <button onclick="toggleSidebar('timeline-sidebar'); histRender()">Time Travel</button>
             <button onclick="openSettingsModal()" title="Settings">⚙️</button>
         </div>
@@ -1061,6 +1111,7 @@
         <div class="cell-indicator" id="current-cell-label">A1</div>
         <div class="formula-fx"><i>fx</i></div>
         <input type="text" id="formula-input" placeholder="Enter value, shorthand ('average sales in b2 to b50'), or formula..." onkeydown="handleFormulaInputKey(event)">
+        <div class="fx-hint hidden" id="fx-hint"></div>
     </div>
 
     <!-- Workspace & Grid -->
@@ -1070,17 +1121,6 @@
                 <thead id="spreadsheet-head"></thead>
                 <tbody id="spreadsheet-body"></tbody>
             </table>
-        </div>
-
-        <!-- Instant Insights Sidebar -->
-        <div class="sidebar hidden" id="insights-sidebar">
-            <div class="sidebar-header">
-                <span>Instant Insights</span>
-                <button onclick="toggleSidebar('insights-sidebar')">&times;</button>
-            </div>
-            <div class="sidebar-body" id="insights-body">
-                <p style="color: var(--text-3);">Highlight a range of numbers on the grid to generate live insights instantly.</p>
-            </div>
         </div>
 
         <!-- Time Travel Undo History Sidebar -->
@@ -1118,6 +1158,8 @@
             <span>Count: 0</span>
             <span>Sum: 0</span>
             <span>Average: 0</span>
+            <span>Min: –</span>
+            <span>Max: –</span>
         </div>
     </div>
 
@@ -1142,6 +1184,7 @@
                 <button onclick="closeWizard()">&times;</button>
             </div>
             <div class="modal-body">
+                <div class="wiz-context hidden" id="wizard-context"></div>
                 <div class="form-group">
                     <label for="wizard-search">Search functions</label>
                     <input type="text" id="wizard-search" placeholder="e.g. loan, lookup, sum if, join text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="filterWizardFunctions()">
@@ -1308,6 +1351,9 @@
             </div>
         </div>
     </div>
+
+    <!-- The drop-down under a list cell's arrow -->
+    <div class="dd-pop hidden" id="dd-pop"></div>
 
     <!-- Pick a value for a drop-down cell -->
     <div class="modal-overlay sheet hidden" id="pick-sheet" onclick="if (event.target === this) closePicker()">
@@ -1782,7 +1828,7 @@
         let conditionalRules = sheets[0].conditionalRules;
         let validationRules = sheets[0].validationRules;
         let tableObjects = sheets[0].tableObjects;
-        let filteredRows = new Set(); // rows hidden by a table filter (SUBTOTAL, the stats strip and the insights skip them)
+        let filteredRows = new Set(); // rows hidden by a table filter (SUBTOTAL and the stats strip skip them)
         let merges = sheets[0].merges;
         let freezeRows = sheets[0].freezeRows;
         let freezeCols = sheets[0].freezeCols;
@@ -2321,7 +2367,6 @@
             recordHistory('Opened workbook');
             setActiveCell(0, 0);
             updateStats();
-            updateInsights();
         }
 
         // ----- Settings (kept separately so they stick even when AutoSave is off) -----
@@ -2809,7 +2854,6 @@
             setActiveCell(selectionRange.startRow, selectionRange.startCol);
             recalculateAll();
             updateStats();
-            updateInsights();
             applyConditionalFormattingRules();
             recordHistory(`Filled cells with list ${list.name}`);
             closeListsModal();
@@ -3135,7 +3179,6 @@
                 setActiveCell(index, 0);
             }
             updateStats();
-            updateInsights();
             // Tapping header opens Ribbon automatically (Zero-Chrome UX)
             if (!ribbonOpen) {
                 toggleRibbon();
@@ -3369,12 +3412,18 @@
             grid.addEventListener('pointercancel', onGridPointerCancel);
             grid.addEventListener('touchmove', e => { if (rangeDragMode) e.preventDefault(); }, { passive: false });
             grid.addEventListener('contextmenu', e => e.preventDefault());
-            grid.addEventListener('dblclick', () => {
+            grid.addEventListener('dblclick', e => {
+                if (e.target.closest && e.target.closest('.dd-arrow')) return; // two quick taps on the drop-down arrow are not an edit
                 const hit = data[getCellId(activeCell.row, activeCell.col)];
                 if (hit && hit.style && hit.style.checkbox) toggleCheckbox(); // with a mouse, a double-click ticks a checkbox
                 else startEdit(activeCell.row, activeCell.col);
             });
             document.addEventListener('keydown', handleGlobalKey);
+            grid.addEventListener('scroll', closeDropdown, { passive: true });
+            document.addEventListener('pointerdown', e => {
+                if (ddCell && !(e.target.closest && e.target.closest('#dd-pop, .dd-arrow'))) closeDropdown();
+            }, true);
+            document.addEventListener('keydown', e => { if (e.key === 'Escape' && ddCell) closeDropdown(); });
         }
 
         function cellFromPoint(x, y) {
@@ -3393,6 +3442,7 @@
             const td = e.target.closest ? e.target.closest('td') : null;
             if (!td || td.dataset.row === undefined) return;
             if (e.target.classList && e.target.classList.contains('editing')) return; // let the caret move inside the cell being edited
+            if (e.target.closest && e.target.closest('.dd-arrow')) return; // the drop-down arrow handles its own tap
             if (e.pointerType === 'mouse' && e.button !== 0) return;
             const r = parseInt(td.dataset.row), c = parseInt(td.dataset.col);
             if (editingCell) endEdit(true);
@@ -3452,7 +3502,6 @@
                 } else {
                     selectSingle(s.r, s.c);
                     updateStats();
-                    updateInsights();
                 }
             }
             pointerState = null;
@@ -3470,7 +3519,6 @@
             rangeDragMode = false;
             lastDragPoint = null;
             updateStats();
-            updateInsights();
         }
 
         function extendSelectionTo(x, y) {
@@ -3518,6 +3566,7 @@
                     }
                 }
             }
+            updateDropArrow();
         }
 
         function moveActive(r, c) {
@@ -3527,7 +3576,6 @@
             const td = document.getElementById(`cell-${getCellId(r, c)}`);
             if (td && td.scrollIntoView) td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
             updateStats();
-            updateInsights();
         }
 
         // ===== Cell Editing =====
@@ -3539,6 +3587,7 @@
             if (activeCell.row !== r || activeCell.col !== c) selectSingle(r, c);
             if (clip) clipClear(true); // starting to edit drops the copy outline, as in Excel
             editingCell = { row: r, col: c, original: cellEditText(cellId), typed: replaceWith !== undefined };
+            updateDropArrow();
             input.readOnly = false;
             input.classList.add('editing');
             input.value = replaceWith !== undefined ? replaceWith : cellEditText(cellId);
@@ -3581,6 +3630,7 @@
             if (activeCell.row === row && activeCell.col === col) {
                 document.getElementById('formula-input').value = cellEditText(cellId);
             }
+            updateDropArrow();
         }
 
         function onCellBlur(r, c) {
@@ -3588,6 +3638,7 @@
         }
 
         function handleCellKey(e, r, c) {
+            if (e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape') fxCaret = null; // the edit is over: the Wizard no longer opens on it
             if (e.key === 'Enter') {
                 e.preventDefault();
                 endEdit(true);
@@ -4150,6 +4201,7 @@
             if (valEditIndex === i) valEditIndex = -1; else if (valEditIndex > i) valEditIndex--;
             refreshValidationMarks();
             updateCellDock(getCellId(activeCell.row, activeCell.col));
+            updateDropArrow();
             renderValRules();
             showToast(`Rule for ${r.range} deleted`);
             recordHistory('Removed data validation');
@@ -4205,8 +4257,80 @@
             closeDataValidation();
             refreshValidationMarks();
             updateCellDock(getCellId(activeCell.row, activeCell.col));
+            updateDropArrow();
             showToast(`Validation rule ${editing ? 'saved for' : 'applied to'} ${rangeText}`);
             recordHistory(editing ? 'Changed data validation' : 'Applied data validation');
+        }
+
+        // ----- Drop-down arrow (a list cell, like Excel) -----
+        // One arrow lives inside the selected cell when it holds a list rule; tapping it opens the list right under the cell.
+        let ddArrow = null, ddCell = null;
+        function updateDropArrow() {
+            closeDropdown();
+            if (ddArrow) {
+                if (ddArrow.parentNode) ddArrow.parentNode.classList.remove('has-dd');
+                ddArrow.remove();
+                ddArrow = null;
+            }
+            if (editingCell || !validationRules.length) return;
+            const b = selBounds();
+            if (b.minR !== b.maxR || b.minC !== b.maxC) return;
+            const id = getCellId(activeCell.row, activeCell.col);
+            if (!valRulesFor(id).some(r => r.type === 'list')) return;
+            const td = document.getElementById(`cell-${id}`);
+            if (!td) return;
+            ddArrow = document.createElement('button');
+            ddArrow.className = 'dd-arrow';
+            ddArrow.type = 'button';
+            ddArrow.setAttribute('aria-label', `Open the list for ${id}`);
+            ddArrow.textContent = '\u25BC';
+            ddArrow.onclick = () => { if (ddCell === id) closeDropdown(); else openDropdown(id); };
+            td.classList.add('has-dd');
+            td.appendChild(ddArrow);
+        }
+        function openDropdown(cellId) {
+            const rule = valRulesFor(cellId).find(r => r.type === 'list');
+            if (!rule) return;
+            ddCell = cellId;
+            const pop = valEl('dd-pop');
+            const many = validationOptions(rule).map(o => String(o).trim()).filter(Boolean).length > 8;
+            pop.innerHTML = (many ? '<input type="text" id="dd-search" placeholder="Search" autocomplete="off" oninput="ddRender()">' : '') + '<div class="dd-list" id="dd-list"></div>';
+            ddRender();
+            const td = document.getElementById(`cell-${cellId}`);
+            const rect = td.getBoundingClientRect();
+            pop.style.minWidth = Math.max(rect.width, 150) + 'px';
+            pop.style.maxWidth = (window.innerWidth - 16) + 'px';
+            pop.style.maxHeight = '280px';
+            pop.classList.remove('hidden');
+            const h = pop.offsetHeight, w = pop.offsetWidth;
+            const tabs = document.querySelector('.sheet-tab-bar');
+            const floor = Math.min(window.innerHeight, tabs ? tabs.getBoundingClientRect().top : window.innerHeight);
+            const below = floor - rect.bottom - 6, above = rect.top - 6;
+            let top, mh = 280;
+            if (h <= below) top = rect.bottom;
+            else if (above > below) { mh = Math.min(280, above); top = rect.top - Math.min(h, mh); }
+            else { mh = Math.min(280, below); top = rect.bottom; }
+            pop.style.maxHeight = mh + 'px';
+            pop.style.top = Math.max(4, top) + 'px';
+            pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - w - 8)) + 'px';
+        }
+        function ddRender() {
+            const rule = ddCell && valRulesFor(ddCell).find(r => r.type === 'list');
+            if (!rule) return;
+            const search = document.getElementById('dd-search');
+            const q = search ? search.value.trim().toLowerCase() : '';
+            const cur = data[ddCell] ? String(data[ddCell].value).trim().toLowerCase() : '';
+            const opts = validationOptions(rule).map(o => String(o).trim()).filter(o => o && (!q || o.toLowerCase().includes(q)));
+            document.getElementById('dd-list').innerHTML = opts.length ? opts.map(o => `
+                <button type="button" class="dd-row${o.toLowerCase() === cur ? ' chosen' : ''}" data-v="${escapeHtml(o)}" onclick="ddChoose(this.dataset.v)">
+                    <span class="pick-tick">${o.toLowerCase() === cur ? '\u2713' : ''}</span><span>${escapeHtml(o)}</span>
+                </button>`).join('') : '<div class="dd-none">No matching values</div>';
+        }
+        function ddChoose(v) { const id = ddCell; closeDropdown(); if (id) setValidationValue(id, v); }
+        function closeDropdown() {
+            if (!ddCell) return;
+            ddCell = null;
+            valEl('dd-pop').classList.add('hidden');
         }
 
         // ----- Picker sheets (a drop-down list, a date) -----
@@ -6214,7 +6338,7 @@
         }
 
         function updateStats() {
-            let count = 0, sum = 0, numericCount = 0;
+            let count = 0, sum = 0, numericCount = 0, min = Infinity, max = -Infinity;
             const b = selBounds();
 
             for (let r = b.minR; r <= b.maxR; r++) {
@@ -6225,6 +6349,8 @@
                     if (typeof val === 'number' && !isNaN(val)) {
                         sum += val;
                         numericCount++;
+                        if (val < min) min = val;
+                        if (val > max) max = val;
                     }
                 }
             }
@@ -6233,52 +6359,8 @@
                 <span>Count: ${count}</span>
                 <span>Sum: ${sum.toLocaleString(undefined, {maximumFractionDigits: 10})}</span>
                 <span>Average: ${avg.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
-            `;
-        }
-
-        function updateInsights() {
-            const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
-            const maxR = Math.max(selectionRange.startRow, selectionRange.endRow);
-            const minC = Math.min(selectionRange.startCol, selectionRange.endCol);
-            const maxC = Math.max(selectionRange.startCol, selectionRange.endCol);
-
-            let nums = [];
-            for (let r = minR; r <= maxR; r++) {
-                if (filteredRows.has(r)) continue;
-                for (let c = minC; c <= maxC; c++) {
-                    let v = Number(getCellValue(getCellId(r, c)));
-                    if (!isNaN(v) && getCellValue(getCellId(r, c)) !== '') nums.push(v);
-                }
-            }
-
-            const body = document.getElementById('insights-body');
-            if (nums.length === 0) {
-                body.innerHTML = `<p style="color: var(--text-3);">Highlight a numeric range to see sparklines, extremes, and distributions.</p>`;
-                return;
-            }
-
-            let min = Math.min(...nums);
-            let max = Math.max(...nums);
-            let sum = nums.reduce((a,b)=>a+b, 0);
-            let avg = sum / nums.length;
-
-            body.innerHTML = `
-                <div class="sparkline-box">
-                    <strong>Trend Sparkline</strong>
-                    <div style="font-family: monospace; font-size: 1.1rem; color: var(--accent-text);">
-                        ${nums.map(n => n > avg ? '▲' : '▼').join(' ')}
-                    </div>
-                </div>
-                <div class="sparkline-box">
-                    <strong>Extremes & Range</strong>
-                    <div>Highest: <strong>${max.toLocaleString()}</strong></div>
-                    <div>Lowest: <strong>${min.toLocaleString()}</strong></div>
-                </div>
-                <div class="sparkline-box">
-                    <strong>Distribution</strong>
-                    <div>Total Data Points: ${nums.length}</div>
-                    <div>Mean Average: ${avg.toFixed(2)}</div>
-                </div>
+                <span>Min: ${numericCount ? min.toLocaleString(undefined, {maximumFractionDigits: 10}) : '–'}</span>
+                <span>Max: ${numericCount ? max.toLocaleString(undefined, {maximumFractionDigits: 10}) : '–'}</span>
             `;
         }
 
@@ -6680,7 +6762,6 @@
             applyFilterVisibility();
             recalculateAll();
             updateStats();
-            updateInsights();
             let total = 0;
             tableObjects.forEach(t => { total += t.endR - t.startR; });
             showToast(filteredRows.size ? `Showing ${total - filteredRows.size} of ${total} rows` : 'Showing all rows');
@@ -6973,7 +7054,6 @@
             });
             applyConditionalFormattingRules();
             updateStats();
-            updateInsights();
             if (sel) { selectionRange = sel; setActiveCell(sel.startRow, sel.startCol); }
             recordHistory(name, allSheets ? { all: true } : undefined);
         }
@@ -7645,11 +7725,13 @@
             document.getElementById('wizard-search').value = '';
             document.getElementById('wizard-function').value = '';
             wizardRepeats = 0;
+            wizCtx = wizardContext();
             document.getElementById('wizard-modal').classList.remove('hidden');
             filterWizardFunctions();
             renderWizardArguments();
+            wizardShowContext();
         }
-        function closeWizard() { document.getElementById('wizard-modal').classList.add('hidden'); }
+        function closeWizard() { document.getElementById('wizard-modal').classList.add('hidden'); wizCtx = null; }
 
         function filterWizardFunctions() {
             const q = document.getElementById('wizard-search').value.trim().toLowerCase();
@@ -7723,15 +7805,21 @@
             }
             // Keep what was already typed when argument rows are added / removed
             const old = Array.from(container.querySelectorAll('input')).map(i => i.value);
+            const oldRaw = Array.from(container.querySelectorAll('input')).map(i => i.dataset.raw);
             info.innerHTML = `<div class="wiz-syntax">${wizardSyntax(fn)}</div><div>${fn.desc}</div>`;
             const rows = wizardRows(fn);
             container.innerHTML = rows.map((r, i) => `
                 <div class="form-group wiz-arg">
                     <label for="wiz-arg-${i}">${r.label} <span class="wiz-tag${r.optional ? '' : ' req'}">${r.optional ? 'optional' : 'required'}</span></label>
                     <div class="wiz-desc">${r.def.d}</div>
-                    <input type="text" id="wiz-arg-${i}" placeholder="e.g. ${r.def.ex.replace(/"/g, '&quot;')}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="previewWizard()">
+                    <input type="text" id="wiz-arg-${i}" placeholder="e.g. ${r.def.ex.replace(/"/g, '&quot;')}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="this.dataset.raw = ''; previewWizard()">
                 </div>`).join('');
-            rows.forEach((r, i) => { if (old[i] !== undefined) document.getElementById(`wiz-arg-${i}`).value = old[i]; });
+            rows.forEach((r, i) => {
+                if (old[i] === undefined) return;
+                const el = document.getElementById(`wiz-arg-${i}`);
+                el.value = old[i];
+                if (oldRaw[i]) el.dataset.raw = '1';
+            });
             if (prefill) {
                 const sel = wizardSelectionText();
                 const first = rows.findIndex(r => r.def.rng);
@@ -7773,7 +7861,7 @@
             const rows = wizardRows(fn);
             const vals = rows.map((r, i) => {
                 const el = document.getElementById(`wiz-arg-${i}`);
-                return el ? wizardAutoQuote(el.value, r.def.t) : '';
+                return el ? (el.dataset.raw ? el.value.trim() : wizardAutoQuote(el.value, r.def.t)) : ''; // text read from the formula is kept exactly
             });
             const missing = rows.filter((r, i) => !r.optional && vals[i] === '').map(r => r.label);
             let last = vals.length - 1;
@@ -7838,11 +7926,183 @@
             if (!built) { showToast('Pick a function first'); return; }
             if (built.missing.length) { showToast(`Fill in: ${built.missing.join(', ')}`); return; }
             const cellId = getCellId(activeCell.row, activeCell.col);
-            document.getElementById('formula-input').value = built.formula;
-            document.getElementById(`input-${cellId}`).value = built.formula;
-            onCellInput(cellId, built.formula);
-            recordHistory(`Inserted ${built.formula}`);
+            let final = built.formula;
+            if (wizCtx && wizCtx.cell === cellId) { // opened on a function inside a formula: only that call changes
+                final = wizCtx.text.slice(0, wizCtx.call.nameStart) + built.formula.slice(1) + wizCtx.text.slice(wizCtx.end);
+            }
+            document.getElementById('formula-input').value = final;
+            document.getElementById(`input-${cellId}`).value = final;
+            onCellInput(cellId, final);
+            recordHistory(wizCtx ? `Changed ${wizCtx.call.name} in ${cellId}` : `Inserted ${built.formula}`);
+            fxCaret = null;
             closeWizard();
+        }
+
+        // ===== Editing inside a formula =====
+        // While the caret is in a formula (in the cell or in the formula bar) three things follow it:
+        //  - a hint line under the formula bar: the function the caret is in, its current argument in bold
+        //  - the cells a reference under the caret points at are outlined on the grid
+        //  - the Formula Wizard opens on the function at the caret (arguments filled from the formula) and changes only that call
+        let fxCaret = null;   // { cell, text, pos, t }: the last caret spot in a formula being edited (kept after the box loses focus, so the Wizard button can use it)
+        let fxRefTds = [], fxRaf = 0, wizCtx = null;
+
+        // Finds every function call in a formula: where its name, ( and ) are, and where each argument starts and ends
+        function fxScan(text) {
+            const calls = [], stack = [], n = text.length;
+            let i = 0;
+            while (i < n) {
+                const ch = text[i];
+                if (ch === '"' || ch === "'") { // text in quotes and 'Sheet names'
+                    i++;
+                    while (i < n) {
+                        if (text[i] === ch) { if (text[i + 1] === ch) i += 2; else { i++; break; } } else i++;
+                    }
+                    continue;
+                }
+                if (ch === '(') {
+                    let j = i;
+                    while (j > 0 && /[A-Za-z0-9_.]/.test(text[j - 1])) j--;
+                    const word = text.slice(j, i).toUpperCase();
+                    const call = word && /^[A-Z_]/.test(word) && Object.prototype.hasOwnProperty.call(FUNCTIONS, word)
+                        ? { name: word, nameStart: j, open: i, close: n, closed: false, starts: [i + 1], ends: [] } : null;
+                    if (call) calls.push(call);
+                    stack.push(call);
+                } else if (ch === '{') {
+                    stack.push(null);
+                } else if (ch === ')' || ch === '}') {
+                    const c = stack.pop();
+                    if (c && ch === ')') { c.close = i; c.closed = true; c.ends.push(i); }
+                } else if (ch === ',') {
+                    const c = stack[stack.length - 1];
+                    if (c) { c.ends.push(i); c.starts.push(i + 1); }
+                }
+                i++;
+            }
+            calls.forEach(c => { if (c.ends.length < c.starts.length) c.ends.push(n); });
+            return calls;
+        }
+        // The calls the caret is in, innermost first
+        function fxCallsAt(text, pos) {
+            return fxScan(text).filter(c => c.nameStart <= pos && pos <= c.close).sort((a, b) => b.nameStart - a.nameStart);
+        }
+        function fxArgIndex(call, pos) {
+            if (pos <= call.open) return -1; // on the function's name
+            let k = 0;
+            call.starts.forEach((s, i) => { if (s <= pos) k = i; });
+            return k;
+        }
+        function fxArgTexts(text, call) {
+            const out = call.starts.map((s, i) => text.slice(s, call.ends[i]).trim());
+            return out.length === 1 && out[0] === '' ? [] : out;
+        }
+
+        function fxHintHtml(call, idx) {
+            const fn = wizardFn(call.name);
+            if (!fn) return `${escapeHtml(call.name)}(${idx >= 0 ? `argument ${idx + 1}` : '…'})`;
+            const names = fn.args.map(a => a.opt ? `[${a.n}]` : a.n);
+            let mark = idx;
+            if (fn.rep) {
+                fn.rep.args.forEach(a => names.push(`[${a.n}]`));
+                if (idx >= fn.args.length) mark = fn.args.length + ((idx - fn.args.length) % fn.rep.args.length);
+            }
+            const parts = names.map((n, i) => i === mark ? `<b>${escapeHtml(n)}</b>` : escapeHtml(n));
+            if (fn.rep) parts.push('…');
+            return `${escapeHtml(fn.name)}(${parts.join(', ')})`;
+        }
+
+        // The cell reference the caret is on, as cells on the current sheet (null when it is on something else)
+        function fxRefAt(text, pos) {
+            const masked = text.replace(/"(?:[^"]|"")*"/g, m => ' '.repeat(m.length));
+            const re = /(?<![A-Za-z0-9_.])((?:'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.]*)!)?(\$?[A-Za-z]{1,3}\$?\d+)(?::(\$?[A-Za-z]{1,3}\$?\d+))?(?![A-Za-z0-9_(])/g;
+            let m;
+            while ((m = re.exec(masked))) {
+                if (m.index <= pos && pos <= m.index + m[0].length) {
+                    if (m[1]) {
+                        const sheetName = m[1].slice(0, -1).replace(/^'|'$/g, '').replace(/''/g, "'");
+                        if (sheetName.toLowerCase() !== sheets[currentSheetIdx].name.toLowerCase()) return null;
+                    }
+                    return parseRangeText(m[2] + (m[3] ? ':' + m[3] : ''));
+                }
+            }
+            return null;
+        }
+        function fxOutline(b) {
+            fxRefTds.forEach(td => td.classList.remove('fx-ref'));
+            fxRefTds = [];
+            if (!b || (b.maxR - b.minR + 1) * (b.maxC - b.minC + 1) > 3000) return;
+            for (let r = b.minR; r <= b.maxR; r++) {
+                for (let c = b.minC; c <= b.maxC; c++) {
+                    const td = document.getElementById(`cell-${getCellId(r, c)}`);
+                    if (td) { td.classList.add('fx-ref'); fxRefTds.push(td); }
+                }
+            }
+        }
+        function fxHide() {
+            document.getElementById('fx-hint').classList.add('hidden');
+            fxOutline(null);
+        }
+        function fxUpdate() {
+            fxRaf = 0;
+            const el = document.activeElement;
+            const inBar = !!el && el.id === 'formula-input';
+            const inCell = !!el && !!el.classList && el.classList.contains('cell-input') && el.classList.contains('editing');
+            if (!inBar && !inCell) { fxHide(); return; }
+            const text = el.value, pos = el.selectionStart;
+            if (!text.startsWith('=') || pos === null) { fxCaret = null; fxHide(); return; }
+            const cell = inCell ? el.id.slice(6) : getCellId(activeCell.row, activeCell.col);
+            fxCaret = { cell, text, pos, t: Date.now() };
+            const calls = fxCallsAt(text, pos);
+            const hint = document.getElementById('fx-hint');
+            if (calls.length) {
+                hint.innerHTML = fxHintHtml(calls[0], fxArgIndex(calls[0], pos));
+                hint.classList.remove('hidden');
+            } else hint.classList.add('hidden');
+            fxOutline(fxRefAt(text, pos));
+        }
+        function fxSchedule() { if (!fxRaf) fxRaf = requestAnimationFrame(fxUpdate); }
+        ['selectionchange', 'input', 'keyup', 'pointerup', 'focusin', 'focusout'].forEach(ev => document.addEventListener(ev, fxSchedule, true));
+
+        // The function the Wizard should open on: the innermost call at the last caret spot that the Wizard knows and can show
+        function wizardContext() {
+            if (!fxCaret || Date.now() - fxCaret.t > 120000) return null;
+            const cell = getCellId(activeCell.row, activeCell.col);
+            if (fxCaret.cell !== cell) return null;
+            let text = null;
+            if (document.getElementById('formula-input').value === fxCaret.text) text = fxCaret.text;
+            else { const held = cellEditText(cell); if (held.length === fxCaret.text.length) text = held; } // (the cell may have re-capitalized what was typed)
+            if (text === null) return null;
+            const pos = Math.min(fxCaret.pos, text.length);
+            for (const call of fxCallsAt(text, pos)) {
+                const fn = wizardFn(call.name);
+                if (!fn) continue;
+                const argTexts = fxArgTexts(text, call);
+                const extra = argTexts.length - fn.args.length;
+                if (extra > 0 && !fn.rep) continue;
+                const groups = extra > 0 ? Math.ceil(extra / fn.rep.args.length) : 0;
+                return { cell, text, call, fn, argTexts, groups, argIdx: fxArgIndex(call, pos), end: call.closed ? call.close + 1 : text.length };
+            }
+            return null;
+        }
+        function wizardShowContext() {
+            const box = document.getElementById('wizard-context'), btn = document.getElementById('wizard-insert-btn');
+            btn.textContent = wizCtx ? 'Update Formula' : 'Insert Formula';
+            if (!wizCtx) { box.classList.add('hidden'); return; }
+            const c = wizCtx;
+            document.getElementById('wizard-function').value = c.fn.name;
+            wizardRepeats = c.groups;
+            renderWizardArguments();
+            c.argTexts.forEach((t, i) => {
+                const el = document.getElementById(`wiz-arg-${i}`);
+                if (el) { el.value = t; el.dataset.raw = '1'; }
+            });
+            filterWizardFunctions();
+            const chosen = document.querySelector('#wizard-results .wizard-result.selected');
+            if (chosen && chosen.scrollIntoView) chosen.scrollIntoView({ block: 'nearest' });
+            previewWizard();
+            box.innerHTML = `Editing the <b>${escapeHtml(c.fn.name)}</b> part of the formula in ${c.cell}. Only this part will change.`;
+            box.classList.remove('hidden');
+            const target = document.getElementById(`wiz-arg-${Math.max(0, Math.min(c.argIdx, wizardRows(c.fn).length - 1))}`);
+            if (target) setTimeout(() => { target.focus(); if (target.scrollIntoView) target.scrollIntoView({ block: 'center' }); }, 0);
         }
 
         // ===== Conditional Formatting =====
@@ -8541,7 +8801,6 @@
             applyAllStyles();
             applyConditionalFormattingRules();
             updateStats();
-            updateInsights();
             setActiveCell(activeCell.row, activeCell.col);
         }
         function findReplaceOne() {
@@ -9431,7 +9690,6 @@
                 merges = s.merges;
                 buildGridDOM();
                 updateStats();
-                updateInsights();
                 recordHistory('Cleared sheet');
             }
         }
@@ -9527,7 +9785,6 @@
                 });
                 recalculateAll();
                 updateStats();
-                updateInsights();
                 recordHistory('Imported CSV');
                 showToast('CSV imported');
             };
@@ -9722,7 +9979,6 @@
                 });
                 applyConditionalFormattingRules();
                 updateStats();
-                updateInsights();
                 setActiveCell(activeCell.row, activeCell.col);
                 markDirty();
             }
@@ -9777,7 +10033,6 @@
             }
             el.classList.toggle('hidden');
             document.body.classList.toggle('sheet-open', !!document.querySelector('.sidebar:not(.hidden)'));
-            if (opening && id === 'insights-sidebar') updateInsights();
         }
 
         function handleGridScroll() {
