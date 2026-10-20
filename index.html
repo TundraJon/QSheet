@@ -21,7 +21,7 @@
     <!-- Icon fonts for interface buttons (not offered as cell fonts). display=block keeps the icon hidden until the font has loaded, so a button never shows the plain word.
          Material Symbols is cut down to the icons the buttons use (a few KB instead of 320 KB): when a button gets a new icon, add its name to icon_names (keep them in alphabetical order).
          Use <span class="material-symbols-outlined">settings</span>. Material Icons is loaded but not used yet. -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_forward,autorenew,bar_chart,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,find_replace,format_align_center,format_align_left,format_align_right,function,functions,redo,settings,sort,straighten,undo,wrap_text&display=block" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_forward,autorenew,bar_chart,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,find_replace,format_align_center,format_align_left,format_align_right,function,functions,redo,settings,sort,straighten,undo,wrap_text&display=block" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Icons&display=block" rel="stylesheet">
     <script>
         // If the icon font cannot load (for example offline the very first time), buttons show their words instead of icons
@@ -304,7 +304,9 @@
             font-weight: bold;
             color: var(--text-3);
             font-style: italic;
+            display: flex; align-items: center;
         }
+        .formula-fx .material-symbols-outlined { font-size: 24px; }
 
         #formula-input {
             flex: 1;
@@ -535,6 +537,20 @@
         .wiz-context { padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--text-main); font-size: 0.85rem; line-height: 1.4; }
         .wiz-context.hidden { display: none; }
 
+        /* The clock shown while a sheet is drawn. Its hands are CSS animations of transform, which keep moving while the page is busy.
+           Each 100 ms step is 5 minutes of clock time: the minute hand turns 30 degrees, the hour hand 2.5 (1.2 s = one hour). */
+        .sheet-spinner { position: fixed; inset: 0; z-index: 500; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.18); }
+        .sheet-spinner.hidden { display: none; }
+        .clock-card { width: 96px; height: 96px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border-color); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3); display: flex; align-items: center; justify-content: center; }
+        .clock { position: relative; width: 72px; height: 72px; border-radius: 50%; border: 3px solid var(--text-2); }
+        .clock .tick { position: absolute; left: 50%; top: 50%; width: 2px; height: 5px; margin: -2.5px 0 0 -1px; background: var(--text-3); transform: rotate(var(--a)) translateY(-28px); }
+        .clock .hand { position: absolute; left: 50%; bottom: 50%; border-radius: 2px; background: var(--text-strong); transform-origin: 50% 100%; will-change: transform; }
+        .clock .hand-m { width: 3px; height: 26px; margin-left: -1.5px; animation: clockMinute 1.2s steps(12) infinite; }
+        .clock .hand-h { width: 4px; height: 18px; margin-left: -2px; animation: clockHour 14.4s steps(144) infinite; }
+        .clock .pin { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--text-strong); }
+        @keyframes clockMinute { to { transform: rotate(360deg); } }
+        @keyframes clockHour { to { transform: rotate(360deg); } }
+
         /* Analyze sheet (Quick Analysis) */
         .qa-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
         .qa-tabs button { flex: 1; min-width: 0; padding: 4px 6px; }
@@ -557,6 +573,15 @@
             width: 1em; height: 1em; overflow: hidden; flex: none; /* the icon's name never widens the button, even before the font arrives */
         }
         .mi-lead { margin-right: 4px; }
+        .mi-trail { margin-left: 2px; }
+        /* Paste values: the Paste icon with a small 123 at its bottom right corner */
+        .mi-stack { position: relative; display: inline-block; width: 20px; height: 20px; flex: none; }
+        .mi-stack .material-symbols-outlined { position: absolute; left: 0; top: 0; }
+        .mi-stack .mi-badge { left: auto; top: auto; right: -6px; bottom: -5px; font-size: 15px; background: var(--surface); border-radius: 3px; }
+        .ribbon-group button:hover .mi-badge { background: var(--surface-3); }
+        .ico-alt { display: none; }
+        html.icons-failed .ico-alt { display: inline; }
+        html.icons-failed .mi-stack { display: none; }
         .ribbon-group button:has(> .ico-label) { padding: 5px 6px; }
         .ico-label { display: none; }
         html.icons-failed .material-symbols-outlined { display: none; }
@@ -810,7 +835,7 @@
 
         .stats-display {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             min-width: 0;
             overflow-x: auto;
             white-space: nowrap;
@@ -1144,7 +1169,7 @@
         <div class="app-title">Quick Sheet</div>
         <div class="header-actions">
             <button class="primary" onclick="toggleRibbon()">Ribbon Menu</button>
-            <button onclick="toggleSidebar('timeline-sidebar'); histRender()">Time Travel</button>
+            <button onclick="toggleSidebar('timeline-sidebar'); histRender()" aria-label="Time Travel">⏳ Time Travel</button>
             <button onclick="openSettingsModal()" title="Settings" aria-label="Settings"><span class="material-symbols-outlined" aria-hidden="true">settings</span><span class="ico-label">Settings</span></button>
         </div>
     </header>
@@ -1164,7 +1189,7 @@
     <!-- Formula Bar -->
     <div class="formula-bar">
         <div class="cell-indicator" id="current-cell-label">A1</div>
-        <div class="formula-fx"><i>fx</i></div>
+        <div class="formula-fx"><span class="material-symbols-outlined" aria-hidden="true">function</span><i class="ico-label">fx</i></div>
         <input type="text" id="formula-input" placeholder="Enter value, shorthand ('average sales in b2 to b50'), or formula..." onkeydown="handleFormulaInputKey(event)">
         <div class="fx-hint hidden" id="fx-hint"></div>
     </div>
@@ -1201,15 +1226,15 @@
     <!-- Bottom Multi-Sheet Tab Bar -->
     <div class="sheet-tab-bar" id="sheet-tab-bar">
         <!-- Rendered dynamically -->
-        <button class="sheet-tab active" onclick="switchSheet(0)">Sheet 1</button>
-        <button class="sheet-tab" onclick="switchSheet(1)">Sheet 2</button>
-        <button class="sheet-tab" onclick="addNewSheet()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add</span>Add Sheet</button>
+        <button class="sheet-tab active" onclick="switchSheetSpin(0)">Sheet 1</button>
+        <button class="sheet-tab" onclick="switchSheetSpin(1)">Sheet 2</button>
+        <button class="sheet-tab" onclick="addNewSheetSpin()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add</span>Add Sheet</button>
     </div>
 
     <!-- Status Bar (live Count / Sum / Average for the selection) -->
     <div class="status-bar">
         <div class="stats-display" id="stats-display">
-            <span>Cnt: 0</span>
+            <span>Cells: 0</span>
             <span>Sum: 0</span>
             <span>Avg: 0</span>
             <span>Min: –</span>
@@ -1404,6 +1429,15 @@
                 <button class="primary" id="val-apply-btn" onclick="applyDataValidation()">Apply Validation Rule</button>
             </div>
         </div>
+    </div>
+
+    <!-- Shown while a sheet is drawn (a ticking clock) -->
+    <div class="sheet-spinner hidden" id="sheet-spinner" aria-hidden="true">
+        <div class="clock-card"><div class="clock">
+            <i class="tick" style="--a:0deg"></i><i class="tick" style="--a:30deg"></i><i class="tick" style="--a:60deg"></i><i class="tick" style="--a:90deg"></i><i class="tick" style="--a:120deg"></i><i class="tick" style="--a:150deg"></i>
+            <i class="tick" style="--a:180deg"></i><i class="tick" style="--a:210deg"></i><i class="tick" style="--a:240deg"></i><i class="tick" style="--a:270deg"></i><i class="tick" style="--a:300deg"></i><i class="tick" style="--a:330deg"></i>
+            <div class="hand hand-h"></div><div class="hand hand-m"></div><i class="pin"></i>
+        </div></div>
     </div>
 
     <!-- Analyze: one-tap totals, formatting, charts and tidying for the selected cells -->
@@ -3304,9 +3338,9 @@
                         <button onclick="copyCells(false)" title="Copy the selected cells" aria-label="Copy"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span><span class="ico-label">Copy</span></button>
                         <button onclick="copyCells(true)" title="Cut the selected cells" aria-label="Cut"><span class="material-symbols-outlined" aria-hidden="true">content_cut</span><span class="ico-label">Cut</span></button>
                         <button onclick="pasteCells(false)" title="Paste (formulas move with the cells)" aria-label="Paste"><span class="material-symbols-outlined" aria-hidden="true">content_paste</span><span class="ico-label">Paste</span></button>
-                        <button onclick="pasteCells(true)" title="Paste only the values">Paste values</button>
-                        <button onclick="fillCells('down')" title="Fill down" aria-label="Fill down"><span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span><span class="ico-label">Fill &darr;</span></button>
-                        <button onclick="fillCells('right')" title="Fill right" aria-label="Fill right"><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span><span class="ico-label">Fill &rarr;</span></button>
+                        <button onclick="pasteCells(true)" title="Paste only the values" aria-label="Paste values"><span class="mi-stack"><span class="material-symbols-outlined" aria-hidden="true">content_paste</span><span class="material-symbols-outlined mi-badge" aria-hidden="true">123</span></span><span class="ico-label">Paste values</span></button>
+                        <button onclick="fillCells('down')" title="Fill down" aria-label="Fill down">Fill<span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_downward</span><span class="ico-alt"> &darr;</span></button>
+                        <button onclick="fillCells('right')" title="Fill right" aria-label="Fill right">Fill<span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_forward</span><span class="ico-alt"> &rarr;</span></button>
                         <button onclick="seriesFill()" title="Continue a pattern: 1, 2, 3 / Mon, Tue / Item 1, Item 2 / one of your lists">Series</button>
                     </div>
                     <div class="ribbon-group">
@@ -3411,7 +3445,7 @@
                         <button onclick="openChartsList()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">bar_chart</span>Charts</button>
                         <button onclick="openNamesModal()">Names</button>
                         <button onclick="openSheetModal()">Rename / Delete Sheet</button>
-                        <button class="primary" onclick="openWizard()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span>fx Wizard</button>
+                        <button class="primary" onclick="openWizard()" aria-label="fx Wizard"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span><span class="ico-alt">fx </span>Wizard</button>
                     </div>
                 `;
             }
@@ -3440,7 +3474,7 @@
             if (showFx) {
                 html += `<button onclick="insertQuickFn('SUM')">SUM</button>`;
                 html += `<button onclick="insertQuickFn('AVERAGE')">AVERAGE</button>`;
-                html += `<button onclick="openWizard()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span>fx Wizard</button>`;
+                html += `<button onclick="openWizard()" aria-label="fx Wizard"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span><span class="ico-alt">fx </span>Wizard</button>`;
             }
 
             // A cell with a drop-down list or a date rule gets a picker button (short lists also show their values)
@@ -6452,7 +6486,7 @@
             }
             let avg = numericCount ? sum / numericCount : 0;
             document.getElementById('stats-display').innerHTML = `
-                <span>Cnt: ${count}</span>
+                <span>Cells: ${count}</span>
                 <span>Sum: ${sum.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
                 <span>Avg: ${avg.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
                 <span>Min: ${numericCount ? min.toLocaleString(undefined, {maximumFractionDigits: 2}) : '–'}</span>
@@ -6465,9 +6499,9 @@
             const bar = document.getElementById('sheet-tab-bar');
             let html = '';
             sheets.forEach((s, idx) => {
-                html += `<button class="sheet-tab ${idx === currentSheetIdx ? 'active' : ''}" onclick="${idx === currentSheetIdx ? 'openSheetModal()' : `switchSheet(${idx})`}">${escapeHtml(s.name)}</button>`;
+                html += `<button class="sheet-tab ${idx === currentSheetIdx ? 'active' : ''}" onclick="${idx === currentSheetIdx ? 'openSheetModal()' : `switchSheetSpin(${idx})`}">${escapeHtml(s.name)}</button>`;
             });
-            html += `<button class="sheet-tab" onclick="addNewSheet()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add</span>Add Sheet</button>`;
+            html += `<button class="sheet-tab" onclick="addNewSheetSpin()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add</span>Add Sheet</button>`;
             bar.innerHTML = html;
         }
 
@@ -6523,6 +6557,15 @@
             showToast(`Switched to ${s.name}`);
             markDirty();
         }
+
+        // Tapping a sheet tab / Add Sheet: the clock goes up first, and the page gets one screen refresh to show it before the heavy drawing starts
+        function withSheetClock(work) {
+            const sp = document.getElementById('sheet-spinner');
+            sp.classList.remove('hidden');
+            requestAnimationFrame(() => setTimeout(() => { try { work(); } finally { sp.classList.add('hidden'); } }, 0));
+        }
+        function switchSheetSpin(idx) { withSheetClock(() => switchSheet(idx)); }
+        function addNewSheetSpin() { withSheetClock(() => addNewSheet()); }
 
         function addNewSheet() {
             let n = sheets.length + 1;
