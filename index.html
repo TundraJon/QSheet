@@ -5342,7 +5342,7 @@
                     const keep = dice.map(() => true);
                     if (keepMode) {
                         const order = dice.map((v, idx) => idx).sort((a, b) => dice[a] - dice[b] || a - b); // lowest first
-                        const high = keepMode[1] === 'h';
+                        const high = keepMode === 'kh' || keepMode === 'dl'; // keep the highest (kh), or drop the lowest (dl); kl and dh keep the lowest
                         const chosen = keepMode[0] === 'k' ? k : n - k; // how many are kept
                         const kept = high ? order.slice(n - chosen) : order.slice(0, chosen);
                         keep.fill(false);
