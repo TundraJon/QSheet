@@ -21,7 +21,7 @@
     <!-- Icon fonts for interface buttons (not offered as cell fonts). display=block keeps the icon hidden until the font has loaded, so a button never shows the plain word.
          Material Symbols is cut down to the icons the buttons use (a few KB instead of 320 KB): when a button gets a new icon, add its name to icon_names (keep them in alphabetical order).
          Use <span class="material-symbols-outlined">settings</span>. Material Icons is loaded but not used yet. -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_forward,autorenew,bar_chart,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,find_replace,format_align_center,format_align_left,format_align_right,function,functions,redo,settings,sort,straighten,undo,wrap_text&display=block" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,function,functions,label,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_more,wrap_text&display=block" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Icons&display=block" rel="stylesheet">
     <script>
         // If the icon font cannot load (for example offline the very first time), buttons show their words instead of icons
@@ -842,6 +842,16 @@
             scrollbar-width: none;
         }
         .stats-display::-webkit-scrollbar { display: none; }
+        /* One selected cell: what is attached to it (tap an item to open its editor) */
+        .info-chip {
+            display: inline-flex; align-items: center; gap: 4px; flex: none;
+            min-height: 26px; min-width: 0; margin: 0; padding: 0 9px;
+            border: 1px solid var(--border-color); border-radius: 13px;
+            background: var(--surface); color: var(--text-2);
+            font-size: 0.78rem; line-height: 1; white-space: nowrap;
+        }
+        span.info-chip { border-color: transparent; background: transparent; padding: 0 2px; }
+        .info-chip .material-symbols-outlined { font-size: 16px; }
 
 
         /* Row numbers scroll with their rows (they only stick to the left) */
@@ -6467,9 +6477,106 @@
             if (validationRules.length || valBadIds.size) refreshValidationMarks();
         }
 
+
+        // ===== What is attached to a single selected cell =====
+        // With one cell selected the stats strip has nothing to add up, so it lists what the cell carries instead: a validation rule,
+        // format rules, a table, a name, a merge, a spill, charts. Each item is tappable and opens the editor for it.
+        const NUMFMT_LABEL = { currency: 'Currency', percent: 'Percent', decimal: 'Decimal', date_mdy: 'Date', date_ymd: 'Date', datetime: 'Date & Time', text: 'Text' };
+        const infoIcon = n => `<span class="material-symbols-outlined" aria-hidden="true">${n}</span>`;
+
+        function cellTypeInfo(id) {
+            const cell = data[id], v = cell ? cell.value : '';
+            const fmt = cell && cell.style && cell.style.numFormat;
+            const fmtLabel = fmt && fmt !== 'general' ? NUMFMT_LABEL[fmt] : '';
+            if (cell && typeof v === 'string' && ERROR_CODES.includes(v)) return { icon: '', text: 'Error' };
+            if (cell && cell.formula) return { icon: 'function', text: 'Formula' + (fmtLabel ? ' · ' + fmtLabel : '') };
+            if (isBlank(v)) return { icon: '', text: 'Empty' + (fmtLabel ? ' · ' + fmtLabel : '') };
+            if (typeof v === 'number') return fmt && fmt.startsWith('date') ? { icon: 'calendar_month', text: fmtLabel } : { icon: '123', text: 'Number' + (fmtLabel ? ' · ' + fmtLabel : '') };
+            if (typeof v === 'boolean') return { icon: '', text: 'TRUE / FALSE' };
+            return { icon: 'text_fields', text: 'Text' + (fmtLabel && fmt !== 'text' ? ' · ' + fmtLabel : '') };
+        }
+
+        // The items for one cell, in this order: validation, format rules, table, name, merged, spill, charts. [{ icon, alt, text, act, arg }]
+        function cellInfoItems(r, c) {
+            const id = getCellId(r, c), items = [];
+            valRulesFor(id).forEach(rule => {
+                const i = validationRules.indexOf(rule);
+                if (rule.type === 'list') { const n = validationOptions(rule).map(o => String(o).trim()).filter(Boolean).length; items.push({ icon: 'arrow_drop_down_circle', alt: 'List', text: `${n} item${n === 1 ? '' : 's'}`, act: 'val', arg: i }); }
+                else if (rule.type === 'date') items.push({ icon: 'calendar_month', alt: '', text: 'date' + valLimitText(rule), act: 'val', arg: i });
+                else items.push({ icon: '123', alt: '', text: (rule.type === 'whole' ? 'whole number' : 'number') + valLimitText(rule), act: 'val', arg: i });
+            });
+            const rules = conditionalRules.filter(rule => {
+                const b = parseRangeText(rule.range);
+                return b && r >= b.minR && r <= b.maxR && (rule.entireRow ? true : c >= b.minC && c <= b.maxC);
+            });
+            if (rules.length) items.push({ icon: 'format_color_fill', alt: 'Rules', text: `${rules.length} rule${rules.length === 1 ? '' : 's'}`, act: 'cf', arg: 0 });
+            tableObjects.forEach((t, i) => { if (r >= t.startR && r <= t.endR && c >= t.startC && c <= t.endC) items.push({ icon: 'table_chart', alt: 'Table', text: t.name, act: 'table', arg: i }); });
+            const here = sheets[currentSheetIdx].name.toLowerCase();
+            const covers = ref => {
+                const sp = splitSheetCells(ref);
+                if (!sp || (sp.sheet !== null && sp.sheet.toLowerCase() !== here)) return false;
+                const b = parseRangeText(sp.cells);
+                return !!b && r >= b.minR && r <= b.maxR && c >= b.minC && c <= b.maxC;
+            };
+            workbookNames.forEach(n => { if (covers(n.ref)) items.push({ icon: 'label', alt: '', text: `Name: ${n.name}`, act: 'name', arg: 0 }); });
+            const m = merges.find(x => r >= x.r && r < x.r + x.rows && c >= x.c && c < x.c + x.cols);
+            if (m) items.push({ icon: 'cell_merge', alt: 'Merged', text: clipRange(m.r, m.c, m.r + m.rows - 1, m.c + m.cols - 1), act: 'merge', arg: 0 });
+            const cell = data[id];
+            if (cell && (cell.spillIds || cell.spillOf)) {
+                const anchor = cell.spillOf || id, ids = (data[anchor] && data[anchor].spillIds) || [];
+                const all = [anchor, ...ids].map(parseCellCoord);
+                const r1 = Math.min(...all.map(x => x.r)), r2 = Math.max(...all.map(x => x.r)), c1 = Math.min(...all.map(x => x.c)), c2 = Math.max(...all.map(x => x.c));
+                items.push({ icon: 'unfold_more', alt: '', text: `Spills ${clipRange(r1, c1, r2, c2)}`, act: 'spill', arg: `${r1},${c1},${r2},${c2}` });
+            }
+            const nCharts = chartList().filter(ch => covers(ch.ref)).length;
+            if (nCharts) items.push({ icon: 'bar_chart', alt: 'Charts', text: String(nCharts), act: 'chart', arg: 0 });
+            return items;
+        }
+
+        function renderCellInfo(r, c) {
+            const items = cellInfoItems(r, c);
+            let html;
+            if (items.length) {
+                html = items.map(it => `<button type="button" class="info-chip" onclick="cellInfoTap('${it.act}', '${it.arg}')">${infoIcon(it.icon)}${it.alt ? `<span class="ico-alt">${it.alt} </span>` : ''}<span>${escapeHtml(it.text)}</span></button>`).join('');
+            } else {
+                const t = cellTypeInfo(getCellId(r, c));
+                html = `<span class="info-chip">${t.icon ? infoIcon(t.icon) : ''}<span>${escapeHtml(t.text)}</span></span>`;
+            }
+            document.getElementById('stats-display').innerHTML = html;
+        }
+        function refreshCellInfo() {
+            const b = selBounds();
+            if (b.minR === b.maxR && b.minC === b.maxC) renderCellInfo(b.minR, b.minC);
+        }
+
+        function cellInfoTap(act, arg) {
+            if (editingCell) endEdit(true);
+            const r = activeCell.row, c = activeCell.col;
+            if (act === 'val') { openDataValidation(); valEditRule(Number(arg)); }
+            else if (act === 'cf') openCondFormatting();
+            else if (act === 'table') { const t = tableObjects[Number(arg)]; if (t) openSortFilterModal(Math.min(Math.max(c, t.startC), t.endC), t); }
+            else if (act === 'name') openNamesModal();
+            else if (act === 'merge') {
+                const m = merges.find(x => r >= x.r && r < x.r + x.rows && c >= x.c && c < x.c + x.cols);
+                if (m && confirm(`Unmerge ${clipRange(m.r, m.c, m.r + m.rows - 1, m.c + m.cols - 1)}?`)) unmergeCells();
+            }
+            else if (act === 'spill') {
+                const [r1, c1, r2, c2] = String(arg).split(',').map(Number);
+                selectionRange = { startRow: r1, startCol: c1, endRow: r2, endCol: c2 };
+                setActiveCell(r1, c1);
+                updateStats();
+            }
+            else if (act === 'chart') {
+                const here = sheets[currentSheetIdx].name.toLowerCase();
+                const hits = chartList().filter(ch => { const sp = splitSheetCells(ch.ref); if (!sp || (sp.sheet !== null && sp.sheet.toLowerCase() !== here)) return false; const b = parseRangeText(sp.cells); return !!b && r >= b.minR && r <= b.maxR && c >= b.minC && c <= b.maxC; });
+                if (hits.length === 1) openChart(hits[0].id); else openChartsList();
+            }
+        }
+
         function updateStats() {
             let count = 0, sum = 0, numericCount = 0, min = Infinity, max = -Infinity;
             const b = selBounds();
+            if (b.minR === b.maxR && b.minC === b.maxC) { renderCellInfo(b.minR, b.minC); return; }
 
             for (let r = b.minR; r <= b.maxR; r++) {
                 if (filteredRows.has(r)) continue;
@@ -10347,6 +10454,7 @@
 
         const histAgo = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : (m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`); };
         function histRender() {
+            refreshCellInfo(); // (a change to a rule, table, name, merge or chart shows in the strip for one selected cell)
             const n = historyStack.length;
             const undo = document.getElementById('tt-undo'), redo = document.getElementById('tt-redo');
             if (undo) undo.disabled = histPos === 0;
