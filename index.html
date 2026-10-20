@@ -1093,8 +1093,8 @@
         .ribbon-group button, .ribbon-group select, .ribbon-group input[type="color"] { min-width: 30px; }
         /* The font name field is as wide as "System Default"; longer names are cut with … in the closed field (the pop-up list shows them whole) */
         #font-family-selector { width: 8.6rem; text-overflow: ellipsis; }
-        .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 14px; }
-        #cell-dock-buttons { gap: 8px !important; }
+        .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 10px; }
+        #cell-dock-buttons { gap: 6px !important; }
         .modal button, .modal select { min-height: 40px; min-width: 40px; }
         .modal-header button { font-size: 1.2rem; }
         .modal button.pick-row { min-height: 48px; }
@@ -1258,7 +1258,7 @@
 
     <!-- Cell Bottom Action Dock (Quick fx & validation pickers) -->
     <div class="cell-dock hidden" id="cell-dock">
-        <span id="cell-dock-title" style="font-size: 0.75rem; font-weight: 600; color: var(--inverse-muted);">CELL ACTIONS:</span>
+        <span id="cell-dock-title" style="font-size: 0.75rem; font-weight: 600; color: var(--inverse-muted); white-space: nowrap;">ACTIONS:</span>
         <div id="cell-dock-buttons" style="display: flex; gap: 6px; align-items: center;"></div>
     </div>
 
