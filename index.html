@@ -340,6 +340,9 @@
                the scroll padding keeps a cell you move to (Enter, Tab, arrows, Go To, Find) out from under it as well */
             padding-bottom: 64px;
             scroll-padding-bottom: 64px;
+            /* ...and the sticky column letters (26 px) and row numbers (50 px) are not covered by a cell you move to; frozen panes replace these with their own larger values */
+            scroll-padding-top: 26px;
+            scroll-padding-left: 50px;
         }
 
         table.spreadsheet {
@@ -1228,7 +1231,7 @@
         <!-- Time Travel Undo History Sidebar -->
         <div class="sidebar hidden" id="timeline-sidebar">
             <div class="sidebar-header">
-                <span>Time Travel History <span aria-hidden="true">📜</span></span>
+                <span>Time Travel History</span>
                 <button onclick="toggleSidebar('timeline-sidebar')" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
             </div>
             <div class="sidebar-body" id="timeline-body">
