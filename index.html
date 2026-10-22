@@ -21,7 +21,7 @@
     <!-- Icon fonts for interface buttons (not offered as cell fonts). display=block keeps the icon hidden until the font has loaded, so a button never shows the plain word.
          Material Symbols is cut down to the icons the buttons use (a few KB instead of 320 KB): when a button gets a new icon, add its name to icon_names (keep them in alphabetical order).
          Use <span class="material-symbols-outlined">settings</span>. Material Icons is loaded but not used yet. -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,function,functions,label,menu_book,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_more,wrap_text&display=block" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,delete,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,function,functions,label,menu_book,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_more,wrap_text&display=block" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Icons&display=block" rel="stylesheet">
     <script>
         // If the icon font cannot load (for example offline the very first time), buttons show their words instead of icons
@@ -344,6 +344,8 @@
             scroll-padding-top: 26px;
             scroll-padding-left: 50px;
         }
+        /* With the cell actions bar switched off in Settings there is nothing to scroll clear of */
+        body.bar-off .grid-container { padding-bottom: 12px; scroll-padding-bottom: 12px; }
 
         table.spreadsheet {
             border-collapse: collapse;
@@ -1147,8 +1149,8 @@
         .ribbon-group button, .ribbon-group select, .ribbon-group input[type="color"] { min-width: 30px; }
         /* The font name field is as wide as "System Default"; longer names are cut with … in the closed field (the pop-up list shows them whole) */
         #font-family-selector { width: 8.6rem; text-overflow: ellipsis; }
-        .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 10px; }
-        #cell-dock-buttons { gap: 6px !important; }
+        .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 8px; }
+        #cell-dock-buttons { gap: 4px !important; }
         .modal button, .modal select { min-height: 40px; min-width: 40px; }
         .modal-header button { font-size: 1.2rem; }
         .modal button.pick-row { min-height: 48px; }
@@ -1975,6 +1977,10 @@
                     <button type="button" onclick="openListsFromSettings()">Manage…</button>
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="setting-show-bar">Show the cell actions bar <small style="font-weight: 400; color: var(--text-3);">(the pill above the bottom of the grid)</small></label>
+                    <input type="checkbox" id="setting-show-bar" checked style="width: 20px; height: 20px;" onchange="onBarToggle()">
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
                     <label for="setting-quick-fx">Enable Quick fx Access on Cell Tap</label>
                     <input type="checkbox" id="setting-quick-fx" checked style="width: 20px; height: 20px;" onchange="saveSettings()">
                 </div>
@@ -2572,7 +2578,7 @@
         function currentSettings() {
             const on = id => { const el = document.getElementById(id); return el ? !!el.checked : true; };
             const th = document.getElementById('setting-theme');
-            return { version: 1, autosave: on('setting-autosave'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto' };
+            return { version: 1, autosave: on('setting-autosave'), showBar: on('setting-show-bar'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto' };
         }
         // ----- Theme: Match my phone / Light / Dark. The colors themselves live in the color roles at the top of the style sheet. -----
         const phoneDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -2593,11 +2599,31 @@
             if (!st || typeof st !== 'object') return;
             const set = (id, v) => { const el = document.getElementById(id); if (el && typeof v === 'boolean') el.checked = v; };
             set('setting-autosave', st.autosave);
+            set('setting-show-bar', st.showBar);
             set('setting-quick-fx', st.quickFx);
             set('setting-val-picker', st.valPicker);
             set('setting-remember-tab', st.rememberTab);
             if (st.theme === 'light' || st.theme === 'dark' || st.theme === 'auto') applyTheme(st.theme);
             saveState.enabled = document.getElementById('setting-autosave').checked;
+            applyBarSetting();
+        }
+        // The cell actions bar can be switched off: the two switches under it are greyed out then, and the grid needs less room at the bottom
+        const barOn = () => { const el = document.getElementById('setting-show-bar'); return !el || el.checked; };
+        function applyBarSetting() {
+            const on = barOn();
+            document.body.classList.toggle('bar-off', !on);
+            ['setting-quick-fx', 'setting-val-picker'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.disabled = !on;
+                if (el.parentNode) el.parentNode.style.opacity = on ? '' : '0.5';
+            });
+        }
+        function onBarToggle() {
+            applyBarSetting();
+            saveSettings();
+            updateCellDock(getCellId(activeCell.row, activeCell.col));
+            updateDropArrow();
         }
         function saveSettings() {
             kvSet('settings', currentSettings()).catch(() => {});
@@ -3409,6 +3435,10 @@
                         <button id="redo-btn" onclick="histRedo()" title="Redo" aria-label="Redo" ${histPos < historyStack.length ? '' : 'disabled'}><span class="material-symbols-outlined" aria-hidden="true">redo</span><span class="ico-label">Redo</span></button>
                     </div>
                     <div class="ribbon-group">
+                        <button onclick="clearSelectedCells()" title="Empty the selected cells (formatting stays). The Delete key does the same" aria-label="Clear cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">delete</span>Clear</button>
+                        <button id="clipclear-btn" onclick="clipClear()" ${clip ? '' : 'disabled'} title="Remove the Copy / Cut outline" aria-label="Clear copy"><span class="material-symbols-outlined mi-lead" aria-hidden="true">close</span>Clear copy</button>
+                    </div>
+                    <div class="ribbon-group">
                         <button onclick="copyCells(false)" title="Copy the selected cells" aria-label="Copy"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span><span class="ico-label">Copy</span></button>
                         <button onclick="copyCells(true)" title="Cut the selected cells" aria-label="Cut"><span class="material-symbols-outlined" aria-hidden="true">content_cut</span><span class="ico-label">Cut</span></button>
                         <button onclick="pasteCells(false)" title="Paste (formulas move with the cells)" aria-label="Paste"><span class="material-symbols-outlined" aria-hidden="true">content_paste</span><span class="ico-label">Paste</span></button>
@@ -3494,6 +3524,7 @@
                         <button onclick="openDicePanel()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">casino</span>Dice</button>
                     </div>
                     <div class="ribbon-group">
+                        <button onclick="openQuickAnalysis()" title="Totals, rules, sort and duplicates for the selected cells">&#9889; Analyze</button>
                         <button onclick="openFindPanel()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">find_replace</span>Find &amp; Replace</button>
                         <button onclick="openSortModal()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">sort</span>Sort...</button>
                         <button onclick="openDedupModal()">Remove Duplicates</button>
@@ -3542,9 +3573,18 @@
             let showFx = document.getElementById('setting-quick-fx')?.checked;
             let showVal = document.getElementById('setting-val-picker')?.checked;
 
+            const cb = document.getElementById('clipclear-btn');
+            if (cb) cb.disabled = !clip;
+            if (!barOn()) { dock.classList.add('hidden'); return; }
+
             let html = '';
             const sel = selBounds();
-            if (!editingCell && (sel.maxR > sel.minR || sel.maxC > sel.minC)) html += `<button class="qa-btn" onclick="openQuickAnalysis()">\u26A1 Analyze</button>`;
+            const multi = !editingCell && (sel.maxR > sel.minR || sel.maxC > sel.minC);
+            let clearBtn = '';
+            // The Clear button does the most likely thing: with a Copy / Cut outline showing it only removes the outline, otherwise it empties the selected cells
+            if (clip) clearBtn = `<button onclick="clipClear()" aria-label="Clear the ${clip.cut ? 'cut' : 'copy'} outline" title="Remove the ${clip.cut ? 'cut' : 'copy'} outline"><span class="material-symbols-outlined mi-lead" aria-hidden="true">close</span><span class="ico-alt">&#10005; </span>Clear</button>`;
+            else if (!editingCell) clearBtn = `<button onclick="clearSelectedCells()" aria-label="Clear the selected cells" title="Empty the selected cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">delete</span>Clear</button>`;
+            if (multi) html += `<button class="qa-btn" onclick="openQuickAnalysis()">\u26A1 Analyze</button>${clearBtn}`; // with a range selected Clear sits next to Analyze, in view
             if (showFx) {
                 html += `<button onclick="insertQuickFn('SUM')">SUM</button>`;
                 html += `<button onclick="insertQuickFn('AVERAGE')">AVERAGE</button>`;
@@ -3568,7 +3608,7 @@
             if (here && here.style && here.style.checkbox) html += `<button onclick="toggleCheckbox()">&#9745; Toggle</button>`;
 
             // Cells are marked by Copy / Cut: a phone has no Escape key, so the bar carries the way out
-            if (clip) html += `<button onclick="clipClear()">&#10005; Clear ${clip.cut ? 'cut' : 'copy'}</button>`;
+            if (!multi) html += clearBtn;
 
             if (html !== '') {
                 dockButtons.innerHTML = html;
@@ -3870,6 +3910,7 @@
                 case 'ArrowLeft': e.preventDefault(); moveActive(row, col - 1); break;
                 case 'ArrowRight': e.preventDefault(); moveActive(row, col + 1); break;
                 case 'Tab': e.preventDefault(); moveActive(row, col + 1); break;
+                case 'Delete': e.preventDefault(); clearSelectedCells(); break;
                 case 'Enter':
                 case 'F2': e.preventDefault(); startEdit(row, col); break;
                 default:
@@ -4480,15 +4521,24 @@
             const b = selBounds();
             if (b.minR !== b.maxR || b.minC !== b.maxC) return;
             const id = getCellId(activeCell.row, activeCell.col);
-            if (!valRulesFor(id).some(r => r.type === 'list')) return;
+            const rules = valRulesFor(id);
+            const isList = rules.some(r => r.type === 'list');
+            const isDate = !isList && !barOn() && rules.some(r => r.type === 'date'); // with the actions bar off, a date cell opens its picker from the cell itself
+            if (!isList && !isDate) return;
             const td = document.getElementById(`cell-${id}`);
             if (!td) return;
             ddArrow = document.createElement('button');
             ddArrow.className = 'dd-arrow';
             ddArrow.type = 'button';
-            ddArrow.setAttribute('aria-label', `Open the list for ${id}`);
-            ddArrow.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">\u25BC</span>';
-            ddArrow.onclick = () => { if (ddCell === id) closeDropdown(); else openDropdown(id); };
+            if (isDate) {
+                ddArrow.setAttribute('aria-label', `Pick a date for ${id}`);
+                ddArrow.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">calendar_month</span><span class="ico-label">&#128197;</span>';
+                ddArrow.onclick = () => openDatePicker(id);
+            } else {
+                ddArrow.setAttribute('aria-label', `Open the list for ${id}`);
+                ddArrow.innerHTML = '<span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">\u25BC</span>';
+                ddArrow.onclick = () => { if (ddCell === id) closeDropdown(); else openDropdown(id); };
+            }
             td.classList.add('has-dd');
             td.appendChild(ddArrow);
         }
@@ -5128,6 +5178,21 @@
                 return { minR: Math.min(a.r, b.r), minC: Math.min(a.c, b.c), maxR: Math.max(a.r, b.r), maxC: Math.max(a.c, b.c) };
             }
             return null;
+        }
+
+        // Where a reference points: the sheet (its number) and the bounds on it. Works for A1, A1:B5, Lists!B3, a name, a table column.
+        // A sheet that does not exist is #REF!; anything that is not a reference gives null.
+        function nodeTarget(node) {
+            if (node.t === 'err') throw new FormulaError(node.v); // the sheet it pointed at was deleted
+            if (node.t === 'name') { try { node = resolveName(node); } catch (e) { return null; } }
+            if (node.t === 'xref') {
+                const idx = sheetIndexByName(node.sheet);
+                if (idx < 0) throw new FormulaError('#REF!');
+                const b = nodeBounds(node.node);
+                return b ? { idx, b } : null;
+            }
+            const b = nodeBounds(node);
+            return b ? { idx: engineSheetIdx(), b } : null;
         }
 
         // ----- Shared helpers for the function library -----
@@ -5828,9 +5893,9 @@
                 fn: (nodes, ev, curR) => {
                     if (nodes.length > 1) throw new FormulaError('#VALUE!');
                     if (!nodes.length || nodes[0].t === 'empty') return curR + 1;
-                    const b = nodeBounds(nodes[0]);
-                    if (!b) throw new FormulaError('#VALUE!');
-                    return b.minR + 1;
+                    const t = nodeTarget(nodes[0]);
+                    if (!t) throw new FormulaError('#VALUE!');
+                    return t.b.minR + 1;
                 }
             },
             COLUMN: {
@@ -5838,9 +5903,9 @@
                 fn: (nodes, ev, curR, curC) => {
                     if (nodes.length > 1) throw new FormulaError('#VALUE!');
                     if (!nodes.length || nodes[0].t === 'empty') return curC + 1;
-                    const b = nodeBounds(nodes[0]);
-                    if (!b) throw new FormulaError('#VALUE!');
-                    return b.minC + 1;
+                    const t = nodeTarget(nodes[0]);
+                    if (!t) throw new FormulaError('#VALUE!');
+                    return t.b.minC + 1;
                 }
             },
 
@@ -6114,20 +6179,20 @@
                 fn: (nodes, ev, curR, curC) => {
                     if (!nodes.length || nodes.length > 2) throw new FormulaError('#VALUE!');
                     const info = toText(ev(nodes[0])).toLowerCase();
-                    let r = curR, c = curC;
+                    let r = curR, c = curC, idx = engineSheetIdx();
                     if (nodes.length === 2) {
-                        const b = nodeBounds(nodes[1]);
-                        if (!b) throw new FormulaError('#VALUE!');
-                        r = b.minR; c = b.minC;
+                        const t = nodeTarget(nodes[1]);
+                        if (!t) throw new FormulaError('#VALUE!');
+                        r = t.b.minR; c = t.b.minC; idx = t.idx;
                     }
                     const id = getCellId(r, c);
                     switch (info) {
-                        case 'address': return `$${columnToLetter(c)}$${r + 1}`;
+                        case 'address': return `${idx === engineSheetIdx() ? '' : sheetPrefix(sheets[idx].name)}$${columnToLetter(c)}$${r + 1}`;
                         case 'row': return r + 1;
                         case 'col': return c + 1;
-                        case 'contents': return refValue(id);
+                        case 'contents': return inSheet(idx, () => refValue(id));
                         case 'type': {
-                            const v = getCellValue(id);
+                            const v = inSheet(idx, () => getCellValue(id));
                             return isBlank(v) ? 'b' : (typeof v === 'string' ? 'l' : 'v');
                         }
                     }
@@ -6242,13 +6307,16 @@
                 lazy: true,
                 fn: (nodes, ev) => {
                     if (nodes.length < 3 || nodes.length > 5) throw new FormulaError('#VALUE!');
-                    const base = nodeBounds(nodes[0]);
-                    if (!base) throw new FormulaError('#VALUE!');
+                    const target = nodeTarget(nodes[0]);
+                    if (!target) throw new FormulaError('#VALUE!');
+                    const base = target.b;
                     const dr = Math.trunc(toNumber(ev(nodes[1]))), dc = Math.trunc(toNumber(ev(nodes[2])));
                     const h = nodes.length > 3 ? Math.trunc(toNumber(ev(nodes[3]))) : base.maxR - base.minR + 1;
                     const w = nodes.length > 4 ? Math.trunc(toNumber(ev(nodes[4]))) : base.maxC - base.minC + 1;
                     if (h < 1 || w < 1) throw new FormulaError('#REF!');
-                    return shrink(rangeFromBounds(base.minR + dr, base.minC + dc, base.minR + dr + h - 1, base.minC + dc + w - 1));
+                    const read = () => rangeFromBounds(base.minR + dr, base.minC + dc, base.minR + dr + h - 1, base.minC + dc + w - 1);
+                    if (target.idx === engineSheetIdx()) return shrink(read());
+                    return shrink(inSheet(target.idx, () => { const rv = read(); delete rv.origin; return rv; })); // row numbers of another sheet mean nothing to this sheet's filters
                 }
             },
             INDIRECT: {
@@ -6904,7 +6972,7 @@
             <p><b>Pick several cells.</b> Press and hold a cell for a moment, then drag. Tap a column letter or a row number to select the whole column or row. A plain drag just scrolls. Tap a checkbox cell once to select it, again to tick it.</p>
             <p><b>The formula bar</b> (under the title) shows what the selected cell holds. You can type there and press Enter. You can also type a shorthand such as <i>average sales in b2 to b50</i>.</p>
             <p><b>Ribbon Menu</b> (top bar) opens three tabs: <b>Home</b> (copy and paste, formatting), <b>Data</b> (tables, lists and rules, sort, find, files) and <b>View / Insert</b> (freeze panes, rules, charts, names, the Wizard).</p>
-            <p><b>The actions bar</b> floats above the bottom of the grid. It offers SUM, AVERAGE and fx Wizard for the selected cell; <b>⚡ Analyze</b> when two or more cells are selected; Pick buttons on drop-down cells; and a button to clear the copy outline.</p>
+            <p><b>The actions bar</b> floats above the bottom of the grid. It offers SUM, AVERAGE and fx Wizard for the selected cell; <b>⚡ Analyze</b> for two or more cells; Pick buttons on drop-down cells; and <b>Clear</b>, which empties the selected cells (the message has Undo; the Delete key does the same). After a Copy or Cut, Clear (with an ✕) only removes the outline. Don't want the bar? Turn off <b>Show the cell actions bar</b> in Settings.</p>
             <p><b>The strip at the very bottom.</b> With one cell selected it shows what that cell carries, as buttons you can tap to edit: a drop-down list, format rules, a table, a name, a merge, a spill, charts. A plain cell shows its type, like Number · Currency. With two or more cells it shows Cells, Sum, Avg, Min and Max.</p>`;
         GUIDE_TEXT.sheets = `
             <p><b>Sheet tabs</b> sit at the bottom. Tap one to switch to it, tap the current tab to rename or delete that sheet, and tap <b>+ Add Sheet</b> for a new one. A little clock shows while a big sheet is being drawn. Each sheet remembers where you were (the selection and the scroll spot) while the app is open.</p>
@@ -6913,7 +6981,7 @@
         GUIDE_TEXT.cells = `
             <p><b>Formatting (Home tab).</b> Bold, italic and underline; the font (the Noto Sans Symbols fonts are there for symbols); text and fill colors; align left, center or right; <b>Merge</b> and Unmerge; <b>Wrap</b> (make the row taller with <b>Size…</b> to see more lines); <b>Checkbox</b>; a <b>Borders</b> menu; and <b>Size…</b> for column width and row height.</p>
             <p><b>Number formats.</b> The menu has General, Currency, Percentage, Decimal, two date styles, Date &amp; Time and Text; <b>+.0</b> and <b>−.0</b> add or remove decimals. A format changes only how a number is shown, never its value. Typing 12% makes 0.12 shown as a percentage.</p>
-            <p><b>Copy, cut, paste.</b> Copy or Cut outlines the cells with dashes. <b>Paste</b> pastes them (formulas move with the cells); <b>Paste values</b> (the Paste icon with 123) pastes only the numbers and text. <b>Fill ↓</b> and <b>Fill →</b> copy the top or left cell across a selection, and <b>Series</b> carries on a pattern such as 1, 2, 3 or Mon, Tue or Item 1, Item 2 or one of your lists. No Escape key? The actions bar has a button to clear the outline.</p>
+            <p><b>Copy, cut, paste.</b> Copy or Cut outlines the cells with dashes. <b>Paste</b> pastes them (formulas move with the cells); <b>Paste values</b> (the Paste icon with 123) pastes only the numbers and text. <b>Fill ↓</b> and <b>Fill →</b> copy the top or left cell across a selection, and <b>Series</b> carries on a pattern such as 1, 2, 3 or Mon, Tue or Item 1, Item 2 or one of your lists. No Escape key? The Clear button (actions bar, or Clear copy on the Home tab) removes the outline.</p>
             <p><b>Freeze Panes</b> (View / Insert) keeps rows and columns in place while you scroll; <b>Unfreeze</b> undoes it. <b>Theme</b> (Settings) can match your phone, or be Light or Dark.</p>`;
         GUIDE_TEXT.data = `
             <p><b>Tables.</b> Select your data and tap <b>Table</b> (Data tab). Tap a column letter inside the table to sort and filter it. The table grows by itself as you add rows, and formulas can use its names, like <code>Sales[Amount]</code>. Rows a filter hides are skipped by the V functions (SUMV, AVERAGEV and the others).</p>
@@ -6952,10 +7020,7 @@
             VALUE: 'Empty text gives 0 (Excel gives #VALUE!).',
             TEXT: 'Number and date formats only: no scientific, fraction or color formats.',
             SUBTOTAL: 'The first number picks the calculation: 1 to 6, 9, 101 to 106 and 109 work (average, count, count of non-empty cells, largest, smallest, product, sum). No standard deviation or variance.',
-            CELL: 'Only address, row, col, contents and type.',
-            ROW: 'Cannot point at another sheet.',
-            COLUMN: 'Cannot point at another sheet.',
-            OFFSET: 'Cannot point at another sheet.'
+            CELL: 'Only address, row, col, contents and type.'
         };
         let guideFilter = 'all';
 
@@ -7607,6 +7672,25 @@
 
         // Fill down / right: the first row (column) of the selection is copied across the rest, formulas adjusting as they go.
         // With one cell selected it fills as far as the data beside it goes.
+        // Empty the selected cells: values and formulas go, formatting, rules and validation stay (like emptying a cell by hand)
+        function clearSelectedCells() {
+            if (editingCell) endEdit(true);
+            const b = selBounds();
+            const ids = [];
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) {
+                const id = getCellId(r, c), cell = data[id];
+                if (!cell || cell.spillOf) continue;
+                const blank = cell.value === '' || cell.value === undefined || cell.value === null;
+                if (blank && !cell.formula) continue;
+                cell.value = ''; cell.formula = ''; delete cell.rolls;
+                ids.push(id);
+            }
+            if (!ids.length) { showToast('Nothing to clear'); return; }
+            cellsChanged(ids, `Cleared ${clipRange(b.minR, b.minC, b.maxR, b.maxC)}`, null);
+            updateCellDock(getCellId(activeCell.row, activeCell.col));
+            showUndoToast(`Cleared ${ids.length === 1 ? ids[0] : ids.length + ' cells'}`);
+        }
+
         function fillCells(dir) {
             if (editingCell) endEdit(true);
             const down = dir === 'down';
