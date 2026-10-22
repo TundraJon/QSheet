@@ -584,6 +584,10 @@
         .g-sec[open] > summary { border-bottom: 1px solid var(--line-soft); }
         .g-sec-body { padding: 12px 14px 14px; font-size: 0.9rem; line-height: 1.5; color: var(--text-body); }
         .g-soon { color: var(--text-3); font-style: italic; }
+        .g-sec-body p { margin: 0 0 10px; }
+        .g-sec-body p:last-child { margin-bottom: 0; }
+        .g-sec-body code { font-family: 'Roboto Mono', monospace; font-size: 0.82rem; background: var(--surface-3); border: 1px solid var(--line-soft); border-radius: 4px; padding: 1px 5px; color: var(--text-strong); word-break: break-word; }
+        .g-sec-body b { color: var(--text-strong); }
         .g-intro { margin-bottom: 10px; color: var(--text-2); }
         .g-fn-tools { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
         .g-fn-tools input { width: 100%; min-height: 40px; }
@@ -6894,14 +6898,50 @@
             { id: 'functions', title: 'Functions' }
         ];
         const GUIDE_TEXT = {}; // the how-to text of each section (id -> html); a section without text says it is coming
+
+        GUIDE_TEXT.start = `
+            <p><b>Select and edit.</b> Tap a cell to select it. Tap the selected cell again to edit it; the keyboard only opens then. Tap another cell (or press Enter) to accept what you typed. The sheet calculates when you accept, not on every key. A phone has no Escape key, so to take a change back use <b>Undo</b> (Home tab) or Time Travel.</p>
+            <p><b>Pick several cells.</b> Press and hold a cell for a moment, then drag. Tap a column letter or a row number to select the whole column or row. A plain drag just scrolls. Tap a checkbox cell once to select it, again to tick it.</p>
+            <p><b>The formula bar</b> (under the title) shows what the selected cell holds. You can type there and press Enter. You can also type a shorthand such as <i>average sales in b2 to b50</i>.</p>
+            <p><b>Ribbon Menu</b> (top bar) opens three tabs: <b>Home</b> (copy and paste, formatting), <b>Data</b> (tables, lists and rules, sort, find, files) and <b>View / Insert</b> (freeze panes, rules, charts, names, the Wizard).</p>
+            <p><b>The actions bar</b> floats above the bottom of the grid. It offers SUM, AVERAGE and fx Wizard for the selected cell; <b>⚡ Analyze</b> when two or more cells are selected; Pick buttons on drop-down cells; and a button to clear the copy outline.</p>
+            <p><b>The strip at the very bottom.</b> With one cell selected it shows what that cell carries, as buttons you can tap to edit: a drop-down list, format rules, a table, a name, a merge, a spill, charts. A plain cell shows its type, like Number · Currency. With two or more cells it shows Cells, Sum, Avg, Min and Max.</p>`;
+        GUIDE_TEXT.sheets = `
+            <p><b>Sheet tabs</b> sit at the bottom. Tap one to switch to it, tap the current tab to rename or delete that sheet, and tap <b>+ Add Sheet</b> for a new one. A little clock shows while a big sheet is being drawn. Each sheet remembers where you were (the selection and the scroll spot) while the app is open.</p>
+            <p><b>Saving.</b> AutoSave keeps your workbook on this phone by itself: the line at the very top says Saving… and then Saved with the time. When you open the app again your workbook comes back (Time Travel starts fresh). You can turn AutoSave off in Settings; then tap the line at the top to save.</p>
+            <p><b>Files (Data tab).</b> <b>Export Workbook</b> makes a file of all your sheets and names, and <b>Import Workbook</b> loads one. <b>Export CSV</b> and <b>Import CSV</b> do one sheet. <b>New Workbook</b> starts empty after asking. <b>Clear Sheet</b> empties the sheet you are on. Every sheet is 200 rows by 52 columns (A to AZ).</p>`;
+        GUIDE_TEXT.cells = `
+            <p><b>Formatting (Home tab).</b> Bold, italic and underline; the font (the Noto Sans Symbols fonts are there for symbols); text and fill colors; align left, center or right; <b>Merge</b> and Unmerge; <b>Wrap</b> (make the row taller with <b>Size…</b> to see more lines); <b>Checkbox</b>; a <b>Borders</b> menu; and <b>Size…</b> for column width and row height.</p>
+            <p><b>Number formats.</b> The menu has General, Currency, Percentage, Decimal, two date styles, Date &amp; Time and Text; <b>+.0</b> and <b>−.0</b> add or remove decimals. A format changes only how a number is shown, never its value. Typing 12% makes 0.12 shown as a percentage.</p>
+            <p><b>Copy, cut, paste.</b> Copy or Cut outlines the cells with dashes. <b>Paste</b> pastes them (formulas move with the cells); <b>Paste values</b> (the Paste icon with 123) pastes only the numbers and text. <b>Fill ↓</b> and <b>Fill →</b> copy the top or left cell across a selection, and <b>Series</b> carries on a pattern such as 1, 2, 3 or Mon, Tue or Item 1, Item 2 or one of your lists. No Escape key? The actions bar has a button to clear the outline.</p>
+            <p><b>Freeze Panes</b> (View / Insert) keeps rows and columns in place while you scroll; <b>Unfreeze</b> undoes it. <b>Theme</b> (Settings) can match your phone, or be Light or Dark.</p>`;
+        GUIDE_TEXT.data = `
+            <p><b>Tables.</b> Select your data and tap <b>Table</b> (Data tab). Tap a column letter inside the table to sort and filter it. The table grows by itself as you add rows, and formulas can use its names, like <code>Sales[Amount]</code>. Rows a filter hides are skipped by the V functions (SUMV, AVERAGEV and the others).</p>
+            <p><b>Drop-down lists and rules.</b> <b>Validation</b> (Data tab) limits what a cell accepts: a list (typed, one of your My Lists from Settings, or a range on a sheet), a date, a whole number or a number, with optional limits. A cell with a list shows a <b>▼</b> at its right edge when it is selected; tap it to pick. <b>Cond. Formatting</b> (View / Insert) colors cells by rules (greater than, top 10, color scales, your own formula) and keeps up as the numbers change.</p>
+            <p><b>Tidy up.</b> <b>Sort…</b>, <b>Remove Duplicates</b>, <b>Find &amp; Replace</b> (this sheet or all of them), <b>Text to Columns</b> and <b>Flash Fill</b> (type one or two examples next to your data, tap Flash Fill, and it fills the rest).</p>
+            <p><b>⚡ Analyze.</b> Select two or more cells and tap ⚡ Analyze for one-tap Totals (Sum, Avg, Cnt, Min and Max in the row under your data), Format (top 10, above average, duplicates and more), Charts, and Tidy (sort, remove duplicates). Each is one Time Travel step, with an Undo button.</p>
+            <p><b>Charts and names.</b> <b>New Chart</b> (View / Insert) makes a column, bar, line or pie chart from the selected cells; tap a pie slice to pop it out. <b>Charts</b> lists them. <b>Names</b> gives a range a name you can use in formulas.</p>
+            <p><b>Dice.</b> <b>Dice</b> (Data tab) rolls dice written the usual way, like 3d6+1d10+2d12kl1+3 (kh and kl keep the highest or lowest, dh and dl drop them), or six ability scores (4d6, drop the lowest). Put the value, or a ROLL formula, in a cell. <b>Re-roll</b> gives the RND, RNDBETWEEN and ROLL cells new numbers.</p>`;
+        GUIDE_TEXT.formulas = `
+            <p><b>Start with =.</b> Capitals are fixed for you (=sum becomes =SUM, a3 becomes A3). Type just a function's name, like <code>=SUMIF</code>, and press Enter: the app fills in the arguments from the cells around it and tells you what it guessed.</p>
+            <p><b>While you edit a formula</b> a hint line under the formula bar shows the function you are in, with the current argument in bold. When the caret is on a cell reference, those cells are outlined on the grid.</p>
+            <p><b>fx Wizard</b> (the actions bar, or View / Insert) walks you through any function: search or pick a category, fill in the boxes, watch the live result, then Insert. Tap the star on a function to keep it as a favorite. If you open it while the caret is inside a formula, it opens on that function with its arguments filled in, and Update Formula changes only that part.</p>
+            <p><b>Other sheets.</b> Write <code>=Lists!B1</code> or <code>='My Sheet'!A1:B3</code> (quotes when the name has spaces). Renaming a sheet updates the formulas that use it; deleting one turns them into #REF!.</p>
+            <p><b>Spills.</b> Functions like FILTER, SORT and UNIQUE give several cells. The result spreads into the cells below or beside, and shows #SPILL! if something is in the way.</p>
+            <p><b>Good to know.</b> RAND and RANDBETWEEN change on every edit; RND, RNDBETWEEN and ROLL keep their numbers until you tap Re-roll. Other cells update when you accept an entry (Enter or tap away), not while you type.</p>`;
+        GUIDE_TEXT.timetravel = `
+            <p><b>⏳ Time Travel</b> (top bar) is the history of your changes: every edit, paste, sort, format and more is a step. <b>Undo</b> and <b>Redo</b> (Home tab, and in the Time Travel sheet) go one step at a time.</p>
+            <p><b>Drag the DeLorean</b> along the slider to travel back and forward, or tap any step in the list to go there. Letting go of the slider travels to that step.</p>
+            <p><b>Reading the list.</b> The step you are on says <b>\u{1F4CD} Present</b>. Earlier steps say <b>\u{1F995}</b> and how long before the Present they happened; steps you have undone say <b>\u{1F680}</b> and how long after. When you travel, every label is measured again from your new Present.</p>
+            <p><b>Good to know.</b> If you go back and make a new change, the steps ahead are dropped. The last 25 steps are kept, and the history starts fresh each time you open the app.</p>`;
         const GUIDE_QSHEET_EX = { // the functions that only QSheet has: [example, what it does]
-            SUMV: ['=SUMV(C2:C20)', 'Like SUM, but leaves out the rows a table filter is hiding.'],
-            AVERAGEV: ['=AVERAGEV(C2:C20)', 'Like AVERAGE, but only the rows you can see.'],
-            COUNTV: ['=COUNTV(C2:C20)', 'Like COUNT, but only the rows you can see.'],
-            COUNTAV: ['=COUNTAV(A2:A20)', 'Like COUNTA (cells that are not empty), but only the rows you can see.'],
-            MAXV: ['=MAXV(C2:C20)', 'Like MAX, but only the rows you can see.'],
-            MINV: ['=MINV(C2:C20)', 'Like MIN, but only the rows you can see.'],
-            PRODUCTV: ['=PRODUCTV(C2:C20)', 'Like PRODUCT, but only the rows you can see.'],
+            SUMV: ['=SUMV(C2:C20)', 'Like SUM, but only the visible rows (the rows a table filter is showing). The V is for Visible.'],
+            AVERAGEV: ['=AVERAGEV(C2:C20)', 'Like AVERAGE, but only the visible rows. The V is for Visible.'],
+            COUNTV: ['=COUNTV(C2:C20)', 'Like COUNT, but only the visible rows. The V is for Visible.'],
+            COUNTAV: ['=COUNTAV(A2:A20)', 'Like COUNTA (cells that are not empty), but only the visible rows. The V is for Visible.'],
+            MAXV: ['=MAXV(C2:C20)', 'Like MAX, but only the visible rows. The V is for Visible.'],
+            MINV: ['=MINV(C2:C20)', 'Like MIN, but only the visible rows. The V is for Visible.'],
+            PRODUCTV: ['=PRODUCTV(C2:C20)', 'Like PRODUCT, but only the visible rows. The V is for Visible.'],
             RND: ['=RND()', 'A random number from 0 up to 1 that stays put until you tap Re-roll (Data tab).'],
             RNDBETWEEN: ['=RNDBETWEEN(1,6)', 'A whole number from 1 to 6, like a die. It stays put until you tap Re-roll. A third number gives decimals: =RNDBETWEEN(1,6,2).'],
             ROLL: ['=ROLL("3d6+2")', 'Rolls dice written the usual way. kh / kl keep the highest / lowest, dh / dl drop them: =ROLL("4d6dl1") rolls four dice and drops the lowest. It stays put until you tap Re-roll.'],
@@ -6952,7 +6992,7 @@
             const keep = f => {
                 if (guideFilter === 'changed' && !GUIDE_CHANGED[f.name]) return false;
                 if (guideFilter === 'qsheet' && !GUIDE_QSHEET_EX[f.name]) return false;
-                return !q || `${f.name} ${wizardSyntax(f)} ${f.cat}`.toLowerCase().includes(q);
+                return !q || `${f.name} ${wizardSyntax(f)} ${f.cat} ${(GUIDE_QSHEET_EX[f.name] || []).join(' ')} ${GUIDE_CHANGED[f.name] || ''}`.toLowerCase().includes(q);
             };
             let shown = 0, html = '';
             WIZ_CATS.forEach(cat => {
@@ -7996,13 +8036,13 @@
             { name: 'ISEVEN', cat: 'Information', desc: 'TRUE if the number is even (whole part only).', kw: 'odd even parity check', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
             { name: 'ISODD', cat: 'Information', desc: 'TRUE if the number is odd (whole part only).', kw: 'odd even parity check', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
             // Visible-only (rows hidden by a table filter are left out)
-            wizAgg('SUMV', 'Adds up the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(109, range).', 'total add filtered hidden visible'),
-            wizAgg('AVERAGEV', 'Average of the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(101, range).', 'mean filtered hidden visible'),
-            wizAgg('COUNTV', 'Counts the numbers you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(102, range).', 'how many numbers filtered hidden visible'),
-            wizAgg('COUNTAV', 'Counts the cells you can see that are not empty. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(103, range).', 'how many filled filtered hidden visible'),
-            wizAgg('MAXV', 'The largest number you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(104, range).', 'highest filtered hidden visible'),
-            wizAgg('MINV', 'The smallest number you can see. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(105, range).', 'lowest filtered hidden visible'),
-            wizAgg('PRODUCTV', 'Multiplies the numbers you can see together. Rows hidden by a table filter are left out. QSheet only; in Excel use SUBTOTAL(106, range).', 'multiply filtered hidden visible'),
+            wizAgg('SUMV', 'Adds up the visible numbers: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(109, range).', 'total add filtered hidden visible'),
+            wizAgg('AVERAGEV', 'Average of the visible numbers: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(101, range).', 'mean filtered hidden visible'),
+            wizAgg('COUNTV', 'Counts the visible numbers: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(102, range).', 'how many numbers filtered hidden visible'),
+            wizAgg('COUNTAV', 'Counts the visible cells that are not empty: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(103, range).', 'how many filled filtered hidden visible'),
+            wizAgg('MAXV', 'The largest visible number: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(104, range).', 'highest filtered hidden visible'),
+            wizAgg('MINV', 'The smallest visible number: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(105, range).', 'lowest filtered hidden visible'),
+            wizAgg('PRODUCTV', 'Multiplies the visible numbers together: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(106, range).', 'multiply filtered hidden visible'),
             { name: 'ABS', cat: 'Math & Aggregation', desc: 'Removes the minus sign: the distance from zero.', kw: 'absolute positive', args: [wa('number', 'The number', '-5', { t: 'num' })] },
             { name: 'ROUND', cat: 'Math & Aggregation', desc: 'Rounds a number to a set number of decimal places (halves round up).', kw: 'decimals nearest', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '2', { t: 'num' })] },
             { name: 'ROUNDUP', cat: 'Math & Aggregation', desc: 'Rounds a number up, away from zero.', kw: 'ceiling', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '0', { t: 'num' })] },
