@@ -719,7 +719,7 @@
         /* Cell Bottom Action Dock (Appears when cell is focused) */
         .cell-dock {
             position: fixed;
-            bottom: 78px;
+            bottom: calc(78px + var(--strip-extra, 0px)); /* rides above the status bar, which grows when it shows an error */
             left: 50%;
             transform: translateX(-50%);
             background: var(--inverse-bg);
@@ -912,6 +912,14 @@
             font-size: 0.78rem; line-height: 1; white-space: nowrap;
         }
         span.info-chip { border-color: transparent; background: transparent; padding: 0 2px; }
+        /* An error in the selected cell: the reason (and a fix to try when it is not obvious) takes the strip, which grows to fit; the text can be selected and copied */
+        .status-bar.has-err { height: auto; min-height: 32px; max-height: 9.5em; align-items: flex-start; }
+        .status-bar.has-err .stats-display { flex-direction: column; align-items: flex-start; gap: 4px; white-space: normal; overflow-x: hidden; overflow-y: auto; user-select: text; -webkit-user-select: text; }
+        .err-note { display: block; line-height: 1.35; user-select: text; -webkit-user-select: text; }
+        .err-badge { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 8px; font-weight: 700; color: var(--danger); border: 1px solid var(--danger); }
+        .err-try { display: block; color: var(--text-2); }
+        .err-code { font-family: 'Roboto Mono', ui-monospace, monospace; font-size: 0.95em; color: var(--accent-text); user-select: text; -webkit-user-select: text; }
+        .err-chips { display: flex; gap: 6px; flex-wrap: wrap; }
         .info-chip .material-symbols-outlined { font-size: 16px; }
 
 
@@ -4674,19 +4682,45 @@
         // Supports numbers, "text", TRUE/FALSE, cell refs (A1, $A$1), ranges (A1:B5), + - * / ^, unary minus,
         // comparisons (= <> < > <= >=), parentheses, and nested function calls.
         // New functions are added to the FUNCTIONS registry below.
-        class FormulaError extends Error {
-            constructor(code) { super(code); this.code = code; }
+        // An error has a code (#NUM!) and can carry a reason (why) and, only when the reason does not already point to it, a fix to try.
+        // Text between backticks is shown as code (blue, monospace).
+        // The function name closest to a misspelled one (for "did you mean"), or '' when nothing is close
+        function nearestFunctionName(name) {
+            const a = String(name).toUpperCase();
+            let best = '', bestD = 3;
+            for (const k of Object.keys(FUNCTIONS)) {
+                if (Math.abs(k.length - a.length) > 2) continue;
+                const row = Array.from({ length: k.length + 1 }, (_, i) => i);
+                for (let i = 1; i <= a.length; i++) {
+                    let prev = row[0]; row[0] = i;
+                    for (let j = 1; j <= k.length; j++) { const tmp = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === k[j - 1] ? 0 : 1)); prev = tmp; }
+                }
+                if (row[k.length] < bestD) { bestD = row[k.length]; best = k; }
+            }
+            return best;
         }
+        class FormulaError extends Error {
+            constructor(code, why, fix) { super(code); this.code = code; this.why = why || ''; this.fix = fix || ''; }
+        }
+        // The reason behind each cell's error, kept beside the cell (not saved with the workbook)
+        const cellErr = new WeakMap();
+        let lastFormulaErr = null; // the error the formula just evaluated ended with (set by evalFormulaCore, read by computeCell)
+        let lastSpillWhy = '';
+        const shortText = (t, n) => { t = String(t); return t.length > (n || 24) ? t.slice(0, (n || 24) - 1) + '\u2026' : t; };
+        const SHEET_LIMIT_TEXT = `rows 1 to ${200}, columns A to AZ`;
         const ERROR_CODES = ['#ERROR!', '#NAME?', '#DIV/0!', '#REF!', '#VALUE!', '#CIRC!', '#NUM!', '#N/A', '#SPILL!', '#CALC!'];
         const astCache = new Map();
         let calcState = null; // { done, busy } while a recalculation pass is running
 
         function tokenizeFormula(src) {
             const tokens = [];
-            let i = 0;
+            let i = 0, tokStart = 0;
+            const rawPush = tokens.push;
+            tokens.push = function (t) { t.pos = tokStart; return rawPush.call(this, t); }; // each piece remembers where it starts (character 1 is the =)
             while (i < src.length) {
                 const ch = src[i];
                 if (/\s/.test(ch)) { i++; continue; }
+                tokStart = i;
                 if (ch === '"') {
                     let j = i + 1, str = '';
                     while (j < src.length) {
@@ -4697,7 +4731,7 @@
                         str += src[j];
                         j++;
                     }
-                    if (j >= src.length) throw new FormulaError('#ERROR!');
+                    if (j >= src.length) throw new FormulaError('#ERROR!', `The text that starts at character ${i + 2} is missing its closing \`"\``);
                     tokens.push({ t: 'str', v: str });
                     i = j + 1;
                     continue;
@@ -4718,11 +4752,11 @@
                         if (rest[k] === '[') depth++;
                         else if (rest[k] === ']') { depth--; if (depth === 0) break; }
                     }
-                    if (depth !== 0) throw new FormulaError('#ERROR!');
+                    if (depth !== 0) throw new FormulaError('#ERROR!', `The table reference \`${m[1]}[\` at character ${i + 2} is missing its closing \`]\``);
                     let inner = rest.slice(m[1].length + 1, k).trim(), row = false;
                     if (inner.startsWith('@')) { row = true; inner = inner.slice(1).trim(); }
                     if (inner.startsWith('[') && inner.endsWith(']')) inner = inner.slice(1, -1).trim();
-                    if (inner === '' || /[\[\]]/.test(inner)) throw new FormulaError('#ERROR!');
+                    if (inner === '' || /[\[\]]/.test(inner)) throw new FormulaError('#ERROR!', `The table reference at character ${i + 2} needs one column name inside the brackets`, `\`${m[1]}[Column name]\``);
                     tokens.push({ t: 'sref', table: m[1], col: inner, row });
                     i += k + 1;
                     continue;
@@ -4753,7 +4787,7 @@
                     i++;
                     continue;
                 }
-                throw new FormulaError('#ERROR!');
+                throw new FormulaError('#ERROR!', `\`${ch}\` at character ${i + 2} cannot be used in a formula`);
             }
             return tokens;
         }
@@ -4767,6 +4801,9 @@
             const mkCall = (name, args) => (HELD_RANDOM.has(name) ? { t: 'call', name, args, slot: slots++ } : { t: 'call', name, args });
             const peek = () => tokens[p];
             const isOp = (v) => tokens[p] && tokens[p].t === 'op' && tokens[p].v === v;
+            // How a piece of the formula reads in a message
+            const shownTok = t => (t.t === 'str' ? `\`"${shortText(t.v, 14)}"\`` : t.t === 'num' ? `\`${t.v}\`` : t.t === 'ref' ? `\`${t.raw || t.v}\`` : t.t === 'id' ? `\`${t.v}\`` : t.t === 'op' ? `\`${t.v}\`` : t.t === 'sheet' ? `\`${t.name}!\`` : 'that');
+            const here = t => `at character ${t.pos + 2}`;
 
             function parseComparison() {
                 let left = parseConcat();
@@ -4826,14 +4863,14 @@
             }
             function parsePrimary() {
                 const tok = tokens[p++];
-                if (!tok) throw new FormulaError('#ERROR!');
+                if (!tok) throw new FormulaError('#ERROR!', p > 1 ? `The formula ends too early: a number, cell or function is needed after ${shownTok(tokens[p - 2])}` : 'The formula is empty after the `=`');
                 if (tok.t === 'num') return { t: 'num', v: tok.v };
                 if (tok.t === 'str') return { t: 'str', v: tok.v };
                 if (tok.t === 'err') return { t: 'err', v: tok.v };
                 if (tok.t === 'sref') return { t: 'sref', table: tok.table, col: tok.col, row: tok.row };
                 if (tok.t === 'sheet') {
                     const first = tokens[p++];
-                    if (!first || first.t !== 'ref') throw new FormulaError('#ERROR!');
+                    if (!first || first.t !== 'ref') throw new FormulaError('#ERROR!', `The sheet name \`${tok.name}!\` must be followed by a cell or range`, `\`${tok.name}!A1\``);
                     if (isOp(':') && tokens[p + 1] && tokens[p + 1].t === 'ref') {
                         p++;
                         const end = tokens[p++];
@@ -4860,7 +4897,7 @@
                             else args.push(parseComparison());
                             if (isOp(',')) { p++; continue; }
                             if (isOp(')')) { p++; break; }
-                            throw new FormulaError('#ERROR!');
+                            throw new FormulaError('#ERROR!', p >= tokens.length ? `Missing a \`)\` for ${tok.v}` : `Expected \`,\` or \`)\` ${here(tokens[p])} in ${tok.v}, but found ${shownTok(tokens[p])}`);
                         }
                         return mkCall(tok.v, args);
                     }
@@ -4870,15 +4907,17 @@
                 }
                 if (tok.t === 'op' && tok.v === '(') {
                     const inner = parseComparison();
-                    if (!isOp(')')) throw new FormulaError('#ERROR!');
+                    if (!isOp(')')) throw new FormulaError('#ERROR!', p >= tokens.length ? `Missing a \`)\` for the \`(\` at character ${tok.pos + 2}` : `Expected \`)\` ${here(tokens[p])} but found ${shownTok(tokens[p])}`);
                     p++;
                     return inner;
                 }
-                throw new FormulaError('#ERROR!');
+                if (tok.t === 'op' && tok.v === ')') throw new FormulaError('#ERROR!', `The \`)\` ${here(tok)} has no \`(\` to close`);
+                if (tok.t === 'op' && tok.v === ',') throw new FormulaError('#ERROR!', `A \`,\` ${here(tok)} is only allowed between a function's arguments`);
+                throw new FormulaError('#ERROR!', `${shownTok(tok)} ${here(tok)} cannot go here: a number, cell or function is needed`);
             }
 
             const ast = parseComparison();
-            if (p < tokens.length) throw new FormulaError('#ERROR!');
+            if (p < tokens.length) throw new FormulaError('#ERROR!', tokens[p].t === 'op' && tokens[p].v === ')' ? `Extra \`)\` ${here(tokens[p])}: there is no \`(\` for it` : `Unexpected ${shownTok(tokens[p])} ${here(tokens[p])}, after the formula was already complete`);
             astCache.set(src, ast);
             return ast;
         }
@@ -4915,7 +4954,7 @@
             if (typeof v === 'boolean') return v ? 1 : 0;
             if (v === '' || v === undefined || v === null) return 0;
             if (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v))) return Number(v);
-            throw new FormulaError('#VALUE!');
+            throw new FormulaError('#VALUE!', typeof v === 'string' ? `The text \`${shortText(v)}\` cannot be used as a number` : 'A value that is not a number was used where a number is needed');
         }
 
         function toBoolean(v) {
@@ -5003,19 +5042,26 @@
             const cell = data[id];
             if (!cell || !cell.formula) return;
             if (calcState.done.has(id)) return;
-            if (calcState.busy.has(id)) throw new FormulaError('#CIRC!');
+            if (calcState.busy.has(id)) {
+                const arr = [...calcState.busy], path = arr.slice(Math.max(0, arr.indexOf(id))).concat(id);
+                throw new FormulaError('#CIRC!', `The formula loops back on itself: ${path.map(x => '`' + x + '`').join(' \u2192 ')}`);
+            }
             calcState.busy.add(id);
             const outerCell = rollCell;
             rollCell = id;
             try {
                 const coord = parseCellCoord(id);
                 const result = evalFormulaCore(cell.formula, coord.r, coord.c);
+                const failure = lastFormulaErr;
                 if (isRange(result)) {
-                    if (writeSpill(id, result)) cell.value = result.values[0];
-                    else { releaseSpill(id); cell.value = '#SPILL!'; }
+                    lastSpillWhy = '';
+                    if (writeSpill(id, result)) { cell.value = result.values[0]; cellErr.delete(cell); }
+                    else { releaseSpill(id); cell.value = '#SPILL!'; cellErr.set(cell, { code: '#SPILL!', why: lastSpillWhy, fix: '' }); }
                 } else {
                     releaseSpill(id);
                     cell.value = result;
+                    if (typeof result === 'string' && ERROR_CODES.includes(result) && failure && failure.code === result) cellErr.set(cell, { code: result, why: failure.why, fix: failure.fix, from: failure.from });
+                    else cellErr.delete(cell);
                 }
             } finally {
                 rollCell = outerCell;
@@ -5041,14 +5087,14 @@
 
         function writeSpill(anchorId, rv) {
             const anchor = parseCellCoord(anchorId);
-            if (anchor.r + rv.rows > ROWS || anchor.c + rv.cols > COLS) return false;
+            if (anchor.r + rv.rows > ROWS || anchor.c + rv.cols > COLS) { lastSpillWhy = `The result is ${rv.rows} row${rv.rows === 1 ? '' : 's'} by ${rv.cols} column${rv.cols === 1 ? '' : 's'}, which runs off the sheet (${SHEET_LIMIT_TEXT})`; return false; }
             const own = new Set(data[anchorId].spillIds || []);
             for (let r = 0; r < rv.rows; r++) {
                 for (let c = 0; c < rv.cols; c++) {
                     if (r === 0 && c === 0) continue;
                     const id = getCellId(anchor.r + r, anchor.c + c);
                     const cell = data[id];
-                    if (cell && !own.has(id) && (cell.formula || (cell.value !== '' && cell.value !== undefined))) return false;
+                    if (cell && !own.has(id) && (cell.formula || (cell.value !== '' && cell.value !== undefined))) { lastSpillWhy = `The result needs room to spread (${rv.rows} row${rv.rows === 1 ? '' : 's'} by ${rv.cols} column${rv.cols === 1 ? '' : 's'}), but \`${id}\` is in the way`; return false; }
                 }
             }
             releaseSpill(anchorId);
@@ -5082,15 +5128,21 @@
 
         function refValue(id) {
             const coord = parseCellCoord(id);
-            if (coord.r < 0 || coord.r >= ROWS || coord.c < 0 || coord.c >= COLS) throw new FormulaError('#REF!');
+            if (coord.r < 0 || coord.r >= ROWS || coord.c < 0 || coord.c >= COLS) throw new FormulaError('#REF!', `A reference points outside the sheet (${SHEET_LIMIT_TEXT})`);
             computeCell(id);
             const val = getCellValue(id);
-            if (typeof val === 'string' && ERROR_CODES.includes(val)) throw new FormulaError(val);
+            if (typeof val === 'string' && ERROR_CODES.includes(val)) {
+                // The cell it points at has an error: say where it comes from
+                const src = data[id] ? cellErr.get(data[id]) : null;
+                const fe = new FormulaError(val, src && src.why ? src.why : `\`${id}\` shows ${val}`, src ? src.fix : '');
+                fe.from = (src && src.from) || id;
+                throw fe;
+            }
             return val;
         }
 
         function rangeFromBounds(minR, minC, maxR, maxC) {
-            if (minR < 0 || maxR >= ROWS || minC < 0 || maxC >= COLS || minR > maxR || minC > maxC) throw new FormulaError('#REF!');
+            if (minR < 0 || maxR >= ROWS || minC < 0 || maxC >= COLS || minR > maxR || minC > maxC) throw new FormulaError('#REF!', `A range reaches outside the sheet (${SHEET_LIMIT_TEXT})`);
             const values = [];
             for (let r = minR; r <= maxR; r++) {
                 for (let c = minC; c <= maxC; c++) {
@@ -5139,11 +5191,11 @@
         }
         function xrefValue(n) {
             const idx = sheetIndexByName(n.sheet);
-            if (idx < 0) throw new FormulaError('#REF!');
+            if (idx < 0) throw new FormulaError('#REF!', `There is no sheet named \`${n.sheet}\` (it may have been renamed or deleted)`);
             const same = idx === engineSheetIdx();
             if (n.node.t === 'ref') {
                 const co = shiftCoord(parseCellCoord(n.node.v), n.node.ca, n.node.ra);
-                if (co.r < 0 || co.c < 0) throw new FormulaError('#REF!');
+                if (co.r < 0 || co.c < 0) throw new FormulaError('#REF!', 'A reference points above the first row or left of column A');
                 const id = getCellId(co.r, co.c);
                 return inSheet(idx, () => refValue(id));
             }
@@ -5165,8 +5217,8 @@
         // The reference node a name stands for (cells on a sheet), or #NAME? / #REF! when there is none
         function resolveName(n) {
             const def = findName(n.name);
-            if (!def) throw new FormulaError('#NAME?');
-            if (/^#REF!/.test(def.ref)) throw new FormulaError('#REF!');
+            if (!def) throw new FormulaError('#NAME?', `There is no name \`${n.name}\``, `\`"${n.name}"\` if it is text; names are made in View / Insert, Names`);
+            if (/^#REF!/.test(def.ref)) throw new FormulaError('#REF!', `The name \`${def.name}\` pointed at a sheet that was deleted`);
             return parseFormula(def.ref);
         }
         // Bounds of a reference node (A1 or A1:B5), for functions that need the cells themselves (OFFSET, CELL, ISBLANK)
@@ -5188,11 +5240,11 @@
         // Where a reference points: the sheet (its number) and the bounds on it. Works for A1, A1:B5, Lists!B3, a name, a table column.
         // A sheet that does not exist is #REF!; anything that is not a reference gives null.
         function nodeTarget(node) {
-            if (node.t === 'err') throw new FormulaError(node.v); // the sheet it pointed at was deleted
+            if (node.t === 'err') throw new FormulaError(node.v, 'The sheet this pointed at was deleted'); // the sheet it pointed at was deleted
             if (node.t === 'name') { try { node = resolveName(node); } catch (e) { return null; } }
             if (node.t === 'xref') {
                 const idx = sheetIndexByName(node.sheet);
-                if (idx < 0) throw new FormulaError('#REF!');
+                if (idx < 0) throw new FormulaError('#REF!', `There is no sheet named \`${node.sheet}\` (it may have been renamed or deleted)`);
                 const b = nodeBounds(node.node);
                 return b ? { idx, b } : null;
             }
@@ -5365,7 +5417,7 @@
         }
 
         function datedif(s, e, unit) {
-            if (s > e) throw new FormulaError('#NUM!');
+            if (s > e) throw new FormulaError('#NUM!', 'The start date is after the end date');
             const a = ymdFromSerial(s), b = ymdFromSerial(e);
             // Whole months between the dates (a month is not complete until the day-of-month is reached)
             let months = (b.y - a.y) * 12 + (b.m - a.m);
@@ -5387,7 +5439,7 @@
                     return e - cand;
                 }
             }
-            throw new FormulaError('#NUM!');
+            throw new FormulaError('#NUM!', 'The unit must be `"Y"`, `"M"`, `"D"`, `"YM"`, `"MD"` or `"YD"`');
         }
 
         // ----- Finance -----
@@ -5400,7 +5452,7 @@
             return values.reduce((acc, v, i) => acc + v / Math.pow(1 + rate, i + 1), 0);
         }
         function irrCalc(values, guess) {
-            if (!values.some(v => v > 0) || !values.some(v => v < 0)) throw new FormulaError('#NUM!');
+            if (!values.some(v => v > 0) || !values.some(v => v < 0)) throw new FormulaError('#NUM!', 'A rate of return needs at least one positive and one negative value');
             const f = r => values.reduce((acc, v, i) => acc + v / Math.pow(1 + r, i), 0);
             const df = r => values.reduce((acc, v, i) => acc - i * v / Math.pow(1 + r, i + 1), 0);
             let r = guess;
@@ -5414,7 +5466,7 @@
             }
             let lo = -0.9999, hi = 10;
             let flo = f(lo), fhi = f(hi);
-            if (flo * fhi > 0) throw new FormulaError('#NUM!');
+            if (flo * fhi > 0) throw new FormulaError('#NUM!', 'No rate of return could be found for these values');
             for (let i = 0; i < 200; i++) {
                 const mid = (lo + hi) / 2, fm = f(mid);
                 if (Math.abs(fm) < 1e-9) return mid;
@@ -5460,16 +5512,18 @@
                 if (m) {
                     i += m[0].length;
                     const n = m[1] === '' ? 1 : Number(m[1]), sides = m[2] === '%' ? 100 : Number(m[2]);
-                    if (n < 1 || n > DICE_MAX_PER_TERM || sides < 2 || sides > DICE_MAX_SIDES) throw new FormulaError('#NUM!');
+                    if (n < 1) throw new FormulaError('#NUM!', 'A dice term needs at least 1 die');
+                    if (n > DICE_MAX_PER_TERM) throw new FormulaError('#NUM!', `${n} dice in one term; the limit is ${DICE_MAX_PER_TERM}`, `split it into terms of ${DICE_MAX_PER_TERM} or fewer, like \`${DICE_MAX_PER_TERM}d${m[2]}+${Math.min(n - DICE_MAX_PER_TERM, DICE_MAX_PER_TERM)}d${m[2]}\``);
+                    if (sides < 2 || sides > DICE_MAX_SIDES) throw new FormulaError('#NUM!', `A die needs 2 to ${DICE_MAX_SIDES} sides, not ${sides}`);
                     diceCount += n;
-                    if (diceCount > DICE_MAX_TOTAL) throw new FormulaError('#NUM!');
+                    if (diceCount > DICE_MAX_TOTAL) throw new FormulaError('#NUM!', `${diceCount} dice in all; the limit is ${DICE_MAX_TOTAL} in one roll`);
                     let keepMode = '', k = 0;
                     const km = /^(kh|kl|dh|dl)(\d*)/.exec(rest());
                     if (km) {
                         i += km[0].length;
                         keepMode = km[1];
                         k = km[2] === '' ? 1 : Number(km[2]);
-                        if (k < 1 || k > n) throw new FormulaError('#NUM!');
+                        if (k < 1 || k > n) throw new FormulaError('#NUM!', `\`${km[0]}\` keeps or drops ${k}, but the term has ${n} dice`);
                     }
                     const dice = [];
                     for (let d = 0; d < n; d++) dice.push(1 + Math.floor(rnd() * sides));
@@ -5521,7 +5575,7 @@
         function betweenFromRoll(u, low, high, decimals) {
             const p = Math.pow(10, decimals);
             const lo = Math.ceil(low * p - 1e-9), hi = Math.floor(high * p + 1e-9);
-            if (hi < lo) throw new FormulaError('#NUM!');
+            if (hi < lo) throw new FormulaError('#NUM!', low > high ? `The low number (${low}) is higher than the high number (${high})` : `There is no number between ${low} and ${high} with that many decimals`);
             return (lo + Math.floor(u * (hi - lo + 1))) / p;
         }
 
@@ -5689,8 +5743,8 @@
         // CEILING / FLOOR: round to a multiple of the significance (a ratio that is only off by float dust counts as whole)
         function nearWhole(q) { const r = Math.round(q); return Math.abs(q - r) < 1e-9 ? r : q; }
         function toMultiple(n, sig, up) {
-            if (sig === 0) { if (up) return 0; throw new FormulaError('#DIV/0!'); }
-            if (n > 0 && sig < 0) throw new FormulaError('#NUM!');
+            if (sig === 0) { if (up) return 0; throw new FormulaError('#DIV/0!', 'The multiple is 0'); }
+            if (n > 0 && sig < 0) throw new FormulaError('#NUM!', `The number is positive (${n}) but the multiple is negative (${sig})`);
             if (n < 0 && sig < 0) { const q = nearWhole(Math.abs(n) / Math.abs(sig)); return -(up ? Math.ceil(q) : Math.floor(q)) * Math.abs(sig); }
             const q = nearWhole(n / sig);
             return (up ? Math.ceil(q) : Math.floor(q)) * sig;
@@ -5711,7 +5765,7 @@
             AVERAGE: {
                 fn: args => {
                     const nums = collectNumbers(args);
-                    if (!nums.length) throw new FormulaError('#DIV/0!');
+                    if (!nums.length) throw new FormulaError('#DIV/0!', 'There are no numbers to average');
                     return nums.reduce((a, b) => a + b, 0) / nums.length;
                 }
             },
@@ -5731,7 +5785,7 @@
             MEDIAN: {
                 fn: args => {
                     const n = collectNumbers(args).sort((a, b) => a - b);
-                    if (!n.length) throw new FormulaError('#NUM!');
+                    if (!n.length) throw new FormulaError('#NUM!', 'There are no numbers to take the median of');
                     const mid = Math.floor(n.length / 2);
                     return n.length % 2 ? n[mid] : (n[mid - 1] + n[mid]) / 2;
                 }
@@ -5748,19 +5802,19 @@
             RNDBETWEEN: {
                 fn: (args, r, c, node) => {
                     const d = args.length > 2 && !isBlank(unwrap(args[2])) ? Math.trunc(toNumber(args[2])) : 0;
-                    if (d < 0 || d > MAX_DECIMALS) throw new FormulaError('#NUM!');
+                    if (d < 0 || d > MAX_DECIMALS) throw new FormulaError('#NUM!', `The number of decimals must be 0 to ${MAX_DECIMALS}, not ${d}`);
                     return betweenFromRoll(heldRoll(node && node.slot), toNumber(args[0]), toNumber(args[1]), d);
                 }
             },
             // Rounding and math
             INT: { fn: args => Math.floor(toNumber(args[0])) },
-            SQRT: { fn: args => { const n = toNumber(args[0]); if (n < 0) throw new FormulaError('#NUM!'); return Math.sqrt(n); } },
+            SQRT: { fn: args => { const n = toNumber(args[0]); if (n < 0) throw new FormulaError('#NUM!', `The square root of ${n} has no real answer (a negative number)`); return Math.sqrt(n); } },
             POWER: {
                 fn: args => {
                     const b = toNumber(args[0]), e = toNumber(args[1]);
-                    if (b === 0 && e < 0) throw new FormulaError('#DIV/0!');
+                    if (b === 0 && e < 0) throw new FormulaError('#DIV/0!', '0 cannot be raised to a negative power');
                     const r = Math.pow(b, e);
-                    if (isNaN(r)) throw new FormulaError('#NUM!');
+                    if (isNaN(r)) throw new FormulaError('#NUM!', `${b} to the power ${e} has no real answer (a negative number to a fractional power)`);
                     return r;
                 }
             },
@@ -5771,7 +5825,7 @@
                 fn: args => {
                     const n = collectNumbers([args[0]]).sort((a, b) => b - a);
                     const k = Math.ceil(toNumber(args[1]));
-                    if (!n.length || k < 1 || k > n.length) throw new FormulaError('#NUM!');
+                    if (!n.length || k < 1 || k > n.length) throw new FormulaError('#NUM!', !n.length ? 'There are no numbers in the range' : `The range has ${n.length} number${n.length === 1 ? '' : 's'}, but number ${k} was asked for`);
                     return n[k - 1];
                 }
             },
@@ -5779,7 +5833,7 @@
                 fn: args => {
                     const n = collectNumbers([args[0]]).sort((a, b) => a - b);
                     const k = Math.ceil(toNumber(args[1]));
-                    if (!n.length || k < 1 || k > n.length) throw new FormulaError('#NUM!');
+                    if (!n.length || k < 1 || k > n.length) throw new FormulaError('#NUM!', !n.length ? 'There are no numbers in the range' : `The range has ${n.length} number${n.length === 1 ? '' : 's'}, but number ${k} was asked for`);
                     return n[k - 1];
                 }
             },
@@ -5889,7 +5943,7 @@
             MOD: {
                 fn: args => {
                     const n = toNumber(args[0]), d = toNumber(args[1]);
-                    if (d === 0) throw new FormulaError('#DIV/0!');
+                    if (d === 0) throw new FormulaError('#DIV/0!', 'The divisor (the second number) is 0');
                     return n - d * Math.floor(n / d);
                 }
             },
@@ -5945,7 +5999,7 @@
                     const rng = asRange(args[0]).values;
                     const avgVals = args.length > 2 ? asRange(args[2]).values : rng;
                     const nums = matchingIndexes([{ vals: rng, test: criteriaMatcher(args[1]) }]).map(i => avgVals[i]).filter(v => typeof v === 'number');
-                    if (!nums.length) throw new FormulaError('#DIV/0!');
+                    if (!nums.length) throw new FormulaError('#DIV/0!', 'No numbers matched the condition, so there is nothing to average');
                     return nums.reduce((a, b) => a + b, 0) / nums.length;
                 }
             },
@@ -5955,7 +6009,7 @@
                     const pairs = criteriaPairs(args, 1);
                     pairs.push({ vals: avgVals, test: () => true });
                     const nums = matchingIndexes(pairs).map(i => avgVals[i]).filter(v => typeof v === 'number');
-                    if (!nums.length) throw new FormulaError('#DIV/0!');
+                    if (!nums.length) throw new FormulaError('#DIV/0!', 'No numbers matched the conditions, so there is nothing to average');
                     return nums.reduce((a, b) => a + b, 0) / nums.length;
                 }
             },
@@ -6107,7 +6161,7 @@
                     if (args.length < 3) throw new FormulaError('#VALUE!');
                     const rate = toNumber(args[0]), nper = toNumber(args[1]), pv = toNumber(args[2]);
                     const fv = args.length > 3 ? toNumber(args[3]) : 0, type = args.length > 4 && toNumber(args[4]) ? 1 : 0;
-                    if (nper === 0) throw new FormulaError('#NUM!');
+                    if (nper === 0) throw new FormulaError('#NUM!', 'The number of periods is 0');
                     if (rate === 0) return -(pv + fv) / nper;
                     const g = Math.pow(1 + rate, nper);
                     return -(pv * g + fv) * rate / ((1 + rate * type) * (g - 1));
@@ -6212,7 +6266,7 @@
                     const key = unwrap(args[0]), table = asRange(args[1]);
                     const colIdx = Math.floor(toNumber(args[2]));
                     const approx = args.length > 3 ? toBoolean(args[3]) : true;
-                    if (colIdx < 1 || colIdx > table.cols) throw new FormulaError('#REF!');
+                    if (colIdx < 1 || colIdx > table.cols) throw new FormulaError('#REF!', `Column number ${colIdx} is outside the table, which has ${table.cols} column${table.cols === 1 ? '' : 's'}`);
                     const first = table.col(0).values;
                     const i = approx ? findApprox(key, first, 1) : findExact(key, first, false);
                     if (i < 0) throw new FormulaError('#N/A');
@@ -6225,7 +6279,7 @@
                     const key = unwrap(args[0]), table = asRange(args[1]);
                     const rowIdx = Math.floor(toNumber(args[2]));
                     const approx = args.length > 3 ? toBoolean(args[3]) : true;
-                    if (rowIdx < 1 || rowIdx > table.rows) throw new FormulaError('#REF!');
+                    if (rowIdx < 1 || rowIdx > table.rows) throw new FormulaError('#REF!', `Row number ${rowIdx} is outside the table, which has ${table.rows} row${table.rows === 1 ? '' : 's'}`);
                     const first = table.row(0).values;
                     const i = approx ? findApprox(key, first, 1) : findExact(key, first, false);
                     if (i < 0) throw new FormulaError('#N/A');
@@ -6269,7 +6323,7 @@
                     if (first.t === 'range') { idx = engineSheetIdx(); bounds = nodeBounds(first); }
                     else if (first.t === 'xref' && first.node.t === 'range') {
                         idx = sheetIndexByName(first.sheet);
-                        if (idx < 0) throw new FormulaError('#REF!');
+                        if (idx < 0) throw new FormulaError('#REF!', `There is no sheet named \`${first.sheet}\` (it may have been renamed or deleted)`);
                         bounds = nodeBounds(first.node);
                     }
                     const num = node => toNumber(ev(node));
@@ -6284,7 +6338,7 @@
                     else if (cols === 1) c = 1;
                     else if (rows === 1) { c = r; r = 1; }
                     else c = 0;
-                    if (r < 0 || c < 0 || r > rows || c > cols) throw new FormulaError('#REF!');
+                    if (r < 0 || c < 0 || r > rows || c > cols) throw new FormulaError('#REF!', `Row ${r}, column ${c} is outside the range, which has ${rows} row${rows === 1 ? '' : 's'} and ${cols} column${cols === 1 ? '' : 's'}`);
                     if (r > 0 && c > 0) { const id = getCellId(bounds.minR + r - 1, bounds.minC + c - 1); return inSheet(idx, () => refValue(id)); }
                     // a whole row or column (or all of it): only that part is read
                     const part = inSheet(idx, () => {
@@ -6318,7 +6372,7 @@
                     const dr = Math.trunc(toNumber(ev(nodes[1]))), dc = Math.trunc(toNumber(ev(nodes[2])));
                     const h = nodes.length > 3 ? Math.trunc(toNumber(ev(nodes[3]))) : base.maxR - base.minR + 1;
                     const w = nodes.length > 4 ? Math.trunc(toNumber(ev(nodes[4]))) : base.maxC - base.minC + 1;
-                    if (h < 1 || w < 1) throw new FormulaError('#REF!');
+                    if (h < 1 || w < 1) throw new FormulaError('#REF!', `The height and width must each be at least 1, not ${h} and ${w}`);
                     const read = () => rangeFromBounds(base.minR + dr, base.minC + dc, base.minR + dr + h - 1, base.minC + dc + w - 1);
                     if (target.idx === engineSheetIdx()) return shrink(read());
                     return shrink(inSheet(target.idx, () => { const rv = read(); delete rv.origin; return rv; })); // row numbers of another sheet mean nothing to this sheet's filters
@@ -6328,7 +6382,7 @@
                 fn: args => {
                     const ref = toText(args[0]).trim().toUpperCase().replace(/\$/g, '');
                     const m = /^([A-Z]{1,3})(\d+)(?::([A-Z]{1,3})(\d+))?$/.exec(ref);
-                    if (!m) throw new FormulaError('#REF!');
+                    if (!m) throw new FormulaError('#REF!', `\`${shortText(toText(args[0]), 20)}\` is not a cell or range`, 'text like `"B2"` or `"B2:C5"`');
                     const a = parseCellCoord(m[1] + m[2]), b = m[3] ? parseCellCoord(m[3] + m[4]) : a;
                     return shrink(rangeFromBounds(Math.min(a.r, b.r), Math.min(a.c, b.c), Math.max(a.r, b.r), Math.max(a.c, b.c)));
                 }
@@ -6354,7 +6408,7 @@
                     keep.forEach((k, i) => { if (k) picks.push(i); });
                     if (!picks.length) {
                         if (nodes.length > 2) return ev(nodes[2]);
-                        throw new FormulaError('#CALC!');
+                        throw new FormulaError('#CALC!', 'No rows matched the condition', 'a third argument shows something instead, like `FILTER(range,condition,"none")`');
                     }
                     const out = [];
                     if (byRow) {
@@ -6407,7 +6461,7 @@
                         done.add(k);
                         if (!once || seen.get(k) === 1) kept.push(line);
                     });
-                    if (!kept.length) throw new FormulaError('#CALC!');
+                    if (!kept.length) throw new FormulaError('#CALC!', once ? 'No item appears exactly once' : 'There is nothing to list');
                     if (byCol) {
                         const out = [];
                         for (let r = 0; r < arr.rows; r++) kept.forEach(line => out.push(line[r]));
@@ -6445,11 +6499,11 @@
         // A column's data cells (always a block, even for one row) or, for [@Column], the cell of the row being calculated
         function structuredValue(n, curR) {
             const t = findTableByName(n.table);
-            if (!t) throw new FormulaError('#REF!');
+            if (!t) throw new FormulaError('#REF!', `There is no table named \`${n.table}\``);
             const c = tableColumnIndex(t, n.col);
-            if (c < 0) throw new FormulaError('#REF!');
+            if (c < 0) throw new FormulaError('#REF!', `The table \`${n.table}\` has no column named \`${n.col}\``);
             if (n.row) {
-                if (curR <= t.startR || curR > t.endR) throw new FormulaError('#VALUE!');
+                if (curR <= t.startR || curR > t.endR) throw new FormulaError('#VALUE!', `\`${n.table}[@${n.col}]\` only works in a row of the table \`${n.table}\``);
                 const rv = new RangeVal(1, 1, [refValue(getCellId(curR, c))]);
                 rv.origin = { r: curR, c };
                 return rv;
@@ -6475,7 +6529,7 @@
                 case 'ref': {
                     if (!cfShift) return refValue(n.v);
                     const co = shiftCoord(parseCellCoord(n.v), n.ca, n.ra);
-                    if (co.r < 0 || co.c < 0) throw new FormulaError('#REF!');
+                    if (co.r < 0 || co.c < 0) throw new FormulaError('#REF!', 'A reference points above the first row or left of column A');
                     return refValue(getCellId(co.r, co.c));
                 }
                 case 'range':
@@ -6499,13 +6553,24 @@
                     return neg(v);
                 }
                 case 'bin':
-                    return binaryOp(n.op, evalNode(n.l, curR, curC), evalNode(n.r, curR, curC));
+                    try {
+                        return binaryOp(n.op, evalNode(n.l, curR, curC), evalNode(n.r, curR, curC));
+                    } catch (err) {
+                        if (err instanceof FormulaError && err.code === '#DIV/0!' && !err.why && n.op === '/') {
+                            if (n.r.t === 'ref') { err.why = `The divisor \`${n.r.v}\` is 0 or empty`; if (n.l.t === 'ref') err.fix = `\`IF(${n.r.v}=0,"",${n.l.v}/${n.r.v})\``; }
+                            else err.why = 'The formula divides by zero';
+                        }
+                        throw err;
+                    }
                 case 'call': {
                     const def = FUNCTIONS[n.name];
-                    if (!def) throw new FormulaError('#NAME?');
+                    if (!def) {
+                        const near = nearestFunctionName(n.name);
+                        throw new FormulaError('#NAME?', `There is no function called \`${n.name}\``, near ? `\`${near}\`, if that is what you meant` : '');
+                    }
                     if (def.lazy) return def.fn(n.args, node => evalNode(node, curR, curC), curR, curC);
                     const lim = ARG_LIMITS[n.name];
-                    if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!');
+                    if (lim && (n.args.length < lim[0] || n.args.length > lim[1])) throw new FormulaError('#VALUE!', `${n.name} takes ${lim[1] === Infinity ? `at least ${lim[0]}` : lim[0] === lim[1] ? lim[0] : `${lim[0]} to ${lim[1]}`} argument${lim[1] === 1 ? '' : 's'}, but this has ${n.args.length}`);
                     // A single cell passed to a function counts as a cell (like a range of one): text in it is skipped by SUM, AVERAGE, ...
                     const args = n.args.map(a => evalArg(a, curR, curC));
                     return def.fn(args, curR, curC, n);
@@ -6537,7 +6602,7 @@
         function normalizeScalar(result) {
             if (result === undefined || result === null) return '';
             if (typeof result === 'number') {
-                if (!isFinite(result)) return '#NUM!';
+                if (!isFinite(result)) { lastFormulaErr = new FormulaError('#NUM!', 'The result is too large to show'); return '#NUM!'; }
                 return Number.isInteger(result) ? result : Number(result.toPrecision(15));
             }
             return result;
@@ -6552,6 +6617,7 @@
         }
 
         function evalFormulaCore(formulaStr, curR, curC) {
+            lastFormulaErr = null;
             try {
                 let expr = formulaStr.substring(1).trim();
                 if (expr.toUpperCase() === 'IF' || expr.toUpperCase() === 'IF()') {
@@ -6559,7 +6625,9 @@
                 }
                 return normalizeResult(evalNode(parseFormula(expr), curR, curC));
             } catch (err) {
-                return err instanceof FormulaError ? err.code : '#ERROR!';
+                if (err instanceof FormulaError) { lastFormulaErr = err; return err.code; }
+                lastFormulaErr = new FormulaError('#ERROR!', 'The formula could not be worked out');
+                return '#ERROR!';
             }
         }
 
@@ -6670,16 +6738,38 @@
             return items;
         }
 
+        // `text` between backticks becomes code (blue, monospace); everything else is escaped as plain text
+        const errHtml = text => escapeHtml(String(text)).replace(/`([^`]+)`/g, '<code class="err-code">$1</code>');
+        // What to tell about the error in a cell: the reason it carries, or else the plain meaning of its code
+        function cellErrorInfo(id) {
+            const cell = data[id];
+            if (!cell || typeof cell.value !== 'string' || !ERROR_CODES.includes(cell.value)) return null;
+            const e = cellErr.get(cell), code = cell.value;
+            let why = e && e.why ? e.why : (WIZ_ERROR_TEXT[code] ? WIZ_ERROR_TEXT[code].charAt(0).toUpperCase() + WIZ_ERROR_TEXT[code].slice(1) : '');
+            if (e && e.from) why = `Comes from \`${e.from}\`: ${why}`;
+            return { code, why, fix: e ? e.fix : '' };
+        }
         function renderCellInfo(r, c) {
             const items = cellInfoItems(r, c);
+            const err = cellErrorInfo(getCellId(r, c));
+            document.querySelector('.status-bar').classList.toggle('has-err', !!err);
             let html;
-            if (items.length) {
+            if (err) {
+                const chips = items.map(it => `<button type="button" class="info-chip" onclick="cellInfoTap('${it.act}', '${it.arg}')">${infoIcon(it.icon)}${it.alt ? `<span class="ico-alt">${it.alt} </span>` : ''}<span>${escapeHtml(it.text)}</span></button>`).join('');
+                html = `<div class="err-note"><span class="err-badge">${escapeHtml(err.code)}</span>${errHtml(err.why)}${err.fix ? `<span class="err-try">Try: ${errHtml(err.fix)}</span>` : ''}</div>${chips ? `<div class="err-chips">${chips}</div>` : ''}`;
+            } else if (items.length) {
                 html = items.map(it => `<button type="button" class="info-chip" onclick="cellInfoTap('${it.act}', '${it.arg}')">${infoIcon(it.icon)}${it.alt ? `<span class="ico-alt">${it.alt} </span>` : ''}<span>${escapeHtml(it.text)}</span></button>`).join('');
             } else {
                 const t = cellTypeInfo(getCellId(r, c));
                 html = `<span class="info-chip">${t.icon ? infoIcon(t.icon) : ''}<span>${escapeHtml(t.text)}</span></span>`;
             }
             document.getElementById('stats-display').innerHTML = html;
+            fitStripExtra();
+        }
+        // The status bar is 32 px tall, more when it shows an error: the actions bar floats above whatever height it has
+        function fitStripExtra() {
+            const bar = document.querySelector('.status-bar');
+            document.documentElement.style.setProperty('--strip-extra', Math.max(0, Math.round(bar.getBoundingClientRect().height) - 32) + 'px');
         }
         function refreshCellInfo() {
             const b = selBounds();
@@ -6714,6 +6804,8 @@
             let count = 0, sum = 0, numericCount = 0, min = Infinity, max = -Infinity;
             const b = selBounds();
             if (b.minR === b.maxR && b.minC === b.maxC) { renderCellInfo(b.minR, b.minC); return; }
+            document.querySelector('.status-bar').classList.remove('has-err');
+            fitStripExtra();
 
             for (let r = b.minR; r <= b.maxR; r++) {
                 if (filteredRows.has(r)) continue;
@@ -6999,6 +7091,7 @@
             <p><b>Start with =.</b> Capitals are fixed for you (=sum becomes =SUM, a3 becomes A3). Type just a function's name, like <code>=SUMIF</code>, and press Enter: the app fills in the arguments from the cells around it and tells you what it guessed.</p>
             <p><b>While you edit a formula</b> a hint line under the formula bar shows the function you are in, with the current argument in bold. When the caret is on a cell reference, those cells are outlined on the grid.</p>
             <p><b>fx Wizard</b> (the actions bar, or View / Insert) walks you through any function: search or pick a category, fill in the boxes, watch the live result, then Insert. Tap the star on a function to keep it as a favorite. If you open it while the caret is inside a formula, it opens on that function with its arguments filled in, and Update Formula changes only that part.</p>
+            <p><b>When a cell shows an error</b> (#NUM!, #REF!, #ERROR! ...), select it: the bar at the bottom says why, and when the fix is not obvious, what to try. Anything shown in blue in that message is a formula you can copy.</p>
             <p><b>Other sheets.</b> Write <code>=Lists!B1</code> or <code>='My Sheet'!A1:B3</code> (quotes when the name has spaces). Renaming a sheet updates the formulas that use it; deleting one turns them into #REF!.</p>
             <p><b>Spills.</b> Functions like FILTER, SORT and UNIQUE give several cells. The result spreads into the cells below or beside, and shows #SPILL! if something is in the way.</p>
             <p><b>Good to know.</b> RAND and RANDBETWEEN change on every edit; RND, RNDBETWEEN and ROLL keep their numbers until you tap Re-roll. Other cells update when you accept an entry (Enter or tap away), not while you type.</p>`;
@@ -7017,7 +7110,7 @@
             PRODUCTV: ['=PRODUCTV(C2:C20)', 'Like PRODUCT, but only the visible rows. The V is for Visible.'],
             RND: ['=RND()', 'A random number from 0 up to 1 that stays put until you tap Re-roll (Data tab).'],
             RNDBETWEEN: ['=RNDBETWEEN(1,6)', 'A whole number from 1 to 6, like a die. It stays put until you tap Re-roll. A third number gives decimals: =RNDBETWEEN(1,6,2).'],
-            ROLL: ['=ROLL("3d6+2")', 'Rolls dice written the usual way. kh / kl keep the highest / lowest, dh / dl drop them: =ROLL("4d6dl1") rolls four dice and drops the lowest. It stays put until you tap Re-roll.'],
+            ROLL: ['=ROLL("3d6+2")', 'Rolls dice written the usual way. kh / kl keep the highest / lowest, dh / dl drop them: =ROLL("4d6dl1") rolls four dice and drops the lowest. It stays put until you tap Re-roll. Up to 100 dice in one term, 500 in all.'],
             SENTENCE: ['=SENTENCE("the LOST mines")', 'Gives The lost mines: the first letter a capital, the rest lowercase.']
         };
         const GUIDE_CHANGED = { // Excel functions that work differently here, or do less (a QSheet-only function is never listed here)
@@ -8095,7 +8188,7 @@
             { name: 'RAND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1. A new number every time the sheet recalculates.', kw: 'random dice chance', args: [] },
             { name: 'RANDBETWEEN', cat: 'Math & Aggregation', desc: 'A random whole number between two numbers, both included. A new number every time the sheet recalculates.', kw: 'random dice roll', args: [wa('bottom', 'The lowest number it can give', '1', { t: 'num' }), wa('top', 'The highest number it can give', '6', { t: 'num' })] },
             { name: 'RND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1 that keeps its value until you tap Re-roll (Data tab). QSheet only.', kw: 'random dice held keep', args: [] },
-            { name: 'ROLL', cat: 'Math & Aggregation', desc: 'Rolls dice written the usual way, like 3d6+2 or 3d6+1d10+2d12kl1+3, and gives the total. Keep highest / lowest with kh / kl, drop with dh / dl (4d6dl1 drops the lowest). Also + - * / and ( ). It keeps its result until you tap Re-roll (Data tab). QSheet only.', kw: 'dice roll d20 d6 advantage keep drop random held ability', args: [wa('dice', 'The dice to roll, in quotes', '"3d6+2"', { t: 'val' })] },
+            { name: 'ROLL', cat: 'Math & Aggregation', desc: 'Rolls dice written the usual way, like 3d6+2 or 3d6+1d10+2d12kl1+3, and gives the total. Keep highest / lowest with kh / kl, drop with dh / dl (4d6dl1 drops the lowest). Also + - * / and ( ). It keeps its result until you tap Re-roll (Data tab). Up to 100 dice in one term and 500 in all; a die has 2 to 1000 sides. QSheet only.', kw: 'dice roll d20 d6 advantage keep drop random held ability', args: [wa('dice', 'The dice to roll, in quotes', '"3d6+2"', { t: 'val' })] },
             { name: 'RNDBETWEEN', cat: 'Math & Aggregation', desc: 'A random number between two numbers, both included, that keeps its value until you tap Re-roll (Data tab). Give decimals for numbers like 3.47. QSheet only.', kw: 'random dice roll held keep', args: [wa('low', 'The lowest number it can give', '1', { t: 'num' }), wa('high', 'The highest number it can give', '6', { t: 'num' }), wa('decimals', 'Decimal places. 0 or blank gives whole numbers', '0', { t: 'num', opt: true })] },
             { name: 'INT', cat: 'Math & Aggregation', desc: 'Rounds down to the nearest whole number. For negative numbers that means away from zero: INT(-2.5) is -3.', kw: 'whole number round down floor integer', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
             { name: 'SQRT', cat: 'Math & Aggregation', desc: 'The square root of a number.', kw: 'root square', args: [wa('number', 'The number (0 or more)', 'A2', { t: 'num' })] },
