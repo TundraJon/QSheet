@@ -1,7 +1,9 @@
 {
+  "id": "/QSheet/",
   "name": "Quick Sheet",
   "short_name": "QSheet",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",

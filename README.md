@@ -695,3 +695,10 @@ Built as `index.html` from the V3 shell (ribbon, multi-sheet bar, settings, cell
 - [x] **`manifest.json` lists them** (any 192, any 512, maskable 512), and **`index.html` now links the manifest, the icon, the apple-touch-icon and a theme color** (before this it linked none of them, so "Add to Home screen" had no icon). The page itself is still one HTML file; the icons are separate files next to it on GitHub Pages.
 - To see it on the phone: open the site in Chrome, menu, Add to Home screen (an old shortcut keeps the old look until it is removed and added again).
 - Tests: `test57.js` (12 checks: links, manifest, file sizes, transparent and white corners, no failed requests); `test.js`, `test2.js` and `test55.js` re-run. The full 56-file suite had finished clean just before this (all passing).
+
+### Build Log 70 — Manifest fix: QSheet gets its own app identity
+
+- [x] **Why:** on Jon's Pixel 7 Chrome said "This app is already installed" for QSheet although no app named QSheet exists (`chrome://webapks` listed only "Home", scoped to /Startpage/; the Timezone app has only a data-string manifest, so it is not a real installed app). Cause not proven.
+- [x] **`manifest.json` now has an explicit `id` (`/QSheet/`) and `scope` (`./`, the QSheet folder)**, with the same start page, name and icons, so Chrome has nothing to guess. `index.html` links it as `manifest.json?v=2` so Chrome re-reads it (raise the number if the manifest changes again).
+- [x] If the message still shows after the site updates: Chrome menu, Settings, Site settings, All sites; Android Settings, Apps ("Quick Sheet" / "QSheet", also hidden / disabled ones); then the next step is looking at the Startpage app's manifest.
+- Test: `test57.js` (13 checks, now also the id, scope and start page); `test.js` re-run.
