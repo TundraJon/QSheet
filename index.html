@@ -6947,11 +6947,15 @@
             ROLL: ['=ROLL("3d6+2")', 'Rolls dice written the usual way. kh / kl keep the highest / lowest, dh / dl drop them: =ROLL("4d6dl1") rolls four dice and drops the lowest. It stays put until you tap Re-roll.'],
             SENTENCE: ['=SENTENCE("the LOST mines")', 'Gives The lost mines: the first letter a capital, the rest lowercase.']
         };
-        const GUIDE_CHANGED = { // functions that work differently from before
-            INDEX: 'Faster: it reads only the cell it needs, even from a big range.',
-            PROPER: "Handles apostrophes: don't becomes Don't and o'brien becomes O'Brien.",
-            SENTENCE: 'A lone i becomes I ("i think i can" gives "I think I can").',
-            ROLL: 'dh now drops the highest die and dl the lowest (they were swapped before).'
+        const GUIDE_CHANGED = { // Excel functions that work differently here, or do less (a QSheet-only function is never listed here)
+            PROPER: "Handles apostrophes: don't becomes Don't and o'brien becomes O'Brien (Excel gives Don'T).",
+            VALUE: 'Empty text gives 0 (Excel gives #VALUE!).',
+            TEXT: 'Number and date formats only: no scientific, fraction or color formats.',
+            SUBTOTAL: 'The first number picks the calculation: 1 to 6, 9, 101 to 106 and 109 work (average, count, count of non-empty cells, largest, smallest, product, sum). No standard deviation or variance.',
+            CELL: 'Only address, row, col, contents and type.',
+            ROW: 'Cannot point at another sheet.',
+            COLUMN: 'Cannot point at another sheet.',
+            OFFSET: 'Cannot point at another sheet.'
         };
         let guideFilter = 'all';
 
