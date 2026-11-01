@@ -233,7 +233,7 @@
         }
 
         .ribbon-tab {
-            padding: 8px 16px;
+            padding: 8px 11px;
             font-size: 0.8rem;
             font-weight: 500;
             color: var(--text-3);
@@ -260,13 +260,18 @@
             min-height: 60px;
         }
 
+        /* A group: its buttons in a row, with the group's name under them (as in Excel) */
         .ribbon-group {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 6px;
+            gap: 2px;
             border-right: 1px solid var(--border-color);
             padding-right: 12px;
+            flex: none;
         }
+        .rg-items { display: flex; align-items: center; gap: 6px; }
+        .rg-name { font-size: 0.66rem; line-height: 1; color: var(--text-3); white-space: nowrap; letter-spacing: 0.02em; }
 
         .ribbon-group:last-child {
             border-right: none;
@@ -1175,7 +1180,7 @@
         /* Text color and Fill color: a button that applies the last color used, and an arrow that picks another */
         .split-color { position: relative; display: inline-flex; }
         .split-color .sc-main { flex-direction: column; justify-content: center; gap: 1px; border-top-right-radius: 0; border-bottom-right-radius: 0; padding: 2px 8px 3px; }
-        .split-color .sc-arrow { min-width: 22px; padding: 0 2px; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+        .split-color .sc-arrow { min-width: 30px; padding: 0 2px; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
         .sc-bar { display: block; width: 20px; height: 4px; border-radius: 2px; outline: 1px solid var(--border-color); }
         .split-color .sc-input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; padding: 0; border: 0; min-width: 0; }
         .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 8px; }
@@ -1273,8 +1278,10 @@
     <div class="ribbon-overlay collapsed" id="ribbon-overlay">
         <div class="ribbon-tabs">
             <button class="ribbon-tab active" id="tab-home" onclick="switchRibbonTab('home')">Home</button>
+            <button class="ribbon-tab" id="tab-insert" onclick="switchRibbonTab('insert')">Insert</button>
+            <button class="ribbon-tab" id="tab-formulas" onclick="switchRibbonTab('formulas')">Formulas</button>
             <button class="ribbon-tab" id="tab-data" onclick="switchRibbonTab('data')">Data</button>
-            <button class="ribbon-tab" id="tab-view" onclick="switchRibbonTab('view')">View / Insert</button>
+            <button class="ribbon-tab" id="tab-view" onclick="switchRibbonTab('view')">View</button>
         </div>
         <div class="ribbon-content" id="ribbon-content-area">
             <!-- Dynamically populated ribbon content -->
@@ -3478,7 +3485,7 @@
             activeRibbonTab = tabName;
             lastRibbonTab = tabName;
             document.querySelectorAll('.ribbon-tab').forEach(t => t.classList.remove('active'));
-            document.getElementById(`tab-${tabName === 'view' ? 'view' : tabName}`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
             renderRibbonContent(tabName);
         }
 
@@ -3487,28 +3494,23 @@
             if (tab === 'home') {
                 area.innerHTML = `
                     <div class="ribbon-group">
+                        <div class="rg-items">
                         <button id="undo-btn" onclick="histUndo()" title="Undo" aria-label="Undo" ${histPos > 0 ? '' : 'disabled'}><span class="material-symbols-outlined" aria-hidden="true">undo</span><span class="ico-label">Undo</span></button>
                         <button id="redo-btn" onclick="histRedo()" title="Redo" aria-label="Redo" ${histPos < historyStack.length ? '' : 'disabled'}><span class="material-symbols-outlined" aria-hidden="true">redo</span><span class="ico-label">Redo</span></button>
+                        </div>
+                        <span class="rg-name">Undo</span>
                     </div>
                     <div class="ribbon-group">
-                        <button onclick="clearSelectedCells()" title="Empty the selected cells (formatting stays). The Delete key does the same" aria-label="Clear cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">delete</span>Clear</button>
-                        <button id="clipclear-btn" onclick="clipClear()" ${clip ? '' : 'disabled'} title="Remove the Copy / Cut outline" aria-label="Clear copy"><span class="material-symbols-outlined mi-lead" aria-hidden="true">close</span>Clear copy</button>
-                    </div>
-                    <div class="ribbon-group">
-                        <button onclick="copyCells(false)" title="Copy the selected cells" aria-label="Copy"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span><span class="ico-label">Copy</span></button>
-                        <button onclick="copyCells(true)" title="Cut the selected cells" aria-label="Cut"><span class="material-symbols-outlined" aria-hidden="true">content_cut</span><span class="ico-label">Cut</span></button>
+                        <div class="rg-items">
                         <button onclick="pasteCells(false)" title="Paste (formulas move with the cells)" aria-label="Paste"><span class="material-symbols-outlined" aria-hidden="true">content_paste</span><span class="ico-label">Paste</span></button>
+                        <button onclick="copyCells(true)" title="Cut the selected cells" aria-label="Cut"><span class="material-symbols-outlined" aria-hidden="true">content_cut</span><span class="ico-label">Cut</span></button>
+                        <button onclick="copyCells(false)" title="Copy the selected cells" aria-label="Copy"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span><span class="ico-label">Copy</span></button>
                         <button onclick="pasteCells(true)" title="Paste only the values" aria-label="Paste values"><span class="mi-stack"><span class="material-symbols-outlined" aria-hidden="true">content_paste</span><span class="material-symbols-outlined mi-badge" aria-hidden="true">123</span></span><span class="ico-label">Paste values</span></button>
-                        <button onclick="fillCells('down')" title="Fill down" aria-label="Fill down">Fill<span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_downward</span><span class="ico-alt"> &darr;</span></button>
-                        <button onclick="fillCells('right')" title="Fill right" aria-label="Fill right">Fill<span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_forward</span><span class="ico-alt"> &rarr;</span></button>
-                        <button onclick="seriesFill()" title="Continue a pattern: 1, 2, 3 / Mon, Tue / Item 1, Item 2 / one of your lists">Series</button>
+                        </div>
+                        <span class="rg-name">Clipboard</span>
                     </div>
                     <div class="ribbon-group">
-                        <button onclick="formatCell('bold')" title="Bold"><b>B</b></button>
-                        <button onclick="formatCell('italic')" title="Italic"><i>I</i></button>
-                        <button onclick="formatCell('underline')" title="Underline"><u>U</u></button>
-                    </div>
-                    <div class="ribbon-group">
+                        <div class="rg-items">
                         <select id="font-family-selector" onchange="formatCell('fontFamily', this.value)" title="Font Family">
                             <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">System Default</option>
                             <option value="'Inter', sans-serif">Inter</option>
@@ -3524,29 +3526,9 @@
                         <select id="font-size-selector" onchange="formatCell('fontSize', Number(this.value))" title="Font size" aria-label="Font size">
                             ${FONT_SIZES.map(n => `<option value="${n}"${n === DEFAULT_FONT_PT ? ' selected' : ''}>${n}</option>`).join('')}
                         </select>
-                    </div>
-                    <div class="ribbon-group">
-                        <span class="split-color">
-                            <button class="sc-main" onclick="applyLastColor('color')" title="Apply the text color shown in the bar" aria-label="Text color"><span class="material-symbols-outlined" aria-hidden="true">format_color_text</span><span class="ico-label">A</span><i class="sc-bar" id="text-color-bar"></i></button><button class="sc-arrow" onclick="pickColor('color')" title="Choose another text color" aria-label="Choose a text color"><span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">&#9662;</span></button>
-                            <input type="color" id="text-color-picker" class="sc-input" onchange="colorPicked('color', this.value)" tabindex="-1" aria-hidden="true">
-                        </span>
-                        <span class="split-color">
-                            <button class="sc-main" onclick="applyLastColor('bgColor')" title="Apply the fill color shown in the bar" aria-label="Fill color"><span class="material-symbols-outlined" aria-hidden="true">format_color_fill</span><span class="ico-label">Fill</span><i class="sc-bar" id="fill-color-bar"></i></button><button class="sc-arrow" onclick="pickColor('bgColor')" title="Choose another fill color" aria-label="Choose a fill color"><span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">&#9662;</span></button>
-                            <input type="color" id="bg-color-picker" class="sc-input" onchange="colorPicked('bgColor', this.value)" tabindex="-1" aria-hidden="true">
-                        </span>
-                    </div>
-                    <div class="ribbon-group">
-                        <button onclick="formatCell('align', 'left')" title="Align left" aria-label="Align left"><span class="material-symbols-outlined" aria-hidden="true">format_align_left</span><span class="ico-label">L</span></button>
-                        <button onclick="formatCell('align', 'center')" title="Align center" aria-label="Align center"><span class="material-symbols-outlined" aria-hidden="true">format_align_center</span><span class="ico-label">C</span></button>
-                        <button onclick="formatCell('align', 'right')" title="Align right" aria-label="Align right"><span class="material-symbols-outlined" aria-hidden="true">format_align_right</span><span class="ico-label">R</span></button>
-                    </div>
-                    <div class="ribbon-group">
-                        <button onclick="mergeCells()" title="Merge Cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">cell_merge</span>Merge</button>
-                        <button onclick="unmergeCells()" title="Unmerge Cells">Unmerge</button>
-                    </div>
-                    <div class="ribbon-group">
-                        <button id="wrap-btn" onclick="toggleWrap()" title="Wrap text inside the cell (make the row taller with Size... to see more lines)"><span class="material-symbols-outlined mi-lead" aria-hidden="true">wrap_text</span>Wrap</button>
-                        <button id="checkbox-btn" onclick="toggleCheckboxStyle()" title="Turn the selected cells into tick boxes (or back)"><span class="material-symbols-outlined mi-lead" aria-hidden="true">check_box</span>Checkbox</button>
+                        <button onclick="formatCell('bold')" title="Bold"><b>B</b></button>
+                        <button onclick="formatCell('italic')" title="Italic"><i>I</i></button>
+                        <button onclick="formatCell('underline')" title="Underline"><u>U</u></button>
                         <select id="border-menu" onchange="applyBorders(this.value); this.value = ''" title="Cell borders">
                             <option value="">Borders</option>
                             <option value="all">All borders</option>
@@ -3557,9 +3539,30 @@
                             <option value="right">Right</option>
                             <option value="none">No borders</option>
                         </select>
-                        <button onclick="openSizeModal()" title="Column width and row height of the selected cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">straighten</span>Size...</button>
+                        <span class="split-color">
+                            <button class="sc-main" onclick="applyLastColor('bgColor')" title="Apply the fill color shown in the bar" aria-label="Fill color"><span class="material-symbols-outlined" aria-hidden="true">format_color_fill</span><span class="ico-label">Fill</span><i class="sc-bar" id="fill-color-bar"></i></button><button class="sc-arrow" onclick="pickColor('bgColor')" title="Choose another fill color" aria-label="Choose a fill color"><span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">&#9662;</span></button>
+                            <input type="color" id="bg-color-picker" class="sc-input" onchange="colorPicked('bgColor', this.value)" tabindex="-1" aria-hidden="true">
+                        </span>
+                        <span class="split-color">
+                            <button class="sc-main" onclick="applyLastColor('color')" title="Apply the text color shown in the bar" aria-label="Text color"><span class="material-symbols-outlined" aria-hidden="true">format_color_text</span><span class="ico-label">A</span><i class="sc-bar" id="text-color-bar"></i></button><button class="sc-arrow" onclick="pickColor('color')" title="Choose another text color" aria-label="Choose a text color"><span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">&#9662;</span></button>
+                            <input type="color" id="text-color-picker" class="sc-input" onchange="colorPicked('color', this.value)" tabindex="-1" aria-hidden="true">
+                        </span>
+                        </div>
+                        <span class="rg-name">Font</span>
                     </div>
                     <div class="ribbon-group">
+                        <div class="rg-items">
+                        <button onclick="formatCell('align', 'left')" title="Align left" aria-label="Align left"><span class="material-symbols-outlined" aria-hidden="true">format_align_left</span><span class="ico-label">L</span></button>
+                        <button onclick="formatCell('align', 'center')" title="Align center" aria-label="Align center"><span class="material-symbols-outlined" aria-hidden="true">format_align_center</span><span class="ico-label">C</span></button>
+                        <button onclick="formatCell('align', 'right')" title="Align right" aria-label="Align right"><span class="material-symbols-outlined" aria-hidden="true">format_align_right</span><span class="ico-label">R</span></button>
+                        <button id="wrap-btn" onclick="toggleWrap()" title="Wrap text inside the cell (make the row taller with Size... to see more lines)"><span class="material-symbols-outlined mi-lead" aria-hidden="true">wrap_text</span>Wrap</button>
+                        <button onclick="mergeCells()" title="Merge Cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">cell_merge</span>Merge</button>
+                        <button onclick="unmergeCells()" title="Unmerge Cells">Unmerge</button>
+                        </div>
+                        <span class="rg-name">Alignment</span>
+                    </div>
+                    <div class="ribbon-group">
+                        <div class="rg-items">
                         <select id="number-format" onchange="formatCell('numFormat', this.value)">
                             <option value="general">General</option>
                             <option value="currency">Currency ($)</option>
@@ -3572,52 +3575,131 @@
                         </select>
                         <button onclick="changeDecimals(1)" title="More decimal places">+.0</button>
                         <button onclick="changeDecimals(-1)" title="Fewer decimal places">−.0</button>
+                        </div>
+                        <span class="rg-name">Number</span>
                     </div>
                     <div class="ribbon-group">
+                        <div class="rg-items">
                         <button onclick="triggerAutoSum()" title="AutoSum"><span class="material-symbols-outlined mi-lead" aria-hidden="true">functions</span>AutoSum</button>
+                        <button onclick="fillCells('down')" title="Fill down" aria-label="Fill down">Fill<span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_downward</span><span class="ico-alt"> &darr;</span></button>
+                        <button onclick="fillCells('right')" title="Fill right" aria-label="Fill right">Fill<span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_forward</span><span class="ico-alt"> &rarr;</span></button>
+                        <button onclick="seriesFill()" title="Continue a pattern: 1, 2, 3 / Mon, Tue / Item 1, Item 2 / one of your lists">Series</button>
+                        <button onclick="clearSelectedCells()" title="Empty the selected cells (formatting stays). The Delete key does the same" aria-label="Clear cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">delete</span>Clear</button>
+                        <button id="clipclear-btn" onclick="clipClear()" ${clip ? '' : 'disabled'} title="Remove the Copy / Cut outline" aria-label="Clear copy"><span class="material-symbols-outlined mi-lead" aria-hidden="true">close</span>Clear copy</button>
+                        </div>
+                        <span class="rg-name">Editing</span>
+                    </div>
+                    <div class="ribbon-group">
+                        <div class="rg-items">
+                        <button onclick="openCondFormatting()">Cond. Formatting</button>
+                        </div>
+                        <span class="rg-name">Styles</span>
+                    </div>
+                    <div class="ribbon-group">
+                        <div class="rg-items">
+                        <button onclick="openSizeModal()" title="Column width and row height of the selected cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">straighten</span>Size...</button>
+                        <button id="checkbox-btn" onclick="toggleCheckboxStyle()" title="Turn the selected cells into tick boxes (or back)"><span class="material-symbols-outlined mi-lead" aria-hidden="true">check_box</span>Checkbox</button>
+                        <button onclick="openSheetModal()">Rename / Delete Sheet</button>
+                        </div>
+                        <span class="rg-name">Cells</span>
                     </div>
                 `;
                 syncNumberFormatSelect();
                 syncFontSizeSelect();
                 syncColorBars();
+            } else if (tab === 'insert') {
+                area.innerHTML = `
+                    <div class="ribbon-group">
+                        <div class="rg-items">
+                        <button class="primary" onclick="createOfficialTable()">Table (Ctrl+T)</button>
+                        </div>
+                        <span class="rg-name">Tables</span>
+                    </div>
+                    <div class="ribbon-group">
+                        <div class="rg-items">
+                        <button onclick="newChartFromSelection()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add_chart</span>New Chart</button>
+                        <button onclick="openChartsList()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">bar_chart</span>Charts</button>
+                        </div>
+                        <span class="rg-name">Charts</span>
+                    </div>
+                `;
+            } else if (tab === 'formulas') {
+                area.innerHTML = `
+                    <div class="ribbon-group">
+                        <div class="rg-items">
+                        <button class="primary" onclick="openWizard()" aria-label="fx Wizard"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span><span class="ico-alt">fx </span>Wizard</button>
+                        <button onclick="triggerAutoSum()" title="AutoSum"><span class="material-symbols-outlined mi-lead" aria-hidden="true">functions</span>AutoSum</button>
+                        </div>
+                        <span class="rg-name">Function</span>
+                    </div>
+                    <div class="ribbon-group">
+                        <div class="rg-items">
+                        <button onclick="openNamesModal()">Names</button>
+                        </div>
+                        <span class="rg-name">Names</span>
+                    </div>
+                    <div class="ribbon-group">
+                        <div class="rg-items">
+                        <button onclick="rerollRandoms()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">autorenew</span>Re&#8209;roll</button>
+                        </div>
+                        <span class="rg-name">Calculation</span>
+                    </div>
+                `;
             } else if (tab === 'data') {
                 area.innerHTML = `
                     <div class="ribbon-group">
-                        <button class="primary" onclick="createOfficialTable()">Table (Ctrl+T)</button>
+                        <div class="rg-items">
+                        <button onclick="openSortModal()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">sort</span>Sort...</button>
+                        </div>
+                        <span class="rg-name">Sort</span>
+                    </div>
+                    <div class="ribbon-group">
+                        <div class="rg-items">
                         <button onclick="openDataValidation()">Validation</button>
                         <button onclick="openTextToColumns()">Text to Columns</button>
                         <button onclick="runFlashFill()">Flash Fill</button>
-                        <button onclick="rerollRandoms()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">autorenew</span>Re&#8209;roll</button>
-                        <button onclick="openDicePanel()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">casino</span>Dice</button>
+                        <button onclick="openDedupModal()">Remove Duplicates</button>
+                        </div>
+                        <span class="rg-name">Data Tools</span>
                     </div>
                     <div class="ribbon-group">
+                        <div class="rg-items">
                         <button onclick="openQuickAnalysis()" title="Totals, rules, sort and duplicates for the selected cells">&#9889; Analyze</button>
                         <button onclick="openFindPanel()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">find_replace</span>Find &amp; Replace</button>
-                        <button onclick="openSortModal()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">sort</span>Sort...</button>
-                        <button onclick="openDedupModal()">Remove Duplicates</button>
+                        </div>
+                        <span class="rg-name">Analyze</span>
                     </div>
                     <div class="ribbon-group">
-                        <button onclick="exportCSV()">Export CSV</button>
+                        <div class="rg-items">
+                        <button onclick="openDicePanel()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">casino</span>Dice</button>
+                        </div>
+                        <span class="rg-name">Extras</span>
+                    </div>
+                    <div class="ribbon-group">
+                        <div class="rg-items">
                         <button onclick="document.getElementById('csv-file-input').click()">Import CSV</button>
-                        <button onclick="clearSheet()">Clear Sheet</button>
+                        <button onclick="exportCSV()">Export CSV</button>
+                        <button onclick="document.getElementById('workbook-file-input').click()">Import Workbook</button>
+                        <button onclick="exportWorkbook()">Export Workbook</button>
+                        </div>
+                        <span class="rg-name">Import / Export</span>
                     </div>
                     <div class="ribbon-group">
+                        <div class="rg-items">
                         <button onclick="newWorkbook()">New Workbook</button>
-                        <button onclick="exportWorkbook()">Export Workbook</button>
-                        <button onclick="document.getElementById('workbook-file-input').click()">Import Workbook</button>
+                        <button onclick="clearSheet()">Clear Sheet</button>
+                        </div>
+                        <span class="rg-name">Workbook</span>
                     </div>
                 `;
             } else if (tab === 'view') {
                 area.innerHTML = `
                     <div class="ribbon-group">
+                        <div class="rg-items">
                         <button onclick="openFreezeModal()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">ac_unit</span>Freeze Panes...</button>
                         <button id="unfreeze-btn" onclick="unfreezePanes()" ${freezeRows || freezeCols ? '' : 'disabled'}>Unfreeze</button>
-                        <button onclick="openCondFormatting()">Cond. Formatting</button>
-                        <button onclick="newChartFromSelection()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">add_chart</span>New Chart</button>
-                        <button onclick="openChartsList()"><span class="material-symbols-outlined mi-lead" aria-hidden="true">bar_chart</span>Charts</button>
-                        <button onclick="openNamesModal()">Names</button>
-                        <button onclick="openSheetModal()">Rename / Delete Sheet</button>
-                        <button class="primary" onclick="openWizard()" aria-label="fx Wizard"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span><span class="ico-alt">fx </span>Wizard</button>
+                        </div>
+                        <span class="rg-name">Window</span>
                     </div>
                 `;
             }
@@ -5274,7 +5356,7 @@
         // The reference node a name stands for (cells on a sheet), or #NAME? / #REF! when there is none
         function resolveName(n) {
             const def = findName(n.name);
-            if (!def) throw new FormulaError('#NAME?', `There is no name \`${n.name}\``, `\`"${n.name}"\` if it is text; names are made in View / Insert, Names`);
+            if (!def) throw new FormulaError('#NAME?', `There is no name \`${n.name}\``, `\`"${n.name}"\` if it is text; names are made on the Formulas tab, Names`);
             if (/^#REF!/.test(def.ref)) throw new FormulaError('#REF!', `The name \`${def.name}\` pointed at a sheet that was deleted`);
             return parseFormula(def.ref);
         }
@@ -7126,7 +7208,7 @@
             <p><b>Select and edit.</b> Tap a cell to select it. Tap the selected cell again to edit it; the keyboard only opens then. Tap another cell (or press Enter) to accept what you typed. The sheet calculates when you accept, not on every key. A phone has no Escape key, so to take a change back use <b>Undo</b> (Home tab) or Time Travel.</p>
             <p><b>Pick several cells.</b> Press and hold a cell for a moment, then drag. Tap a column letter or a row number to select the whole column or row. A plain drag just scrolls. Tap a checkbox cell once to select it, again to tick it.</p>
             <p><b>The formula bar</b> (under the title) shows what the selected cell holds. You can type there and press Enter. You can also type a shorthand such as <i>average sales in b2 to b50</i>.</p>
-            <p><b>Ribbon Menu</b> (top bar) opens three tabs: <b>Home</b> (copy and paste, formatting), <b>Data</b> (tables, lists and rules, sort, find, files) and <b>View / Insert</b> (freeze panes, rules, charts, names, the Wizard).</p>
+            <p><b>Ribbon Menu</b> (top bar) opens five tabs, laid out as in Excel: <b>Home</b> (undo, clipboard, font, alignment, number, editing, rules, sheet tools), <b>Insert</b> (tables and charts), <b>Formulas</b> (the Wizard, AutoSum, names, Re-roll), <b>Data</b> (sort, lists and rules, find, Dice, files) and <b>View</b> (freeze panes).</p>
             <p><b>The actions bar</b> floats above the bottom of the grid. It offers SUM, AVERAGE and fx Wizard for the selected cell; <b>⚡ Analyze</b> for two or more cells; Pick buttons on drop-down cells; and <b>Clear</b>, which empties the selected cells (the message has Undo; the Delete key does the same). After a Copy or Cut, Clear (with an ✕) only removes the outline. Don't want the bar? Turn off <b>Show the cell actions bar</b> in Settings.</p>
             <p><b>The strip at the very bottom.</b> With one cell selected it shows what that cell carries, as buttons you can tap to edit: a drop-down list, format rules, a table, a name, a merge, a spill, charts. A plain cell shows its type, like Number · Currency. With two or more cells it shows Cells, Sum, Avg, Min and Max.</p>`;
         GUIDE_TEXT.sheets = `
@@ -7137,18 +7219,18 @@
             <p><b>Formatting (Home tab).</b> Bold, italic and underline; the font (the Noto Sans Symbols fonts are there for symbols); text and fill colors; align left, center or right; <b>Merge</b> and Unmerge; <b>Wrap</b> (make the row taller with <b>Size…</b> to see more lines); <b>Checkbox</b>; a <b>Borders</b> menu; and <b>Size…</b> for column width and row height.</p>
             <p><b>Number formats.</b> The menu has General, Currency, Percentage, Decimal, two date styles, Date &amp; Time and Text; <b>+.0</b> and <b>−.0</b> add or remove decimals. A format changes only how a number is shown, never its value. Typing 12% makes 0.12 shown as a percentage.</p>
             <p><b>Copy, cut, paste.</b> Copy or Cut outlines the cells with dashes. <b>Paste</b> pastes them (formulas move with the cells); <b>Paste values</b> (the Paste icon with 123) pastes only the numbers and text. <b>Fill ↓</b> and <b>Fill →</b> copy the top or left cell across a selection, and <b>Series</b> carries on a pattern such as 1, 2, 3 or Mon, Tue or Item 1, Item 2 or one of your lists. No Escape key? The Clear button (actions bar, or Clear copy on the Home tab) removes the outline.</p>
-            <p><b>Freeze Panes</b> (View / Insert) keeps rows and columns in place while you scroll; <b>Unfreeze</b> undoes it. <b>Theme</b> (Settings) can match your phone, or be Light or Dark.</p>`;
+            <p><b>Freeze Panes</b> (View tab) keeps rows and columns in place while you scroll; <b>Unfreeze</b> undoes it. <b>Theme</b> (Settings) can match your phone, or be Light or Dark.</p>`;
         GUIDE_TEXT.data = `
-            <p><b>Tables.</b> Select your data and tap <b>Table</b> (Data tab). Tap a column letter inside the table to sort and filter it. The table grows by itself as you add rows, and formulas can use its names, like <code>Sales[Amount]</code>. Rows a filter hides are skipped by the V functions (SUMV, AVERAGEV and the others).</p>
-            <p><b>Drop-down lists and rules.</b> <b>Validation</b> (Data tab) limits what a cell accepts: a list (typed, one of your My Lists from Settings, or a range on a sheet), a date, a whole number or a number, with optional limits. A cell with a list shows a <b>▼</b> at its right edge when it is selected; tap it to pick. <b>Cond. Formatting</b> (View / Insert) colors cells by rules (greater than, top 10, color scales, your own formula) and keeps up as the numbers change.</p>
+            <p><b>Tables.</b> Select your data and tap <b>Table</b> (Insert tab). Tap a column letter inside the table to sort and filter it. The table grows by itself as you add rows, and formulas can use its names, like <code>Sales[Amount]</code>. Rows a filter hides are skipped by the V functions (SUMV, AVERAGEV and the others).</p>
+            <p><b>Drop-down lists and rules.</b> <b>Validation</b> (Data tab) limits what a cell accepts: a list (typed, one of your My Lists from Settings, or a range on a sheet), a date, a whole number or a number, with optional limits. A cell with a list shows a <b>▼</b> at its right edge when it is selected; tap it to pick. <b>Cond. Formatting</b> (Home tab) colors cells by rules (greater than, top 10, color scales, your own formula) and keeps up as the numbers change.</p>
             <p><b>Tidy up.</b> <b>Sort…</b>, <b>Remove Duplicates</b>, <b>Find &amp; Replace</b> (this sheet or all of them), <b>Text to Columns</b> and <b>Flash Fill</b> (type one or two examples next to your data, tap Flash Fill, and it fills the rest).</p>
             <p><b>⚡ Analyze.</b> Select two or more cells and tap ⚡ Analyze for one-tap Totals (Sum, Avg, Cnt, Min and Max in the row under your data), Format (top 10, above average, duplicates and more), Charts, and Tidy (sort, remove duplicates). Each is one Time Travel step, with an Undo button.</p>
-            <p><b>Charts and names.</b> <b>New Chart</b> (View / Insert) makes a column, bar, line or pie chart from the selected cells; tap a pie slice to pop it out. <b>Charts</b> lists them. <b>Names</b> gives a range a name you can use in formulas.</p>
-            <p><b>Dice.</b> <b>Dice</b> (Data tab) rolls dice written the usual way, like 3d6+1d10+2d12kl1+3 (kh and kl keep the highest or lowest, dh and dl drop them), or six ability scores (4d6, drop the lowest). Put the value, or a ROLL formula, in a cell. <b>Re-roll</b> gives the RND, RNDBETWEEN and ROLL cells new numbers.</p>`;
+            <p><b>Charts and names.</b> <b>New Chart</b> (Insert tab) makes a column, bar, line or pie chart from the selected cells; tap a pie slice to pop it out. <b>Charts</b> lists them. <b>Names</b> (Formulas tab) gives a range a name you can use in formulas.</p>
+            <p><b>Dice.</b> <b>Dice</b> (Data tab) rolls dice written the usual way, like 3d6+1d10+2d12kl1+3 (kh and kl keep the highest or lowest, dh and dl drop them), or six ability scores (4d6, drop the lowest). Put the value, or a ROLL formula, in a cell. <b>Re-roll</b> (Formulas tab) gives the RND, RNDBETWEEN and ROLL cells new numbers.</p>`;
         GUIDE_TEXT.formulas = `
             <p><b>Start with =.</b> Capitals are fixed for you (=sum becomes =SUM, a3 becomes A3). Type just a function's name, like <code>=SUMIF</code>, and press Enter: the app fills in the arguments from the cells around it and tells you what it guessed.</p>
             <p><b>While you edit a formula</b> a hint line under the formula bar shows the function you are in, with the current argument in bold. When the caret is on a cell reference, those cells are outlined on the grid.</p>
-            <p><b>fx Wizard</b> (the actions bar, or View / Insert) walks you through any function: search or pick a category, fill in the boxes, watch the live result, then Insert. Tap the star on a function to keep it as a favorite. If you open it while the caret is inside a formula, it opens on that function with its arguments filled in, and Update Formula changes only that part.</p>
+            <p><b>fx Wizard</b> (the actions bar, or the Formulas tab) walks you through any function: search or pick a category, fill in the boxes, watch the live result, then Insert. Tap the star on a function to keep it as a favorite. If you open it while the caret is inside a formula, it opens on that function with its arguments filled in, and Update Formula changes only that part.</p>
             <p><b>Other sheets.</b> Write <code>=Lists!B1</code> or <code>='My Sheet'!A1:B3</code> (quotes when the name has spaces). Renaming a sheet updates the formulas that use it; deleting one turns them into #REF!.</p>
             <p><b>Spills.</b> Functions like FILTER, SORT and UNIQUE give several cells. The result spreads into the cells below or beside, and shows #SPILL! if something is in the way.</p>
             <p><b>Good to know.</b> RAND and RANDBETWEEN change on every edit; RND, RNDBETWEEN and ROLL keep their numbers until you tap Re-roll. Other cells update when you accept an entry (Enter or tap away), not while you type. <b>Error in a cell?</b> Select it: the bar at the bottom says why, and anything in blue is a formula you can copy.</p>`;
@@ -7165,7 +7247,7 @@
             MAXV: ['=MAXV(C2:C20)', 'Like MAX, but only the visible rows. The V is for Visible.'],
             MINV: ['=MINV(C2:C20)', 'Like MIN, but only the visible rows. The V is for Visible.'],
             PRODUCTV: ['=PRODUCTV(C2:C20)', 'Like PRODUCT, but only the visible rows. The V is for Visible.'],
-            RND: ['=RND()', 'A random number from 0 up to 1 that stays put until you tap Re-roll (Data tab).'],
+            RND: ['=RND()', 'A random number from 0 up to 1 that stays put until you tap Re-roll (Formulas tab).'],
             RNDBETWEEN: ['=RNDBETWEEN(1,6)', 'A whole number from 1 to 6, like a die. It stays put until you tap Re-roll. A third number gives decimals: =RNDBETWEEN(1,6,2).'],
             ROLL: ['=ROLL("3d6+2")', 'Rolls dice written the usual way. kh / kl keep the highest / lowest, dh / dl drop them: =ROLL("4d6dl1") rolls four dice and drops the lowest. It stays put until you tap Re-roll. Up to 100 dice in one term, 500 in all.'],
             SENTENCE: ['=SENTENCE("the LOST mines")', 'Gives The lost mines: the first letter a capital, the rest lowercase.']
@@ -8244,9 +8326,9 @@
             wizAgg('PRODUCT', 'Multiplies the numbers together.', 'multiply times'),
             { name: 'RAND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1. A new number every time the sheet recalculates.', kw: 'random dice chance', args: [] },
             { name: 'RANDBETWEEN', cat: 'Math & Aggregation', desc: 'A random whole number between two numbers, both included. A new number every time the sheet recalculates.', kw: 'random dice roll', args: [wa('bottom', 'The lowest number it can give', '1', { t: 'num' }), wa('top', 'The highest number it can give', '6', { t: 'num' })] },
-            { name: 'RND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1 that keeps its value until you tap Re-roll (Data tab). QSheet only.', kw: 'random dice held keep', args: [] },
-            { name: 'ROLL', cat: 'Math & Aggregation', desc: 'Rolls dice written the usual way, like 3d6+2 or 3d6+1d10+2d12kl1+3, and gives the total. Keep highest / lowest with kh / kl, drop with dh / dl (4d6dl1 drops the lowest). Also + - * / and ( ). It keeps its result until you tap Re-roll (Data tab). Up to 100 dice in one term and 500 in all; a die has 2 to 1000 sides. QSheet only.', kw: 'dice roll d20 d6 advantage keep drop random held ability', args: [wa('dice', 'The dice to roll, in quotes', '"3d6+2"', { t: 'val' })] },
-            { name: 'RNDBETWEEN', cat: 'Math & Aggregation', desc: 'A random number between two numbers, both included, that keeps its value until you tap Re-roll (Data tab). Give decimals for numbers like 3.47. QSheet only.', kw: 'random dice roll held keep', args: [wa('low', 'The lowest number it can give', '1', { t: 'num' }), wa('high', 'The highest number it can give', '6', { t: 'num' }), wa('decimals', 'Decimal places. 0 or blank gives whole numbers', '0', { t: 'num', opt: true })] },
+            { name: 'RND', cat: 'Math & Aggregation', desc: 'A random number from 0 up to (not including) 1 that keeps its value until you tap Re-roll (Formulas tab). QSheet only.', kw: 'random dice held keep', args: [] },
+            { name: 'ROLL', cat: 'Math & Aggregation', desc: 'Rolls dice written the usual way, like 3d6+2 or 3d6+1d10+2d12kl1+3, and gives the total. Keep highest / lowest with kh / kl, drop with dh / dl (4d6dl1 drops the lowest). Also + - * / and ( ). It keeps its result until you tap Re-roll (Formulas tab). Up to 100 dice in one term and 500 in all; a die has 2 to 1000 sides. QSheet only.', kw: 'dice roll d20 d6 advantage keep drop random held ability', args: [wa('dice', 'The dice to roll, in quotes', '"3d6+2"', { t: 'val' })] },
+            { name: 'RNDBETWEEN', cat: 'Math & Aggregation', desc: 'A random number between two numbers, both included, that keeps its value until you tap Re-roll (Formulas tab). Give decimals for numbers like 3.47. QSheet only.', kw: 'random dice roll held keep', args: [wa('low', 'The lowest number it can give', '1', { t: 'num' }), wa('high', 'The highest number it can give', '6', { t: 'num' }), wa('decimals', 'Decimal places. 0 or blank gives whole numbers', '0', { t: 'num', opt: true })] },
             { name: 'INT', cat: 'Math & Aggregation', desc: 'Rounds down to the nearest whole number. For negative numbers that means away from zero: INT(-2.5) is -3.', kw: 'whole number round down floor integer', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
             { name: 'SQRT', cat: 'Math & Aggregation', desc: 'The square root of a number.', kw: 'root square', args: [wa('number', 'The number (0 or more)', 'A2', { t: 'num' })] },
             { name: 'POWER', cat: 'Math & Aggregation', desc: 'Raises a number to a power: POWER(2, 3) is 8.', kw: 'exponent squared cubed raise', args: [wa('number', 'The base number', '2', { t: 'num' }), wa('power', 'The power to raise it to', '3', { t: 'num' })] },
