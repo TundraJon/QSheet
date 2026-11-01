@@ -26,7 +26,7 @@
     <!-- Icon fonts for interface buttons (not offered as cell fonts). display=block keeps the icon hidden until the font has loaded, so a button never shows the plain word.
          Material Symbols is cut down to the icons the buttons use (a few KB instead of 320 KB): when a button gets a new icon, add its name to icon_names (keep them in alphabetical order).
          Use <span class="material-symbols-outlined">settings</span>. Material Icons is loaded but not used yet. -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,delete,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,format_color_text,function,functions,label,menu_book,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_more,wrap_text&display=block" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,delete,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,format_color_text,format_paint,function,functions,label,menu_book,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_more,wrap_text&display=block" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Icons&display=block" rel="stylesheet">
     <script>
         // If the icon font cannot load (for example offline the very first time), buttons show their words instead of icons
@@ -893,6 +893,17 @@
         /* With the keyboard open the cell-actions bar sits right above it and the toast just above that bar */
         body.kb-open .cell-dock { bottom: calc(var(--kb, 0px) + 10px); }
         body.kb-open .toast { bottom: calc(var(--kb, 0px) + 64px); }
+        /* With the keyboard open the grid keeps room under the cell being typed in (the keyboard, and the formula key row above it) */
+        body.kb-open .grid-container { padding-bottom: calc(var(--kb, 0px) + var(--keyrow, 0px) + 12px); scroll-padding-bottom: calc(var(--kb, 0px) + var(--keyrow, 0px) + 12px); }
+        body.keyrow-on .cell-dock { bottom: calc(var(--kb, 0px) + 62px); }
+        body.keyrow-on .toast { bottom: calc(var(--kb, 0px) + 116px); }
+        /* The formula key row: = + - * / ( ) , : $ " & % < > and fx, right above the keyboard */
+        .key-row { position: fixed; left: 0; right: 0; bottom: var(--kb, 0px); z-index: 70; display: flex; gap: 6px; align-items: center; overflow-x: auto; padding: 6px 8px; background: var(--surface-2); border-top: 1px solid var(--border-color); scrollbar-width: none; }
+        .key-row::-webkit-scrollbar { display: none; }
+        .key-row.hidden { display: none; }
+        .key-row .kr-key { flex: none; min-width: 40px; min-height: 40px; padding: 0 10px; font-size: 1.05rem; font-family: 'Roboto Mono', ui-monospace, monospace; font-weight: 600; }
+        .key-row .kr-mode { min-width: 52px; font-family: inherit; font-size: 0.85rem; background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-color); }
+        .key-row .kr-fx { font-family: inherit; font-style: italic; }
 
         /* Status Bar */
         .status-bar {
@@ -1179,6 +1190,21 @@
         #font-size-selector { width: 3.6rem; }
         /* Text color and Fill color: a button that applies the last color used, and an arrow that picks another */
         .split-color { position: relative; display: inline-flex; }
+        /* The edge of a column letter / row number you can drag to resize (about 18 px wide, kept inside the header so nothing is clipped) */
+        .edge-grip { position: absolute; z-index: 3; touch-action: none; background: transparent; }
+        .col-grip { top: 0; right: 0; bottom: 0; width: 18px; cursor: col-resize; }
+        .row-grip { left: 0; right: 0; bottom: 0; height: 16px; cursor: row-resize; }
+        .resize-tip { position: fixed; z-index: 500; padding: 4px 10px; border-radius: 12px; background: var(--inverse-bg); color: var(--inverse-text); font-size: 0.8rem; font-weight: 600; pointer-events: none; }
+        .resize-tip.hidden { display: none; }
+        /* The fill handle sits on the corner of the selection; its touch area is 44 px, the square you see is 12 px */
+        .fill-handle { position: absolute; z-index: 6; width: 44px; height: 44px; margin: -22px 0 0 -22px; touch-action: none; cursor: crosshair; display: flex; align-items: center; justify-content: center; }
+        .fill-handle.hidden { display: none; }
+        .fill-handle i { display: block; width: 12px; height: 12px; background: var(--selection-border); border: 2px solid var(--surface); border-radius: 2px; box-sizing: content-box; }
+        .fill-handle.dragging { pointer-events: none; }
+        .fill-preview { position: absolute; z-index: 5; pointer-events: none; border: 2px dashed var(--selection-border); box-sizing: border-box; }
+        .fill-preview.hidden { display: none; }
+        #painter-btn.on { background: var(--accent-soft); border-color: var(--accent-color); color: var(--accent-text); }
+        body.painting .grid-container { cursor: copy; }
         .split-color .sc-main { flex-direction: column; justify-content: center; gap: 1px; border-top-right-radius: 0; border-bottom-right-radius: 0; padding: 2px 8px 3px; }
         .split-color .sc-arrow { min-width: 30px; padding: 0 2px; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
         .sc-bar { display: block; width: 20px; height: 4px; border-radius: 2px; outline: 1px solid var(--border-color); }
@@ -1349,6 +1375,7 @@
     <input type="file" id="workbook-file-input" style="display: none;" accept=".json,application/json" onchange="importWorkbook(event)">
 
     <!-- Cell Bottom Action Dock (Quick fx & validation pickers) -->
+    <div class="key-row hidden" id="key-row" role="toolbar" aria-label="Formula keys"></div>
     <div class="cell-dock hidden" id="cell-dock">
         <span id="cell-dock-title" style="font-size: 0.75rem; font-weight: 600; color: var(--inverse-muted); white-space: nowrap;">ACTIONS:</span>
         <div id="cell-dock-buttons" style="display: flex; gap: 6px; align-items: center;"></div>
@@ -2024,6 +2051,14 @@
                     <label for="setting-val-picker">Enable Data Validation Pickers on Cell Tap</label>
                     <input type="checkbox" id="setting-val-picker" checked style="width: 20px; height: 20px;" onchange="saveSettings()">
                 </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="setting-keyrow">Show the formula key row above the keyboard</label>
+                    <input type="checkbox" id="setting-keyrow" checked style="width: 20px; height: 20px;" onchange="saveSettings(); updateKeyRow()">
+                </div>
+                <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
+                    <label for="setting-numpad">Number keyboard for number cells</label>
+                    <input type="checkbox" id="setting-numpad" checked style="width: 20px; height: 20px;" onchange="saveSettings()">
+                </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between; gap: 10px;">
                     <label for="setting-theme">Theme</label>
                     <select id="setting-theme" onchange="onThemeChange()">
@@ -2106,6 +2141,7 @@
             const open = inset > 80; // a smaller change is just the browser's own bars
             document.documentElement.style.setProperty('--kb', (open ? inset : 0) + 'px');
             document.body.classList.toggle('kb-open', open);
+            if (typeof updateKeyRow === 'function') updateKeyRow();
         }
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', updateKeyboardInset);
@@ -2615,7 +2651,7 @@
         function currentSettings() {
             const on = id => { const el = document.getElementById(id); return el ? !!el.checked : true; };
             const th = document.getElementById('setting-theme');
-            return { version: 1, autosave: on('setting-autosave'), showBar: on('setting-show-bar'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto', textColor: lastColors.color, fillColor: lastColors.bgColor };
+            return { version: 1, autosave: on('setting-autosave'), showBar: on('setting-show-bar'), keyRow: on('setting-keyrow'), numPad: on('setting-numpad'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto', textColor: lastColors.color, fillColor: lastColors.bgColor };
         }
         // ----- Theme: Match my phone / Light / Dark. The colors themselves live in the color roles at the top of the style sheet. -----
         const phoneDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -2637,6 +2673,8 @@
             const set = (id, v) => { const el = document.getElementById(id); if (el && typeof v === 'boolean') el.checked = v; };
             set('setting-autosave', st.autosave);
             set('setting-show-bar', st.showBar);
+            set('setting-keyrow', st.keyRow);
+            set('setting-numpad', st.numPad);
             set('setting-quick-fx', st.quickFx);
             set('setting-val-picker', st.valPicker);
             set('setting-remember-tab', st.rememberTab);
@@ -3281,7 +3319,7 @@
             let headerRowHTML = '<tr><th class="corner-header"></th>';
             for (let c = 0; c < COLS; c++) {
                 let colLet = columnToLetter(c);
-                headerRowHTML += `<th id="col-th-${c}" onclick="handleHeaderTap(${c}, 'col')">${colLet}</th>`;
+                headerRowHTML += `<th id="col-th-${c}" onclick="handleHeaderTap(${c}, 'col')">${colLet}<i class="edge-grip col-grip" data-c="${c}"></i></th>`;
             }
             headerRowHTML += '</tr>';
             thead.innerHTML = headerRowHTML;
@@ -3289,7 +3327,7 @@
             let bodyHTML = '';
             for (let r = 0; r < ROWS; r++) {
                 bodyHTML += `<tr>`;
-                bodyHTML += `<th class="row-header" id="row-th-${r}" onclick="handleHeaderTap(${r}, 'row')">${r + 1}</th>`;
+                bodyHTML += `<th class="row-header" id="row-th-${r}" onclick="handleHeaderTap(${r}, 'row')">${r + 1}<i class="edge-grip row-grip" data-r="${r}"></i></th>`;
                 for (let c = 0; c < COLS; c++) {
                     const cellId = columnToLetter(c) + (r + 1);
                     bodyHTML += `<td id="cell-${cellId}" data-row="${r}" data-col="${c}">`;
@@ -3467,6 +3505,7 @@
                 setActiveCell(index, 0);
             }
             updateStats();
+            if (painter) applyPainter();
             // Tapping header opens Ribbon automatically (Zero-Chrome UX)
             if (!ribbonOpen) {
                 toggleRibbon();
@@ -3506,6 +3545,7 @@
                         <button onclick="copyCells(true)" title="Cut the selected cells" aria-label="Cut"><span class="material-symbols-outlined" aria-hidden="true">content_cut</span><span class="ico-label">Cut</span></button>
                         <button onclick="copyCells(false)" title="Copy the selected cells" aria-label="Copy"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span><span class="ico-label">Copy</span></button>
                         <button onclick="pasteCells(true)" title="Paste only the values" aria-label="Paste values"><span class="mi-stack"><span class="material-symbols-outlined" aria-hidden="true">content_paste</span><span class="material-symbols-outlined mi-badge" aria-hidden="true">123</span></span><span class="ico-label">Paste values</span></button>
+                        <button id="painter-btn" onclick="togglePainter()" title="Paint Format: copy the formatting of the selected cells onto others (tap twice to keep painting)" aria-label="Paint Format"><span class="material-symbols-outlined" aria-hidden="true">format_paint</span><span class="ico-label">Paint</span></button>
                         </div>
                         <span class="rg-name">Clipboard</span>
                     </div>
@@ -3799,6 +3839,12 @@
         // Cell inputs are read-only until a cell is being edited, so a tap never pops the keyboard by accident.
         function initGridInteractions() {
             const grid = document.getElementById('grid-container');
+            const fh = document.createElement('div');
+            fh.id = 'fill-handle'; fh.className = 'fill-handle hidden'; fh.setAttribute('aria-label', 'Fill handle: drag to fill'); fh.innerHTML = '<i></i>';
+            grid.appendChild(fh);
+            fh.addEventListener('pointerdown', fillHandleDown);
+            grid.addEventListener('pointerdown', gripDown, true);
+            grid.addEventListener('click', e => { if (Date.now() - gripSwallow < 500 && e.target.closest && e.target.closest('.edge-grip')) { e.stopPropagation(); e.preventDefault(); } }, true);
             grid.addEventListener('pointerdown', onGridPointerDown);
             grid.addEventListener('pointermove', onGridPointerMove);
             grid.addEventListener('pointerup', onGridPointerUp);
@@ -3812,6 +3858,9 @@
                 else startEdit(activeCell.row, activeCell.col);
             });
             document.addEventListener('keydown', handleGlobalKey);
+            const fbar = document.getElementById('formula-input');
+            fbar.addEventListener('focus', () => updateKeyRow());
+            fbar.addEventListener('blur', () => setTimeout(updateKeyRow, 0));
             grid.addEventListener('scroll', closeDropdown, { passive: true });
             document.addEventListener('pointerdown', e => {
                 if (ddCell && !(e.target.closest && e.target.closest('#dd-pop, .dd-arrow'))) closeDropdown();
@@ -3888,7 +3937,10 @@
                 finishRangeDrag();
             } else if (!s.moved) {
                 // A plain tap
-                if (s.wasActive) {
+                if (painter) {
+                    selectSingle(s.r, s.c);
+                    applyPainter();
+                } else if (s.wasActive) {
                     const hit = data[getCellId(s.r, s.c)];
                     if (hit && hit.style && hit.style.checkbox) toggleCheckbox(); // a second tap ticks a checkbox instead of editing it
                     else startEdit(s.r, s.c);
@@ -3913,6 +3965,7 @@
             lastDragPoint = null;
             updateStats();
             updateCellDock(getCellId(activeCell.row, activeCell.col)); // the Analyze button follows the selection
+            if (painter) applyPainter();
         }
 
         function extendSelectionTo(x, y) {
@@ -3961,6 +4014,7 @@
                 }
             }
             updateDropArrow();
+            positionFillHandle();
         }
 
         function moveActive(r, c) {
@@ -3973,7 +4027,7 @@
         }
 
         // ===== Cell Editing =====
-        function startEdit(r, c, replaceWith) {
+        function startEdit(r, c, replaceWith, opts) {
             const cellId = getCellId(r, c);
             const input = document.getElementById(`input-${cellId}`);
             if (!input) return;
@@ -3986,16 +4040,20 @@
             input.readOnly = false;
             input.classList.add('editing');
             input.value = replaceWith !== undefined ? replaceWith : cellEditText(cellId);
+            input.setAttribute('inputmode', chooseInputMode(r, c)); // the number pad for number cells (item 107)
             input.focus();
             const len = input.value.length;
-            try { input.setSelectionRange(len, len); } catch (err) {}
+            try { if (opts && opts.selectAll) input.setSelectionRange(0, len); else input.setSelectionRange(len, len); } catch (err) {}
+            if (opts && opts.scroll) keepEditCellInView(cellId);
+            updateKeyRow();
+            positionFillHandle();
             // Nothing is calculated while typing: the entry is accepted (and the sheet calculated, once) by endEdit
         }
 
         // Typing only notes that something was typed (no calculation): an entry that equals the old text is still accepted and read again,
         // which is how retyping 5 into a cell that was Text turns it into a number
         function markTyped() { if (editingCell) editingCell.typed = true; }
-        function endEdit(commit) {
+        function endEdit(commit, keepFocus) {
             if (!editingCell) return;
             const { row, col, original, typed } = editingCell;
             editingCell = null;
@@ -4005,7 +4063,7 @@
             if (input) {
                 input.readOnly = true;
                 input.classList.remove('editing');
-                input.blur();
+                if (!keepFocus) input.blur(); // (when the next cell is opened right away, its focus takes over and the keyboard stays up)
             }
             let accepted = false; // an accepted entry is calculated once, inside onCellInput
             if (commit) {
@@ -4027,22 +4085,132 @@
             }
             updateDropArrow();
             scheduleSpill();
+            updateKeyRow();
+            positionFillHandle();
         }
 
         function onCellBlur(r, c) {
+            if (kbdSwitching) return; // switching between the letter and number keyboards blurs and refocuses the box
             if (editingCell && editingCell.row === r && editingCell.col === c) endEdit(true);
+        }
+
+        // ===== Entering data with the keyboard open (Excel's way): Enter / Tab accept the entry and open the next cell right away =====
+        // The next real cell: leaves a merge, lands on the start of a merge, skips rows a filter hides; null at the edge of the sheet
+        function nextEditCell(r, c, dr, dc) {
+            const own = merges.find(x => x.r === r && x.c === c);
+            let nr = dr ? (own ? own.r + own.rows : r + 1) : r, nc = dc ? (own ? own.c + own.cols : c + 1) : c;
+            while (nr < ROWS && filteredRows.has(nr)) nr++;
+            if (nr >= ROWS || nc >= COLS) return null;
+            const m = merges.find(x => nr >= x.r && nr < x.r + x.rows && nc >= x.c && nc < x.c + x.cols);
+            if (m) { nr = m.r; nc = m.c; }
+            return { r: nr, c: nc };
+        }
+        // Accepts this cell's entry, then opens the next cell for typing in the same key press, with its content selected so typing replaces it.
+        // (A checkbox cell, the edge of the sheet: the entry is accepted and the next cell only selected, as before.)
+        function enterAndMove(r, c, dr, dc) {
+            const t = nextEditCell(r, c, dr, dc);
+            const next = t && data[getCellId(t.r, t.c)];
+            if (!t || (next && next.style && next.style.checkbox)) { endEdit(true); moveActive(r + dr, c + dc); return; }
+            const leaving = getCellId(r, c);
+            endEdit(true, true);
+            startEdit(t.r, t.c, undefined, { selectAll: true, scroll: true });
+            renderCellDisplay(leaving); // (the box still had the focus while the sheet was calculated, so it shows its result only now)
+        }
+        // ===== Which keyboard a cell gets (item 107) and the formula key row above it (item 106) =====
+        const settingOn = id => { const el = document.getElementById(id); return !el || el.checked; };
+        let kbdSwitching = false;
+        // The number pad for a cell that holds or expects a number, the letter keyboard for the rest
+        function chooseInputMode(r, c) {
+            if (!settingOn('setting-numpad')) return 'text';
+            const id = getCellId(r, c), cell = data[id], st = (cell && cell.style) || {};
+            if (st.checkbox || ['text', 'date_mdy', 'date_ymd', 'datetime'].includes(st.numFormat)) return 'text';
+            if (valRulesFor(id).some(x => x.type === 'list')) return 'text';
+            if (cell && cell.formula) return 'text'; // a formula is edited with letters
+            if (['currency', 'percent', 'decimal'].includes(st.numFormat)) return 'decimal';
+            if (cell && typeof cell.value === 'number') return 'decimal';
+            if (cell && !isBlank(cell.value)) return 'text';
+            for (let k = 1; k <= 3 && r - k >= 0; k++) { // an empty cell under a column of numbers
+                const up = data[getCellId(r - k, c)];
+                if (!up || !hasContent(up)) continue;
+                const f = (up.style && up.style.numFormat) || '';
+                return typeof up.value === 'number' && !f.startsWith('date') && f !== 'datetime' && f !== 'text' ? 'decimal' : 'text';
+            }
+            return 'text';
+        }
+        const KEY_ROW_KEYS = ['=', '+', '-', '*', '/', '(', ')', ',', ':', '$', '"', '&', '%', '<', '>'];
+        function buildKeyRow() {
+            const row = document.getElementById('key-row');
+            if (!row || row.dataset.built) return;
+            row.dataset.built = '1';
+            row.innerHTML = `<button type="button" id="kr-mode" class="kr-key kr-mode" aria-label="Switch keyboard"></button><button type="button" class="kr-key kr-fx" data-k="fx" aria-label="fx Wizard">fx</button>` + KEY_ROW_KEYS.map(k => `<button type="button" class="kr-key" data-k="${escapeHtml(k)}" aria-label="${escapeHtml(k)}">${escapeHtml(k)}</button>`).join('');
+            // a tap on a key must not take the focus (or the keyboard) away from the box being typed in
+            row.addEventListener('mousedown', e => e.preventDefault());
+            row.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') e.preventDefault(); });
+            row.addEventListener('click', e => {
+                const b = e.target.closest('button');
+                if (!b) return;
+                if (b.id === 'kr-mode') toggleKeyboardType();
+                else if (b.dataset.k === 'fx') openWizard();
+                else insertKey(b.dataset.k);
+            });
+        }
+        function keyTarget() {
+            if (editingCell) return document.getElementById(`input-${getCellId(editingCell.row, editingCell.col)}`);
+            const fi = document.getElementById('formula-input');
+            return document.activeElement === fi ? fi : null;
+        }
+        // The key's character goes in at the caret (over a selection), as if typed
+        function insertKey(ch) {
+            const el = keyTarget();
+            if (!el) return;
+            if (ch === '=' && editingCell && el.getAttribute('inputmode') === 'decimal') setKeyboardType('text'); // a formula needs the letters
+            const s0 = el.selectionStart === null ? el.value.length : el.selectionStart, e0 = el.selectionEnd === null ? s0 : el.selectionEnd;
+            el.setRangeText(ch, s0, e0, 'end');
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        function setKeyboardType(mode) {
+            const el = keyTarget();
+            if (!el || !editingCell) return;
+            const s0 = el.selectionStart, e0 = el.selectionEnd;
+            el.setAttribute('inputmode', mode);
+            kbdSwitching = true;
+            try { el.blur(); el.focus(); if (s0 !== null) el.setSelectionRange(s0, e0); } finally { kbdSwitching = false; }
+            updateKeyRow();
+        }
+        function toggleKeyboardType() {
+            const el = keyTarget();
+            if (el) setKeyboardType(el.getAttribute('inputmode') === 'decimal' ? 'text' : 'decimal');
+        }
+        function updateKeyRow() {
+            const row = document.getElementById('key-row');
+            if (!row) return;
+            buildKeyRow();
+            const inBar = !editingCell && document.activeElement === document.getElementById('formula-input');
+            const on = (!!editingCell || inBar) && document.body.classList.contains('kb-open') && settingOn('setting-keyrow');
+            row.classList.toggle('hidden', !on);
+            document.body.classList.toggle('keyrow-on', on);
+            document.documentElement.style.setProperty('--keyrow', on ? '52px' : '0px');
+            const mode = document.getElementById('kr-mode');
+            if (mode) {
+                mode.style.display = editingCell ? '' : 'none'; // (the formula bar has no number pad)
+                const el = editingCell ? keyTarget() : null;
+                mode.textContent = el && el.getAttribute('inputmode') === 'decimal' ? 'ABC' : '123';
+            }
+        }
+        // The cell being typed in scrolls into view above the keyboard and the key row
+        function keepEditCellInView(cellId) {
+            const td = document.getElementById(`cell-${cellId}`);
+            if (td && td.scrollIntoView) td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }
 
         function handleCellKey(e, r, c) {
             if (e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape') fxCaret = null; // the edit is over: the Wizard no longer opens on it
             if (e.key === 'Enter') {
                 e.preventDefault();
-                endEdit(true);
-                moveActive(r + 1, c);
+                enterAndMove(r, c, 1, 0);
             } else if (e.key === 'Tab') {
                 e.preventDefault();
-                endEdit(true);
-                moveActive(r, c + 1);
+                enterAndMove(r, c, 0, 1);
             } else if (e.key === 'Escape') {
                 e.preventDefault();
                 endEdit(false);
@@ -9459,6 +9627,253 @@
             const FORMAT_NAMES = { bold: 'Bold', italic: 'Italic', underline: 'Underline', fontFamily: 'Font', fontSize: 'Font size', color: 'Text color', bgColor: 'Fill color', align: 'Alignment', numFormat: 'Number format' };
             const rangeText = (minR === maxR && minC === maxC) ? getCellId(minR, minC) : `${getCellId(minR, minC)}:${getCellId(maxR, maxC)}`;
             recordHistory(`${FORMAT_NAMES[type] || 'Formatting'} on ${rangeText}`);
+        }
+
+        // ===== Format Painter: copy the formatting of the selected cells onto the cells tapped or dragged next =====
+        // Everything in the formatting comes along except the checkbox setting (it changes what a cell holds); merges and rules are not formatting.
+        let painter = null, painterTapAt = 0; // { cells: [[style or null]], rows, cols, sticky }
+        function syncPainterBtn() {
+            const b = document.getElementById('painter-btn');
+            if (b) { b.classList.toggle('on', !!painter); b.setAttribute('aria-pressed', painter ? 'true' : 'false'); }
+            document.body.classList.toggle('painting', !!painter);
+            positionFillHandle();
+        }
+        function painterOff() { painter = null; painterTapAt = 0; syncPainterBtn(); }
+        function togglePainter() {
+            const now = Date.now();
+            if (painter && now - painterTapAt < 450 && !painter.sticky) { painter.sticky = true; syncPainterBtn(); showToast('Paint Format stays on. Tap or drag cells to paint; tap the brush to stop'); return; }
+            if (painter) { painterOff(); showToast('Paint Format off'); return; }
+            if (editingCell) endEdit(true);
+            const b = selBounds(), cells = [];
+            for (let r = b.minR; r <= b.maxR; r++) {
+                const row = [];
+                for (let c = b.minC; c <= b.maxC; c++) {
+                    const st = data[getCellId(r, c)] && data[getCellId(r, c)].style;
+                    const copy = st ? { ...st } : null;
+                    if (copy) { delete copy.checkbox; row.push(Object.keys(copy).length ? copy : null); } else row.push(null);
+                }
+                cells.push(row);
+            }
+            painter = { cells, rows: cells.length, cols: cells[0].length, sticky: false };
+            painterTapAt = now;
+            syncPainterBtn();
+            showToast('Paint Format: tap or drag the cells to paint (tap the brush twice to keep painting)');
+        }
+        // Paints the selected cells (a single cell gets the whole shape of what was copied; a bigger area repeats it)
+        function applyPainter() {
+            if (!painter) return;
+            const sel = selBounds();
+            let r1 = sel.minR, c1 = sel.minC, r2 = sel.maxR, c2 = sel.maxC;
+            if (r1 === r2 && c1 === c2) { r2 = Math.min(ROWS - 1, r1 + painter.rows - 1); c2 = Math.min(COLS - 1, c1 + painter.cols - 1); }
+            const ids = [];
+            for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+                const src = painter.cells[(r - r1) % painter.rows][(c - c1) % painter.cols];
+                const id = getCellId(r, c);
+                if (!data[id]) data[id] = { style: {}, value: '', formula: '' };
+                const keep = data[id].style && data[id].style.checkbox;
+                data[id].style = src ? { ...src } : {};
+                if (keep) data[id].style.checkbox = true;
+                ids.push(id);
+            }
+            const where = clipRange(r1, c1, r2, c2);
+            const sticky = painter.sticky;
+            if (!sticky) painterOff();
+            cellsChanged(ids, `Format painted onto ${where}`, { startRow: r1, startCol: c1, endRow: r2, endCol: c2 });
+            showToast(`Painted ${where}${sticky ? '. Tap the brush to stop' : ''}`);
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && painter && !editingCell) { painterOff(); showToast('Paint Format off'); } });
+
+        // ===== Fill handle: drag the corner of the selection to fill, like Excel =====
+        // One cell selected: it is copied across (formulas shift). Two or more: the pattern goes on (1, 2 gives 3, 4; Mon, Tue; Item 1, Item 2; My Lists).
+        let fillDrag = null, fillTimer = 0;
+        function fillHandleEl() { return document.getElementById('fill-handle'); }
+        function positionFillHandle() {
+            const h = fillHandleEl();
+            if (!h) return;
+            const b = selBounds();
+            const whole = (b.minR === 0 && b.maxR === ROWS - 1) || (b.minC === 0 && b.maxC === COLS - 1);
+            const td = document.getElementById(`cell-${getCellId(b.maxR, b.maxC)}`);
+            if (editingCell || whole || !td || td.style.display === 'none' || painter) { h.classList.add('hidden'); return; }
+            const grid = document.getElementById('grid-container'), gr = grid.getBoundingClientRect(), tr = td.getBoundingClientRect();
+            h.style.left = (tr.right - gr.left + grid.scrollLeft) + 'px';
+            h.style.top = (tr.bottom - gr.top + grid.scrollTop) + 'px';
+            h.classList.remove('hidden');
+        }
+        // Where the finger is, as a fill: the direction, and how many cells beyond the selection
+        function fillTargetAt(x, y) {
+            const hit = cellFromPoint(x, y);
+            if (!hit || !fillDrag) return null;
+            const b = fillDrag.b;
+            const dr = hit.r > b.maxR ? hit.r - b.maxR : (hit.r < b.minR ? hit.r - b.minR : 0);
+            const dc = hit.c > b.maxC ? hit.c - b.maxC : (hit.c < b.minC ? hit.c - b.minC : 0);
+            if (!dr && !dc) return null;
+            if (Math.abs(dr) >= Math.abs(dc)) return { dir: dr > 0 ? 'down' : 'up', count: Math.abs(dr) };
+            return { dir: dc > 0 ? 'right' : 'left', count: Math.abs(dc) };
+        }
+        // The bounds of the cells that would be filled, and of selection plus fill
+        function fillArea(b, t) {
+            if (t.dir === 'down') return { fill: { minR: b.maxR + 1, maxR: b.maxR + t.count, minC: b.minC, maxC: b.maxC }, all: { ...b, maxR: b.maxR + t.count } };
+            if (t.dir === 'up') return { fill: { minR: b.minR - t.count, maxR: b.minR - 1, minC: b.minC, maxC: b.maxC }, all: { ...b, minR: b.minR - t.count } };
+            if (t.dir === 'right') return { fill: { minR: b.minR, maxR: b.maxR, minC: b.maxC + 1, maxC: b.maxC + t.count }, all: { ...b, maxC: b.maxC + t.count } };
+            return { fill: { minR: b.minR, maxR: b.maxR, minC: b.minC - t.count, maxC: b.minC - 1 }, all: { ...b, minC: b.minC - t.count } };
+        }
+        function showFillPreview(b, t) {
+            let pv = document.getElementById('fill-preview');
+            if (!t) { if (pv) pv.classList.add('hidden'); return; }
+            const grid = document.getElementById('grid-container');
+            if (!pv) { pv = document.createElement('div'); pv.id = 'fill-preview'; pv.className = 'fill-preview'; grid.appendChild(pv); }
+            const a = fillArea(b, t).all, gr = grid.getBoundingClientRect();
+            const t1 = document.getElementById(`cell-${getCellId(a.minR, a.minC)}`).getBoundingClientRect(), t2 = document.getElementById(`cell-${getCellId(a.maxR, a.maxC)}`).getBoundingClientRect();
+            pv.style.left = (t1.left - gr.left + grid.scrollLeft) + 'px';
+            pv.style.top = (t1.top - gr.top + grid.scrollTop) + 'px';
+            pv.style.width = (t2.right - t1.left) + 'px';
+            pv.style.height = (t2.bottom - t1.top) + 'px';
+            pv.classList.remove('hidden');
+        }
+        function fillHandleDown(e) {
+            const h = fillHandleEl();
+            if (!h || !h.contains(e.target) && e.target !== h) return;
+            e.preventDefault(); e.stopPropagation();
+            if (editingCell) endEdit(true);
+            fillDrag = { b: selBounds(), x: e.clientX, y: e.clientY, t: null };
+            h.classList.add('dragging');
+            document.addEventListener('pointermove', fillHandleMove);
+            document.addEventListener('pointerup', fillHandleUp);
+            document.addEventListener('pointercancel', fillHandleUp);
+            fillTimer = setInterval(() => { // the grid scrolls when the finger is near its edge
+                if (!fillDrag) return;
+                const grid = document.getElementById('grid-container'), gr = grid.getBoundingClientRect();
+                const dx = fillDrag.x > gr.right - 40 ? 14 : (fillDrag.x < gr.left + 90 ? -14 : 0), dy = fillDrag.y > gr.bottom - 70 ? 14 : (fillDrag.y < gr.top + 66 ? -14 : 0);
+                if (dx || dy) { grid.scrollBy(dx, dy); fillHandleMove({ clientX: fillDrag.x, clientY: fillDrag.y }); }
+            }, 40);
+        }
+        function fillHandleMove(e) {
+            if (!fillDrag) return;
+            fillDrag.x = e.clientX; fillDrag.y = e.clientY;
+            fillDrag.t = fillTargetAt(e.clientX, e.clientY);
+            showFillPreview(fillDrag.b, fillDrag.t);
+        }
+        function fillHandleUp() {
+            document.removeEventListener('pointermove', fillHandleMove);
+            document.removeEventListener('pointerup', fillHandleUp);
+            document.removeEventListener('pointercancel', fillHandleUp);
+            clearInterval(fillTimer);
+            const d = fillDrag; fillDrag = null;
+            const h = fillHandleEl(); if (h) h.classList.remove('dragging');
+            showFillPreview(null, null);
+            if (d && d.t) fillByHandle(d.b, d.t.dir, d.t.count);
+        }
+        function fillByHandle(b, dir, count) {
+            const sheet = sheets[currentSheetIdx];
+            const vertical = dir === 'down' || dir === 'up';
+            const lanes = vertical ? b.maxC - b.minC + 1 : b.maxR - b.minR + 1;
+            const n = vertical ? b.maxR - b.minR + 1 : b.maxC - b.minC + 1;
+            const at = (lane, k) => (dir === 'down' ? getCellId(b.minR + k, b.minC + lane) : dir === 'up' ? getCellId(b.maxR - k, b.minC + lane) : dir === 'right' ? getCellId(b.minR + lane, b.minC + k) : getCellId(b.minR + lane, b.maxC - k));
+            const sign = dir === 'down' || dir === 'right' ? 1 : -1;
+            const shift = (f, d) => shiftFormula(f, vertical ? sign * d : 0, vertical ? 0 : sign * d);
+            const ids = [];
+            for (let lane = 0; lane < lanes; lane++) {
+                const seeds = [];
+                for (let k = 0; k < n; k++) { const x = data[at(lane, k)]; seeds.push({ value: x ? x.value : '', formula: x ? x.formula : '', cs: histCapture(x) }); }
+                const hasFormula = seeds.some(x => x.formula);
+                const rule = n > 1 && !hasFormula ? seriesRule(seeds.filter(x => x.cs)) : null;
+                const lastCs = seeds[n - 1].cs;
+                for (let k = n; k < n + count; k++) {
+                    const id = at(lane, k);
+                    ids.push(id);
+                    if (rule && seeds.every(x => x.cs)) {
+                        const v = rule(k - n + 1);
+                        histWrite(sheet, id, { v, f: '', s: lastCs && lastCs.s ? { ...lastCs.s } : null, r: null });
+                    } else {
+                        const src = (k - n) % n, cs = seeds[src].cs; // a copy; formulas adjust as if copied
+                        if (!cs) delete data[id];
+                        else histWrite(sheet, id, { v: cs.v, f: shift(cs.f, k - src), s: cs.s ? { ...cs.s } : null, r: null });
+                    }
+                }
+            }
+            const area = fillArea(b, { dir, count });
+            const where = clipRange(area.fill.minR, area.fill.minC, area.fill.maxR, area.fill.maxC);
+            const all = area.all;
+            cellsChanged(ids, `Filled ${where} ${dir}`, { startRow: all.minR, startCol: all.minC, endRow: all.maxR, endCol: all.maxC });
+            showToast(`Filled ${where} from ${clipRange(b.minR, b.minC, b.maxR, b.maxC)}`);
+        }
+
+        // ===== Resize by dragging the edge of a column letter or a row number; double-tap the edge to auto-fit =====
+        // (several whole columns or rows selected: all of them get the size, as in Excel)
+        let gripDrag = null, gripTap = null, gripSwallow = 0;
+        function gripTargets(col, idx) {
+            const b = selBounds();
+            if (col && b.minR === 0 && b.maxR === ROWS - 1 && idx >= b.minC && idx <= b.maxC) return Array.from({ length: b.maxC - b.minC + 1 }, (_, i) => b.minC + i);
+            if (!col && b.minC === 0 && b.maxC === COLS - 1 && idx >= b.minR && idx <= b.maxR) return Array.from({ length: b.maxR - b.minR + 1 }, (_, i) => b.minR + i);
+            return [idx];
+        }
+        function gripTip(text, x, y) {
+            let t = document.getElementById('resize-tip');
+            if (!t) { t = document.createElement('div'); t.id = 'resize-tip'; t.className = 'resize-tip'; document.body.appendChild(t); }
+            if (text === null) { t.classList.add('hidden'); return; }
+            t.textContent = text;
+            t.style.left = Math.max(4, Math.min(innerWidth - 120, x + 12)) + 'px';
+            t.style.top = Math.max(4, y - 44) + 'px';
+            t.classList.remove('hidden');
+        }
+        function applyGripSize(col, targets, size) {
+            targets.forEach(i => {
+                if (col) { const th = document.getElementById(`col-th-${i}`); if (th) th.style.setProperty('--col-width', size + 'px'); }
+                else { const th = document.getElementById(`row-th-${i}`); if (th) th.parentElement.style.setProperty('--row-h', size + 'px'); }
+            });
+        }
+        function autoFitEdge(col, idx) {
+            if (editingCell) endEdit(true);
+            const sh = sheets[currentSheetIdx], targets = gripTargets(col, idx);
+            let name;
+            if (col) {
+                targets.forEach(c => { const w = autoFitWidth(c); if (w === DEFAULT_COL_W) delete sh.colWidths[c]; else sh.colWidths[c] = w; });
+                name = `Auto-fit width of ${sizeSpan(targets[0], targets[targets.length - 1], 'column')}`;
+            } else {
+                targets.forEach(r => { delete sh.rowHeights[r]; }); // a row with no height of its own fits its biggest font
+                name = `Auto-fit height of ${sizeSpan(targets[0], targets[targets.length - 1], 'row')}`;
+            }
+            showToast(name);
+            sizesChanged(name);
+        }
+        function gripDown(e) {
+            const g = e.target.closest && e.target.closest('.edge-grip');
+            if (!g) return;
+            e.preventDefault(); e.stopPropagation();
+            const col = g.classList.contains('col-grip'), idx = Number(col ? g.dataset.c : g.dataset.r), now = Date.now();
+            if (gripTap && gripTap.col === col && gripTap.idx === idx && now - gripTap.t < 420) { gripTap = null; gripSwallow = now; autoFitEdge(col, idx); return; }
+            const sh = sheets[currentSheetIdx];
+            gripDrag = { col, idx, x: e.clientX, y: e.clientY, start: col ? colW(idx, sh) : rowH(idx, sh), size: null, moved: false, targets: gripTargets(col, idx) };
+            document.addEventListener('pointermove', gripMove);
+            document.addEventListener('pointerup', gripUp);
+            document.addEventListener('pointercancel', gripUp);
+        }
+        function gripMove(e) {
+            const d = gripDrag;
+            if (!d) return;
+            const delta = d.col ? e.clientX - d.x : e.clientY - d.y;
+            if (!d.moved && Math.abs(delta) < 4) return;
+            d.moved = true;
+            const lo = d.col ? MIN_COL_W : MIN_ROW_H, hi = d.col ? MAX_COL_W : MAX_ROW_H;
+            d.size = Math.max(lo, Math.min(hi, Math.round(d.start + delta)));
+            applyGripSize(d.col, d.targets, d.size);
+            gripTip(`${d.col ? 'Width' : 'Height'} ${d.size}`, e.clientX, e.clientY);
+        }
+        function gripUp() {
+            document.removeEventListener('pointermove', gripMove);
+            document.removeEventListener('pointerup', gripUp);
+            document.removeEventListener('pointercancel', gripUp);
+            const d = gripDrag; gripDrag = null;
+            gripTip(null);
+            if (!d) return;
+            if (!d.moved) { gripTap = { col: d.col, idx: d.idx, t: Date.now() }; return; } // (a first tap: a second one soon after auto-fits)
+            gripTap = null; gripSwallow = Date.now();
+            const sh = sheets[currentSheetIdx];
+            if (d.col) d.targets.forEach(c => { if (d.size === DEFAULT_COL_W) delete sh.colWidths[c]; else sh.colWidths[c] = d.size; });
+            else d.targets.forEach(r => { if (d.size === DEFAULT_ROW_H) delete sh.rowHeights[r]; else sh.rowHeights[r] = d.size; });
+            const name = `Set ${sizeSpan(d.targets[0], d.targets[d.targets.length - 1], d.col ? 'column' : 'row')} ${d.col ? 'width' : 'height'} ${d.size}`;
+            sizesChanged(name);
+            showToast(name);
         }
 
         // ===== Wrap, borders, column width and row height =====
