@@ -26,7 +26,7 @@
     <!-- Icon fonts for interface buttons (not offered as cell fonts). display=block keeps the icon hidden until the font has loaded, so a button never shows the plain word.
          Material Symbols is cut down to the icons the buttons use (a few KB instead of 320 KB): when a button gets a new icon, add its name to icon_names (keep them in alphabetical order).
          Use <span class="material-symbols-outlined">settings</span>. Material Icons is loaded but not used yet. -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,delete,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,function,functions,label,menu_book,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_more,wrap_text&display=block" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,delete,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,format_color_text,function,functions,label,menu_book,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_more,wrap_text&display=block" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Icons&display=block" rel="stylesheet">
     <script>
         // If the icon font cannot load (for example offline the very first time), buttons show their words instead of icons
@@ -1172,6 +1172,12 @@
         /* The font name field is as wide as "System Default"; longer names are cut with … in the closed field (the pop-up list shows them whole) */
         #font-family-selector { width: 8.6rem; text-overflow: ellipsis; }
         #font-size-selector { width: 3.6rem; }
+        /* Text color and Fill color: a button that applies the last color used, and an arrow that picks another */
+        .split-color { position: relative; display: inline-flex; }
+        .split-color .sc-main { flex-direction: column; justify-content: center; gap: 1px; border-top-right-radius: 0; border-bottom-right-radius: 0; padding: 2px 8px 3px; }
+        .split-color .sc-arrow { min-width: 22px; padding: 0 2px; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+        .sc-bar { display: block; width: 20px; height: 4px; border-radius: 2px; outline: 1px solid var(--border-color); }
+        .split-color .sc-input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; padding: 0; border: 0; min-width: 0; }
         .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 8px; }
         #cell-dock-buttons { gap: 4px !important; }
         .modal button, .modal select { min-height: 40px; min-width: 40px; }
@@ -2602,7 +2608,7 @@
         function currentSettings() {
             const on = id => { const el = document.getElementById(id); return el ? !!el.checked : true; };
             const th = document.getElementById('setting-theme');
-            return { version: 1, autosave: on('setting-autosave'), showBar: on('setting-show-bar'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto' };
+            return { version: 1, autosave: on('setting-autosave'), showBar: on('setting-show-bar'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto', textColor: lastColors.color, fillColor: lastColors.bgColor };
         }
         // ----- Theme: Match my phone / Light / Dark. The colors themselves live in the color roles at the top of the style sheet. -----
         const phoneDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -2628,6 +2634,9 @@
             set('setting-val-picker', st.valPicker);
             set('setting-remember-tab', st.rememberTab);
             if (st.theme === 'light' || st.theme === 'dark' || st.theme === 'auto') applyTheme(st.theme);
+            if (isHex(st.textColor)) lastColors.color = st.textColor.toLowerCase();
+            if (isHex(st.fillColor)) lastColors.bgColor = st.fillColor.toLowerCase();
+            syncColorBars();
             saveState.enabled = document.getElementById('setting-autosave').checked;
             applyBarSetting();
         }
@@ -3517,8 +3526,14 @@
                         </select>
                     </div>
                     <div class="ribbon-group">
-                        <input type="color" id="text-color-picker" onchange="formatCell('color', this.value)" title="Text Color">
-                        <input type="color" id="bg-color-picker" onchange="formatCell('bgColor', this.value)" title="Fill Color" value="#ffffff">
+                        <span class="split-color">
+                            <button class="sc-main" onclick="applyLastColor('color')" title="Apply the text color shown in the bar" aria-label="Text color"><span class="material-symbols-outlined" aria-hidden="true">format_color_text</span><span class="ico-label">A</span><i class="sc-bar" id="text-color-bar"></i></button><button class="sc-arrow" onclick="pickColor('color')" title="Choose another text color" aria-label="Choose a text color"><span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">&#9662;</span></button>
+                            <input type="color" id="text-color-picker" class="sc-input" onchange="colorPicked('color', this.value)" tabindex="-1" aria-hidden="true">
+                        </span>
+                        <span class="split-color">
+                            <button class="sc-main" onclick="applyLastColor('bgColor')" title="Apply the fill color shown in the bar" aria-label="Fill color"><span class="material-symbols-outlined" aria-hidden="true">format_color_fill</span><span class="ico-label">Fill</span><i class="sc-bar" id="fill-color-bar"></i></button><button class="sc-arrow" onclick="pickColor('bgColor')" title="Choose another fill color" aria-label="Choose a fill color"><span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">&#9662;</span></button>
+                            <input type="color" id="bg-color-picker" class="sc-input" onchange="colorPicked('bgColor', this.value)" tabindex="-1" aria-hidden="true">
+                        </span>
                     </div>
                     <div class="ribbon-group">
                         <button onclick="formatCell('align', 'left')" title="Align left" aria-label="Align left"><span class="material-symbols-outlined" aria-hidden="true">format_align_left</span><span class="ico-label">L</span></button>
@@ -3564,6 +3579,7 @@
                 `;
                 syncNumberFormatSelect();
                 syncFontSizeSelect();
+                syncColorBars();
             } else if (tab === 'data') {
                 area.innerHTML = `
                     <div class="ribbon-group">
@@ -9196,6 +9212,28 @@
             const cell = data[getCellId(activeCell.row, activeCell.col)];
             const pt = (cell && cell.style && cell.style.fontSize) || DEFAULT_FONT_PT;
             sel.value = String(pt);
+        }
+        // Text color and Fill color: the main button applies the last color used (so the same color can be applied again and again);
+        // the arrow opens the picker, and a color chosen there is applied and becomes the last one. The last colors are kept with the settings.
+        const lastColors = { color: '#000000', bgColor: '#ffff00' };
+        function syncColorBars() {
+            const t = document.getElementById('text-color-bar'), f = document.getElementById('fill-color-bar');
+            if (t) t.style.background = lastColors.color;
+            if (f) f.style.background = lastColors.bgColor;
+        }
+        function applyLastColor(kind) { formatCell(kind, lastColors[kind]); }
+        function pickColor(kind) {
+            const inp = document.getElementById(kind === 'color' ? 'text-color-picker' : 'bg-color-picker');
+            if (!inp) return;
+            inp.value = lastColors[kind]; // the picker opens on the color the button applies
+            try { if (inp.showPicker) inp.showPicker(); else inp.click(); } catch (e) { inp.click(); }
+        }
+        function colorPicked(kind, value) {
+            if (!isHex(value)) return;
+            lastColors[kind] = value.toLowerCase();
+            syncColorBars();
+            saveSettings();
+            formatCell(kind, lastColors[kind]);
         }
         const STYLE_KEY = { fontFamily: 'fontFamily', color: 'color', bgColor: 'bgColor', align: 'textAlign' };
 
