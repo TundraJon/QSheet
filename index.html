@@ -487,6 +487,8 @@
         .cell-input {
             width: 100%;
             height: 100%;
+            vertical-align: top;
+            max-height: var(--row-h, 26px); /* a big font cannot push a row taller than its height: rows grow by their own rule (see rowNeeds) */
             border: none;
             background: transparent;
             padding: 0 6px;
@@ -652,6 +654,13 @@
         .dd-arrow .material-symbols-outlined { font-size: 24px; }
         .material-symbols-outlined { font-family: 'Material Symbols Outlined'; }
         .material-icons { font-family: 'Material Icons'; }
+
+        /* Long text spills over the empty cells beside it (like Excel): the cell's own box cannot draw outside itself, so a text that does not fit is
+           drawn once more by an overlay that may stretch over its empty neighbors, and the box's own copy of the text is hidden */
+        table.spreadsheet td.has-spill { overflow: visible; }
+        td.has-spill:not(.frozen-cell) { position: relative; }
+        td.has-spill .cell-input { visibility: hidden; }
+        .spill-text { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; box-sizing: border-box; padding: 0 6px; overflow: hidden; white-space: nowrap; pointer-events: none; z-index: 2; }
 
         /* Drop-down arrow: sits inside the selected cell when it has a list rule (like Excel) */
         td.has-dd:not(.frozen-cell) { position: relative; }
@@ -1162,6 +1171,7 @@
         .ribbon-group button, .ribbon-group select, .ribbon-group input[type="color"] { min-width: 30px; }
         /* The font name field is as wide as "System Default"; longer names are cut with … in the closed field (the pop-up list shows them whole) */
         #font-family-selector { width: 8.6rem; text-overflow: ellipsis; }
+        #font-size-selector { width: 3.6rem; }
         .cell-dock button { min-height: 40px; min-width: 40px; padding: 4px 8px; }
         #cell-dock-buttons { gap: 4px !important; }
         .modal button, .modal select { min-height: 40px; min-width: 40px; }
@@ -2463,6 +2473,7 @@
             if (st.fontStyle === 'italic') out.fontStyle = 'italic';
             if (st.textDecoration === 'underline') out.textDecoration = 'underline';
             if (typeof st.fontFamily === 'string' && /^[\w\s'",\-]{1,120}$/.test(st.fontFamily)) out.fontFamily = st.fontFamily;
+            if (Number.isInteger(st.fontSize) && st.fontSize >= 6 && st.fontSize <= 36 && st.fontSize !== 10) out.fontSize = st.fontSize;
             if (isHex(st.color)) out.color = st.color;
             if (isHex(st.bgColor)) out.bgColor = st.bgColor;
             if (['left', 'center', 'right'].includes(st.textAlign)) out.textAlign = st.textAlign;
@@ -3207,7 +3218,29 @@
         const DEFAULT_COL_W = 80, MIN_COL_W = 30, MAX_COL_W = 400;
         const DEFAULT_ROW_H = 26, MIN_ROW_H = 20, MAX_ROW_H = 300;
         const colW = (c, sh) => ((sh || sheets[currentSheetIdx]).colWidths || {})[c] || DEFAULT_COL_W;
-        const rowH = (r, sh) => ((sh || sheets[currentSheetIdx]).rowHeights || {})[r] || DEFAULT_ROW_H;
+        // A row you have not sized yourself grows to fit the biggest font size in it (sh._need holds what applySizes last worked out)
+        const rowH = (r, sh) => { const s = sh || sheets[currentSheetIdx]; return (s.rowHeights || {})[r] || (s._need || {})[r] || DEFAULT_ROW_H; };
+        function rowNeeds(sh) {
+            const out = {};
+            for (const id in sh.data) {
+                const st = sh.data[id].style;
+                if (!st || !st.fontSize) continue;
+                const px = Math.ceil(st.fontSize * 4 / 3 + 12);
+                if (px <= DEFAULT_ROW_H) continue;
+                const r = parseCellCoord(id).r;
+                if (!out[r] || px > out[r]) out[r] = px;
+            }
+            return out;
+        }
+        // After a change: if the rows' needs changed, size them again
+        function refreshRowSizes() {
+            const sh = sheets[currentSheetIdx];
+            if (!sh || !document.getElementById('row-th-0')) return;
+            if (JSON.stringify(rowNeeds(sh)) === JSON.stringify(sh._need || {})) return;
+            applySizes();
+            layoutFreeze();
+            highlightSelection();
+        }
         function applySizes() {
             const sh = sheets[currentSheetIdx];
             for (let c = 0; c < COLS; c++) {
@@ -3216,10 +3249,11 @@
                 const w = sh.colWidths[c];
                 if (w) th.style.setProperty('--col-width', w + 'px'); else th.style.removeProperty('--col-width');
             }
+            sh._need = rowNeeds(sh);
             for (let r = 0; r < ROWS; r++) {
                 const th = document.getElementById(`row-th-${r}`);
                 if (!th) continue;
-                const h = sh.rowHeights[r];
+                const h = sh.rowHeights[r] || sh._need[r];
                 if (h) th.parentElement.style.setProperty('--row-h', h + 'px'); else th.parentElement.style.removeProperty('--row-h');
             }
         }
@@ -3478,6 +3512,9 @@
                             <option value="'Noto Sans Symbols', sans-serif">Noto Sans Symbols</option>
                             <option value="'Noto Sans Symbols 2', sans-serif">Noto Sans Symbols 2</option>
                         </select>
+                        <select id="font-size-selector" onchange="formatCell('fontSize', Number(this.value))" title="Font size" aria-label="Font size">
+                            ${FONT_SIZES.map(n => `<option value="${n}"${n === DEFAULT_FONT_PT ? ' selected' : ''}>${n}</option>`).join('')}
+                        </select>
                     </div>
                     <div class="ribbon-group">
                         <input type="color" id="text-color-picker" onchange="formatCell('color', this.value)" title="Text Color">
@@ -3526,6 +3563,7 @@
                     </div>
                 `;
                 syncNumberFormatSelect();
+                syncFontSizeSelect();
             } else if (tab === 'data') {
                 area.innerHTML = `
                     <div class="ribbon-group">
@@ -3578,6 +3616,7 @@
             highlightSelection();
             updateCellDock(cellId);
             syncNumberFormatSelect();
+            syncFontSizeSelect();
         }
 
         function updateCellDock(cellId) {
@@ -3844,6 +3883,7 @@
             if (activeCell.row !== r || activeCell.col !== c) selectSingle(r, c);
             if (clip) clipClear(true); // starting to edit drops the copy outline, as in Excel
             editingCell = { row: r, col: c, original: cellEditText(cellId), typed: replaceWith !== undefined };
+            clearSpillTd(document.getElementById(`cell-${cellId}`)); // the box shows the text while it is typed in
             updateDropArrow();
             input.readOnly = false;
             input.classList.add('editing');
@@ -3888,6 +3928,7 @@
                 document.getElementById('formula-input').value = cellEditText(cellId);
             }
             updateDropArrow();
+            scheduleSpill();
         }
 
         function onCellBlur(r, c) {
@@ -6680,6 +6721,7 @@
             }
             for (let cellId in data) renderCellDisplay(cellId);
             if (validationRules.length || valBadIds.size) refreshValidationMarks();
+            scheduleSpill();
         }
 
 
@@ -9144,6 +9186,17 @@
         }
 
         // Cell formatting lives in the cell's data (data[id].style) so it survives sheet switches, Time Travel and grid rebuilds.
+        // Font sizes are points (as in Excel). 10 is the size every cell has until one is picked (about 13.6 px).
+        const FONT_SIZES = [6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36], DEFAULT_FONT_PT = 10;
+        const fontPx = st => (st && st.fontSize ? st.fontSize * 4 / 3 : 13.6);
+        // The size selector shows the size of the active cell
+        function syncFontSizeSelect() {
+            const sel = document.getElementById('font-size-selector');
+            if (!sel) return;
+            const cell = data[getCellId(activeCell.row, activeCell.col)];
+            const pt = (cell && cell.style && cell.style.fontSize) || DEFAULT_FONT_PT;
+            sel.value = String(pt);
+        }
         const STYLE_KEY = { fontFamily: 'fontFamily', color: 'color', bgColor: 'bgColor', align: 'textAlign' };
 
         function applyCellStyle(cellId) {
@@ -9155,7 +9208,7 @@
                 input.style.fontStyle = st.fontStyle || '';
                 input.style.textDecoration = st.textDecoration || '';
                 input.style.fontFamily = st.fontFamily || '';
-                input.style.fontSize = st.checkbox ? '1.2rem' : '';
+                input.style.fontSize = st.checkbox ? `${(1.2 * (st.fontSize || 10) / 10).toFixed(3)}rem` : (st.fontSize ? `${st.fontSize}pt` : '');
                 input.style.color = st.color || '';
                 input.style.textAlign = data[cellId] ? effectiveAlign(data[cellId]) : (st.textAlign || '');
             }
@@ -9168,6 +9221,84 @@
                 td.style.borderLeft = bd.includes('l') ? line : '';
                 td.style.borderRight = bd.includes('r') ? line : '';
             }
+        }
+
+        // ===== Long text spills into empty cells beside it =====
+        // Text only (numbers never spill), not wrapped, not a checkbox. Left-aligned text goes right, right-aligned goes left, centered goes both ways,
+        // and only over cells that are completely empty (no entry, not part of a merge); it stops at the freeze edge and at the sheet's edge.
+        let spillTds = new Map(), spillFrame = 0, spillCanvas = null;
+        function scheduleSpill() {
+            if (spillFrame) return;
+            spillFrame = requestAnimationFrame(() => { spillFrame = 0; updateAllSpill(); });
+        }
+        function clearSpillTd(td) {
+            if (!td) return;
+            td.classList.remove('has-spill');
+            const o = td.querySelector('.spill-text');
+            if (o) o.remove();
+            spillTds.delete(td);
+        }
+        function updateAllSpill() {
+            const sh = sheets[currentSheetIdx];
+            if (!sh || !document.getElementById('row-th-0')) return;
+            if (!spillCanvas) spillCanvas = document.createElement('canvas');
+            const ctx = spillCanvas.getContext('2d');
+            const merged = (r, c) => merges.some(m => r >= m.r && r < m.r + m.rows && c >= m.c && c < m.c + m.cols);
+            const emptyAt = (r, c) => {
+                if (r < 0 || c < 0 || c >= COLS) return false;
+                const cell = data[getCellId(r, c)];
+                if (cell && (cell.formula || !(cell.value === '' || cell.value === undefined || cell.value === null) || cell.spillOf)) return false;
+                return !merged(r, c);
+            };
+            const next = new Map();
+            for (const id in data) {
+                const cell = data[id], st = cell.style || {};
+                if (typeof cell.value !== 'string' || cell.value === '' || st.wrap || st.checkbox) continue;
+                if (editingCell && getCellId(editingCell.row, editingCell.col) === id) continue;
+                const co = parseCellCoord(id), r = co.r, c = co.c;
+                const own = colW(c, sh);
+                const text = cellDisplayText(cell);
+                if (typeof text !== 'string' || text === '') continue;
+                // a quick test first: text this short always fits, so nothing is measured
+                if (text.length * fontPx(st) * 1.25 <= own - 12) continue;
+                const td = document.getElementById(`cell-${id}`), input = document.getElementById(`input-${id}`);
+                if (!td || !input || td.style.display === 'none' || merged(r, c)) continue;
+                const align = effectiveAlign(cell) || 'left';
+                const frozen = c < (sh.freezeCols || 0);
+                const room = dir => { // the width of the empty cells next to this one, in that direction
+                    let w = 0;
+                    for (let k = c + dir; k >= 0 && k < COLS; k += dir) {
+                        if (frozen && k >= (sh.freezeCols || 0)) break;
+                        if (!emptyAt(r, k)) break;
+                        w += colW(k, sh);
+                    }
+                    return w;
+                };
+                const right = align === 'right' ? 0 : room(1), left = align === 'left' ? 0 : room(-1);
+                const extra = align === 'center' ? 2 * Math.min(left, right) : left + right;
+                if (extra <= 0) continue;
+                const cs = getComputedStyle(input);
+                ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+                const need = Math.ceil(ctx.measureText(text).width) + 12;
+                if (need <= own) continue;
+                const width = Math.min(need, own + extra);
+                next.set(td, { text, width, align, color: cs.color, font: cs.fontFamily, size: cs.fontSize, weight: cs.fontWeight, style: cs.fontStyle, deco: cs.textDecorationLine, own });
+            }
+            spillTds.forEach((v, td) => { if (!next.has(td) || !td.isConnected) clearSpillTd(td); });
+            next.forEach((v, td) => {
+                let o = td.querySelector('.spill-text');
+                if (!o) { o = document.createElement('span'); o.className = 'spill-text'; o.setAttribute('aria-hidden', 'true'); td.appendChild(o); }
+                if (o.textContent !== v.text) o.textContent = v.text;
+                const o2 = o.style;
+                o2.width = v.width + 'px';
+                o2.left = v.align === 'left' ? '0' : (v.align === 'center' ? '50%' : 'auto');
+                o2.right = v.align === 'right' ? '0' : 'auto';
+                o2.transform = v.align === 'center' ? 'translateX(-50%)' : '';
+                o2.justifyContent = v.align === 'right' ? 'flex-end' : (v.align === 'center' ? 'center' : 'flex-start');
+                o2.color = v.color; o2.fontFamily = v.font; o2.fontSize = v.size; o2.fontWeight = v.weight; o2.fontStyle = v.style; o2.textDecoration = v.deco;
+                td.classList.add('has-spill');
+                spillTds.set(td, v);
+            });
         }
 
         function applyAllStyles() {
@@ -9193,6 +9324,7 @@
                     if (type === 'bold') { if (st.fontWeight === 'bold') delete st.fontWeight; else st.fontWeight = 'bold'; }
                     else if (type === 'italic') { if (st.fontStyle === 'italic') delete st.fontStyle; else st.fontStyle = 'italic'; }
                     else if (type === 'underline') { if (st.textDecoration === 'underline') delete st.textDecoration; else st.textDecoration = 'underline'; }
+                    else if (type === 'fontSize') { if (value === DEFAULT_FONT_PT) delete st.fontSize; else st.fontSize = value; } // 10 is the normal size: no setting kept
                     else if (STYLE_KEY[type]) st[STYLE_KEY[type]] = value;
                     applyCellStyle(cellId);
                 }
@@ -9204,7 +9336,7 @@
                 document.getElementById('formula-input').value = cellEditText(getCellId(activeCell.row, activeCell.col));
             }
             applyConditionalFormattingRules(); // rules are drawn on top of fill colours
-            const FORMAT_NAMES = { bold: 'Bold', italic: 'Italic', underline: 'Underline', fontFamily: 'Font', color: 'Text color', bgColor: 'Fill color', align: 'Alignment', numFormat: 'Number format' };
+            const FORMAT_NAMES = { bold: 'Bold', italic: 'Italic', underline: 'Underline', fontFamily: 'Font', fontSize: 'Font size', color: 'Text color', bgColor: 'Fill color', align: 'Alignment', numFormat: 'Number format' };
             const rangeText = (minR === maxR && minC === maxC) ? getCellId(minR, minC) : `${getCellId(minR, minC)}:${getCellId(maxR, maxC)}`;
             recordHistory(`${FORMAT_NAMES[type] || 'Formatting'} on ${rangeText}`);
         }
@@ -9324,7 +9456,7 @@
                 const t = cellDisplayText(cell);
                 if (t === '' || t === undefined || t === null) continue;
                 const st = cell.style || {};
-                ctx.font = `${st.fontStyle === 'italic' ? 'italic ' : ''}${st.fontWeight === 'bold' ? 'bold ' : ''}13.6px ${st.fontFamily || 'system-ui, sans-serif'}`;
+                ctx.font = `${st.fontStyle === 'italic' ? 'italic ' : ''}${st.fontWeight === 'bold' ? 'bold ' : ''}${fontPx(st)}px ${st.fontFamily || 'system-ui, sans-serif'}`;
                 best = Math.max(best, ctx.measureText(String(t)).width);
             }
             return best ? Math.min(MAX_COL_W, Math.max(MIN_COL_W, Math.ceil(best + 16))) : DEFAULT_COL_W;
@@ -10488,17 +10620,52 @@
             return removed;
         }
 
+        // Merging keeps one entry: when the top-left cell is empty, the first cell with data (along the top row from the left, then the next row, and so on)
+        // moves into it and is emptied, so the same entry is not there twice. Other cells with data stay hidden under the merge, as before.
+        function pullDataIntoMerge(b) {
+            const tl = getCellId(b.minR, b.minC);
+            const has = id => !!data[id] && !data[id].spillOf && hasContent(data[id]);
+            const kept = has(tl);
+            let from = null, others = 0;
+            for (let r = b.minR; r <= b.maxR; r++) for (let c = b.minC; c <= b.maxC; c++) {
+                if (r === b.minR && c === b.minC) continue;
+                const id = getCellId(r, c);
+                if (!has(id)) continue;
+                if (!kept && !from) from = id; else others++;
+            }
+            if (from) {
+                const src = data[from];
+                const dst = data[tl] || (data[tl] = { style: {}, value: '', formula: '' });
+                if (!dst.style) dst.style = {};
+                // formulas elsewhere that pointed at the cell follow it, as with Cut
+                const sa = parseCellCoord(from), da = parseCellCoord(tl), sheet = sheets[currentSheetIdx];
+                const one = { minR: sa.r, maxR: sa.r, minC: sa.c, maxC: sa.c };
+                sheets.forEach(sh => { for (const id in sh.data) { const cell = sh.data[id]; if (cell !== src && cell.formula) cell.formula = retargetFormula(cell.formula, one, da.r - sa.r, da.c - sa.c, sh === sheet, sheet.name); } });
+                dst.value = src.value; dst.formula = src.formula;
+                if (src.rolls) dst.rolls = src.rolls; else delete dst.rolls;
+                src.value = ''; src.formula = ''; delete src.rolls;
+            }
+            return { from, to: tl, kept, others };
+        }
+
         function mergeCells() {
+            if (editingCell) endEdit(true);
             const b = selBounds();
             const rows = b.maxR - b.minR + 1;
             const cols = b.maxC - b.minC + 1;
             if (rows > 1 || cols > 1) {
                 unmergeRect(b);
+                const moved = pullDataIntoMerge(b);
                 const m = { r: b.minR, c: b.minC, rows, cols };
                 merges.push(m);
                 sheets[currentSheetIdx].merges = merges;
                 applyMergeDOM(m);
+                if (moved.from) { recalculateAll(); updateStats(); setActiveCell(activeCell.row, activeCell.col); }
                 recordHistory('Merged cells');
+                const hidden = moved.others ? `${moved.others} other cell${moved.others === 1 ? '' : 's'} with data ${moved.others === 1 ? 'stays' : 'stay'} hidden under the merge` : '';
+                if (moved.from) showToast(`${moved.from} moved into ${moved.to}${hidden ? '. ' + hidden : ''}`);
+                else if (moved.kept && hidden) showToast(`${moved.to} was kept. ${hidden}`);
+                else if (hidden) showToast(hidden);
             }
         }
 
@@ -10839,6 +11006,8 @@
             return h < 24 ? `${h} hr` : `${Math.round(h / 24)} day`;
         };
         function histRender() {
+            refreshRowSizes(); // (a font size change makes a row taller or shorter)
+            scheduleSpill();
             refreshCellInfo(); // (a change to a rule, table, name, merge or chart shows in the strip for one selected cell)
             const n = historyStack.length;
             const undo = document.getElementById('tt-undo'), redo = document.getElementById('tt-redo');
