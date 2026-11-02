@@ -772,6 +772,20 @@
         .cell-dock button:hover {
             background: rgba(255,255,255,0.25);
         }
+        /* Paste and its arrow are one button; the arrow opens the Paste / Paste values menu */
+        .cell-dock .dk-split { display: inline-flex; flex: none; }
+        .cell-dock .dk-split .dk-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+        .cell-dock .dk-split .dk-arrow { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: 1px; min-width: 30px; padding: 4px 2px; }
+        .cell-dock button.lit { background: var(--accent-color); color: #fff; }
+        .cell-dock button.lit:hover { background: var(--accent-hover); }
+        .cell-dock .material-symbols-outlined { font-size: 22px; }
+        .cell-dock .mi-trail { margin-left: 0; }
+        /* The menu above the bar: Paste / Paste values, Fill down / right / Series, Sum / Average / fx Wizard */
+        .dock-menu { position: fixed; z-index: 75; display: flex; flex-direction: column; min-width: 160px; padding: 6px; background: var(--inverse-bg); color: var(--inverse-text); border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+        .dock-menu.hidden { display: none; }
+        .dock-menu button { min-height: 44px; padding: 0 14px; border: none; border-radius: 10px; background: transparent; color: var(--inverse-text); font-size: 0.9rem; text-align: left; }
+        .dock-menu button:hover, .dock-menu button:active { background: rgba(255,255,255,0.15); }
+        body.kb-open .dock-menu, body.keyrow-on .dock-menu { display: none; }
 
         /* Sidebars & Modals */
         .sidebar {
@@ -1202,7 +1216,7 @@
         .resize-tip { position: fixed; z-index: 500; padding: 4px 10px; border-radius: 12px; background: var(--inverse-bg); color: var(--inverse-text); font-size: 0.8rem; font-weight: 600; pointer-events: none; }
         .resize-tip.hidden { display: none; }
         /* The fill handle sits on the corner of the selection; its touch area is 44 px, the square you see is 12 px */
-        .fill-handle { position: absolute; z-index: 6; width: 44px; height: 44px; margin: -22px 0 0 -22px; touch-action: none; cursor: crosshair; display: flex; align-items: center; justify-content: center; }
+        .fill-handle { position: absolute; z-index: 6; width: 44px; height: 44px; margin: -10px 0 0 -10px; padding: 2px; box-sizing: border-box; touch-action: none; cursor: crosshair; display: flex; align-items: flex-start; justify-content: flex-start; } /* the touch area reaches out below and to the right of the corner, so it does not cover a list cell's arrow */
         .fill-handle.hidden { display: none; }
         .fill-handle i { display: block; width: 12px; height: 12px; background: var(--selection-border); border: 2px solid var(--surface); border-radius: 2px; box-sizing: content-box; }
         .fill-handle.dragging { pointer-events: none; }
@@ -1380,9 +1394,9 @@
     <input type="file" id="workbook-file-input" style="display: none;" accept=".json,application/json" onchange="importWorkbook(event)">
 
     <!-- Cell Bottom Action Dock (Quick fx & validation pickers) -->
+    <div class="dock-menu hidden" id="dock-menu" role="menu"></div>
     <div class="key-row hidden" id="key-row" role="toolbar" aria-label="Formula keys"></div>
     <div class="cell-dock hidden" id="cell-dock">
-        <span id="cell-dock-title" style="font-size: 0.75rem; font-weight: 600; color: var(--inverse-muted); white-space: nowrap;">ACTIONS:</span>
         <div id="cell-dock-buttons" style="display: flex; gap: 6px; align-items: center;"></div>
     </div>
 
@@ -3949,6 +3963,7 @@
 
             const cb = document.getElementById('clipclear-btn');
             if (cb) cb.disabled = !clip;
+            closeDockMenu();
             if (!barOn() || editingCell) { dock.classList.add('hidden'); return; } // (the bar is for selected cells; while typing it would cover the cell)
 
             let html = '';
@@ -3958,7 +3973,16 @@
             // The Clear button does the most likely thing: with a Copy / Cut outline showing it only removes the outline, otherwise it empties the selected cells
             if (clip) clearBtn = `<button onclick="clipClear()" aria-label="Clear the ${clip.cut ? 'cut' : 'copy'} outline" title="Remove the ${clip.cut ? 'cut' : 'copy'} outline"><span class="material-symbols-outlined mi-lead" aria-hidden="true">close</span><span class="ico-alt">&#10005; </span>Clear</button>`;
             else if (!editingCell) clearBtn = `<button onclick="clearSelectedCells()" aria-label="Clear the selected cells" title="Empty the selected cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">delete</span>Clear</button>`;
-            if (multi) html += `<button class="qa-btn" onclick="openQuickAnalysis()">\u26A1 Analyze</button>${clearBtn}`; // with a range selected Clear sits next to Analyze, in view
+            // Two or more cells selected: the quick edit toolbar (Cut, Copy, Paste, Clear, Fill, fx), as in Excel
+            if (multi) {
+                html += dockCutCopy() + dockPaste() + clearBtn;
+                html += `<button class="dk-menu-btn" onclick="dockMenu('fill', this)" aria-haspopup="true" aria-label="Fill options">Fill<span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_drop_down</span><span class="ico-alt"> &#9662;</span></button>`;
+                if (showFx) html += `<button class="dk-menu-btn" onclick="dockMenu('fx', this)" aria-haspopup="true" aria-label="Functions"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span><span class="ico-alt">fx </span><span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_drop_down</span><span class="ico-alt">&#9662;</span></button>`;
+                dockButtons.innerHTML = html;
+                dock.classList.remove('hidden');
+                return;
+            }
+            if (clip) html += dockPaste(); // one cell while something is copied or cut: Paste comes first
             if (showFx) {
                 html += `<button onclick="insertQuickFn('SUM')">SUM</button>`;
                 html += `<button onclick="insertQuickFn('AVERAGE')">AVERAGE</button>`;
@@ -3991,6 +4015,35 @@
                 dock.classList.add('hidden');
             }
         }
+
+        // ----- The quick edit toolbar's buttons and menus (two or more cells selected) -----
+        const dockIcon = (name, label) => `<span class="material-symbols-outlined" aria-hidden="true">${name}</span><span class="ico-label">${label}</span>`;
+        const dockCutCopy = () => `<button onclick="copyCells(true)" aria-label="Cut" title="Cut the selected cells">${dockIcon('content_cut', 'Cut')}</button><button onclick="copyCells(false)" aria-label="Copy" title="Copy the selected cells">${dockIcon('content_copy', 'Copy')}</button>`;
+        // Paste with a small arrow (Paste, Paste values); it lights up while something is copied or cut
+        const dockPaste = () => `<span class="dk-split"><button class="dk-main${clip ? ' lit' : ''}" onclick="pasteCells(false)" aria-label="Paste" title="Paste">${dockIcon('content_paste', 'Paste')}</button><button class="dk-arrow dk-menu-btn${clip ? ' lit' : ''}" onclick="dockMenu('paste', this)" aria-haspopup="true" aria-label="Paste options" title="Paste options"><span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">&#9662;</span></button></span>`;
+        const DOCK_MENUS = {
+            paste: [['Paste', 'pasteCells(false)'], ['Paste values', 'pasteCells(true)']],
+            fill: [['Fill down', "fillCells('down')"], ['Fill right', "fillCells('right')"], ['Series', 'seriesFill()']],
+            fx: [['Sum', "insertQuickFn('SUM')"], ['Average', "insertQuickFn('AVERAGE')"], ['fx Wizard', 'openWizard()']]
+        };
+        let dockMenuKind = null;
+        function closeDockMenu() {
+            dockMenuKind = null;
+            const m = document.getElementById('dock-menu');
+            if (m) m.classList.add('hidden');
+        }
+        // A menu opens just above the bar, under the button's left edge; tapping the same button again, or anywhere else, closes it
+        function dockMenu(kind, btn) {
+            if (dockMenuKind === kind) { closeDockMenu(); return; }
+            const m = document.getElementById('dock-menu'), dock = document.getElementById('cell-dock');
+            dockMenuKind = kind;
+            m.innerHTML = DOCK_MENUS[kind].map(([label, call]) => `<button type="button" role="menuitem" onclick="closeDockMenu(); ${call}">${escapeHtml(label)}</button>`).join('');
+            m.classList.remove('hidden');
+            const dr = dock.getBoundingClientRect(), br = (btn.closest('.dk-split') || btn).getBoundingClientRect(), w = m.offsetWidth;
+            m.style.bottom = Math.round(innerHeight - dr.top + 6) + 'px';
+            m.style.left = Math.max(8, Math.min(br.left, innerWidth - w - 8)) + 'px';
+        }
+        document.addEventListener('pointerdown', e => { if (dockMenuKind && !(e.target.closest && e.target.closest('#dock-menu, .dk-menu-btn'))) closeDockMenu(); }, true);
 
         function setValidationValue(cellId, val) {
             const inputEl = document.getElementById(`input-${cellId}`);
