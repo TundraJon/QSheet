@@ -8217,12 +8217,34 @@
             ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
         ];
         const matchCase = (word, like) => (like === like.toUpperCase() && like.length > 1 ? word.toUpperCase() : (like === like.toLowerCase() ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()));
-        // Works out how to continue the seed cells: returns next(k) -> the value k steps after the last seed (k = 1, 2, ...), or null to just repeat the seeds
-        function seriesRule(seeds) {
-            const vals = seeds.map(x => x.value);
+        // Works out how to continue the seed cells: returns next(k) -> the value k steps after the last seed (k = 1, 2, ...), or null to just repeat the seeds.
+        // The order of the checks: a list (days, months, My Lists); text with a number; for numbers: dates by the month, a repeating cycle, the best-fit straight line.
+        // mode 'series' is the Series button (even one plain number goes on by 1); a drag of one plain number or plain text copies it.
+        const ordinalSuffix = (n, like) => { const a = Math.abs(n), s = (a % 100 >= 11 && a % 100 <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[a % 10] || 'th'); return like === like.toUpperCase() ? s.toUpperCase() : s; };
+        // Dates one or more whole months apart, on the same day of the month, go on by the month (1/1, 2/1 -> 3/1, 4/1); the day is cut to the month's end
+        function monthRule(vals) {
+            const parts = vals.map(v => { const d = ymdFromSerial(Math.floor(v)); return { y: d.y, m: d.m, d: d.d, f: v - Math.floor(v) }; });
+            const mi = parts.map(p => p.y * 12 + p.m), step = mi[1] - mi[0];
+            if (!step || !parts.every(p => p.d === parts[0].d) || !mi.every((x, i) => i === 0 || x - mi[i - 1] === step)) return null;
+            const last = parts[parts.length - 1];
+            return k => { const t = last.y * 12 + (last.m - 1) + step * k, y = Math.floor(t / 12), m = t % 12 + 1; return serialFromYMD(y, m, Math.min(last.d, daysInMonth(y, m))) + last.f; };
+        }
+        function seriesRule(seeds, mode) {
+            const vals = seeds.map(x => x.value), n = vals.length;
+            const styleOf = x => (x.cs && x.cs.s) || {};
             if (vals.every(v => typeof v === 'number' && isFinite(v))) {
-                const step = vals.length > 1 ? (vals[vals.length - 1] - vals[0]) / (vals.length - 1) : 1;
-                return k => Number((vals[vals.length - 1] + step * k).toPrecision(15));
+                const last = vals[n - 1];
+                const isDate = seeds.every(x => /^date/.test(styleOf(x).numFormat || '') || styleOf(x).numFormat === 'datetime');
+                if (n === 1) return isDate || mode === 'series' ? (k => Number((last + k).toPrecision(15))) : null; // a single date goes up a day; a single number is copied
+                if (isDate) { const m = monthRule(vals); if (m) return m; }
+                for (let p = 2; p * 2 <= n; p++) { // a repeating cycle (1, 2, 1, 2 goes on 1, 2, 1, 2): at least two whole blocks
+                    if (vals.every((v, i) => i < p || v === vals[i - p])) return k => vals[(n - 1 + k) % p];
+                }
+                const xm = (n - 1) / 2, ym = vals.reduce((a, b) => a + b, 0) / n; // the best-fit straight line through all of them (Excel's TREND)
+                let sxy = 0, sxx = 0;
+                vals.forEach((y, i) => { sxy += (i - xm) * (y - ym); sxx += (i - xm) * (i - xm); });
+                const slope = sxy / sxx;
+                return k => Number((ym + slope * (n - 1 + k - xm)).toPrecision(15));
             }
             if (!vals.every(v => typeof v === 'string' && v.trim() !== '')) return null;
             const low = vals.map(v => v.trim().toLowerCase());
@@ -8237,24 +8259,30 @@
             for (const list of myLists) { // one of the user's own lists
                 if (list.items && list.items.length > 1) { const rule = cycleRule(list.items.map(i => String(i).trim())); if (rule) return rule; }
             }
-            let parts = vals.map(v => /^(.*?)(\d+)$/.exec(v.trim()));
-            // A word with no number counts as 1 (test, test2, test3 goes on with test4), when the numbers then go up or down by the same step:
-            // by 1, or by any step when there are three or more cells (test, test5 is not a pattern)
+            // Text with a number: the last group of digits is the number; what is before and after it must be the same in every cell (capitals do not matter).
+            // A word with no number counts as 1 (test, test 2, test 3), also with a space, - _ # . : before the number.
+            const split = v => { const m = /^([\s\S]*?)(\d+)(\D*)$/.exec(v.trim()); return m ? { pre: m[1], num: m[2], suf: m[3] } : null; };
+            let parts = vals.map(split), bare = false;
             if (parts.some(p => !p) && parts.some(Boolean)) {
-                const word = parts.find(Boolean)[1];
-                const withBare = vals.map((v, i) => parts[i] || (v.trim() === word ? [v, word, '1'] : null));
-                if (withBare.every(Boolean) && withBare.every(p => p[1] === word)) {
-                    const ns = withBare.map(p => Number(p[2])), st = ns[1] - ns[0];
-                    if (ns.every((x, i) => i === 0 || x - ns[i - 1] === st) && st !== 0 && (Math.abs(st) === 1 || ns.length >= 3)) parts = withBare;
+                const ref = parts.find(Boolean), word = ref.pre.replace(/[\s\-_#.:]+$/, '').toLowerCase();
+                if (ref.suf === '' && word) {
+                    const withBare = vals.map((v, i) => parts[i] || (v.trim().toLowerCase() === word ? { pre: ref.pre, num: '1', suf: '' } : null));
+                    if (withBare.every(Boolean)) { parts = withBare; bare = true; }
                 }
             }
-            if (parts.every(Boolean) && parts.every(p => p[1] === parts[0][1])) {
-                const nums = parts.map(p => Number(p[2]));
-                const width = parts[parts.length - 1][2].length, padded = parts[parts.length - 1][2].startsWith('0');
-                const step = nums.length > 1 ? (nums[nums.length - 1] - nums[0]) / (nums.length - 1) : 1;
-                return k => { const n = Math.max(0, Math.round(nums[nums.length - 1] + step * k)); return parts[0][1] + (padded ? String(n).padStart(width, '0') : String(n)); };
-            }
-            return null;
+            if (!parts.every(Boolean)) return null;
+            const sufKey = t => (/^(st|nd|rd|th)$/i.test(t) ? '#ordinal' : t.toLowerCase()); // 1st, 2nd, 3rd, 4th are one kind of ending
+            if (!parts.every(p => p.pre.toLowerCase() === parts[0].pre.toLowerCase() && sufKey(p.suf) === sufKey(parts[0].suf))) return null;
+            const nums = parts.map(p => Number(p.num)), lastP = parts[n - 1];
+            const step = n > 1 ? (nums[n - 1] - nums[0]) / (n - 1) : 1;
+            if (bare && !(step !== 0 && nums.every((x, i) => i === 0 || x - nums[i - 1] === step) && (Math.abs(step) === 1 || n >= 3))) return null; // test, test 5 is not a pattern
+            const ordinal = /^(st|nd|rd|th)$/i.test(lastP.suf);
+            const width = lastP.num.length, padded = lastP.num.startsWith('0') && width > 1;
+            return k => {
+                const v = Math.round(nums[n - 1] + step * k);
+                const body = padded && v >= 0 ? String(v).padStart(width, '0') : String(v);
+                return lastP.pre + body + (ordinal ? ordinalSuffix(v, lastP.suf) : lastP.suf);
+            };
         }
         function seriesFill() {
             if (editingCell) endEdit(true);
@@ -8285,7 +8313,7 @@
                 const seeds = [];
                 for (let i = 0; i < n; i++) { const x = data[at(lane, i)]; seeds.push({ value: x.value, formula: x.formula, cs: histCapture(x) }); }
                 const hasFormula = seeds.some(x => x.formula);
-                const rule = hasFormula ? null : seriesRule(seeds);
+                const rule = hasFormula ? null : seriesRule(seeds, 'series');
                 const lastCs = seeds[n - 1].cs;
                 for (let i = n; i < len; i++) {
                     const id = at(lane, i);
@@ -9811,12 +9839,12 @@
                 const seeds = [];
                 for (let k = 0; k < n; k++) { const x = data[at(lane, k)]; seeds.push({ value: x ? x.value : '', formula: x ? x.formula : '', cs: histCapture(x) }); }
                 const hasFormula = seeds.some(x => x.formula);
-                const rule = n > 1 && !hasFormula ? seriesRule(seeds.filter(x => x.cs)) : null;
+                const rule = !hasFormula && seeds.every(x => x.cs) ? seriesRule(seeds) : null;
                 const lastCs = seeds[n - 1].cs;
                 for (let k = n; k < n + count; k++) {
                     const id = at(lane, k);
                     ids.push(id);
-                    if (rule && seeds.every(x => x.cs)) {
+                    if (rule) {
                         const v = rule(k - n + 1);
                         histWrite(sheet, id, { v, f: '', s: lastCs && lastCs.s ? { ...lastCs.s } : null, r: null });
                     } else {
