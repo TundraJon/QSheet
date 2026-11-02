@@ -428,12 +428,17 @@
         .ttc-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 0.85rem; color: var(--text-2); }
         .ttc-check input { width: 22px; height: 22px; flex: none; }
         #ttc-other.hidden, #pick-search.hidden { display: none; }
-        .tt-controls { display: flex; gap: 8px; }
-        .tt-controls button { flex: 1; min-height: 44px; font-size: 0.9rem; }
-        .tt-scrub { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
+        /* Time Travel: the header (title, Undo, Redo, close) and the DeLorean slider stay in place; only the list of steps scrolls */
+        .sidebar-header.tt-header { padding: 4px 6px 4px 14px; gap: 6px; }
+        .tt-head-btns { display: inline-flex; align-items: center; gap: 2px; }
+        .tt-head-btns button { min-width: 40px; min-height: 40px; padding: 0; }
+        .sidebar-header .tt-head-btns .material-symbols-outlined { font-size: 22px; }
+        .sidebar-header .tt-head-btns .tt-close .material-symbols-outlined { font-size: 12px; } /* the picture is small, the tap area is still 40 px */
+        #timeline-body { padding: 0; overflow: hidden; gap: 0; }
+        .tt-scrub { flex: none; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 6px 16px 4px; border-bottom: 1px solid var(--border-color); background: var(--sidebar-bg); }
         .tt-scrub input[type=range] { width: 100%; min-height: 44px; margin: 0; }
         .tt-hint { font-size: 0.75rem; color: var(--text-3); text-align: center; }
-        .tt-list { display: flex; flex-direction: column; gap: 6px; }
+        .tt-list { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow-y: auto; padding: 10px 16px 16px; }
         .tt-item { padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 44px; }
         .tt-item .tt-name { overflow-wrap: anywhere; }
         .tt-item .tt-meta { font-size: 0.72rem; color: var(--text-4); white-space: nowrap; flex: none; display: inline-flex; align-items: center; gap: 6px; }
@@ -1333,15 +1338,15 @@
 
         <!-- Time Travel Undo History Sidebar -->
         <div class="sidebar hidden" id="timeline-sidebar">
-            <div class="sidebar-header">
-                <span>Time Travel History</span>
-                <button onclick="toggleSidebar('timeline-sidebar')" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
+            <div class="sidebar-header tt-header">
+                <span class="tt-title">Time Travel History</span>
+                <span class="tt-head-btns">
+                    <button id="tt-undo" onclick="histUndo()" title="Undo" aria-label="Undo" disabled><span class="material-symbols-outlined" aria-hidden="true">undo</span><span class="ico-label">&#8630;</span></button>
+                    <button id="tt-redo" onclick="histRedo()" title="Redo" aria-label="Redo" disabled><span class="material-symbols-outlined" aria-hidden="true">redo</span><span class="ico-label">&#8631;</span></button>
+                    <button class="tt-close" onclick="toggleSidebar('timeline-sidebar')" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
+                </span>
             </div>
             <div class="sidebar-body" id="timeline-body">
-                <div class="tt-controls">
-                    <button id="tt-undo" onclick="histUndo()" disabled>&#8630; Undo</button>
-                    <button id="tt-redo" onclick="histRedo()" disabled>Redo &#8631;</button>
-                </div>
                 <div class="tt-scrub">
                     <input type="range" id="tt-slider" min="0" max="0" value="0" step="1" aria-label="Scrub through your changes" oninput="document.getElementById('tt-slider-label').textContent = 'Go to step ' + this.value; this.style.setProperty('--p', this.max > 0 ? this.value / this.max : 0)" onchange="histTravel(Number(this.value))" disabled>
                     <div class="tt-hint" id="tt-slider-label">No changes yet</div>
@@ -2142,6 +2147,7 @@
             document.documentElement.style.setProperty('--kb', (open ? inset : 0) + 'px');
             document.body.classList.toggle('kb-open', open);
             if (typeof updateKeyRow === 'function') updateKeyRow();
+            if (typeof editingCell !== 'undefined' && editingCell) keepEditCellInView(getCellId(editingCell.row, editingCell.col)); // (the keyboard opens after the edit has started)
         }
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', updateKeyboardInset);
@@ -3765,7 +3771,7 @@
 
             const cb = document.getElementById('clipclear-btn');
             if (cb) cb.disabled = !clip;
-            if (!barOn()) { dock.classList.add('hidden'); return; }
+            if (!barOn() || editingCell) { dock.classList.add('hidden'); return; } // (the bar is for selected cells; while typing it would cover the cell)
 
             let html = '';
             const sel = selBounds();
@@ -3844,7 +3850,8 @@
             grid.appendChild(fh);
             fh.addEventListener('pointerdown', fillHandleDown);
             grid.addEventListener('pointerdown', gripDown, true);
-            grid.addEventListener('click', e => { if (Date.now() - gripSwallow < 500 && e.target.closest && e.target.closest('.edge-grip')) { e.stopPropagation(); e.preventDefault(); } }, true);
+            // (a resize that ends off the edge sends its click to the header itself, so any header click right after a resize is dropped)
+            grid.addEventListener('click', e => { if (Date.now() - gripSwallow < 500 && e.target.closest && e.target.closest('th')) { e.stopPropagation(); e.preventDefault(); } }, true);
             grid.addEventListener('pointerdown', onGridPointerDown);
             grid.addEventListener('pointermove', onGridPointerMove);
             grid.addEventListener('pointerup', onGridPointerUp);
@@ -4034,6 +4041,7 @@
             if (editingCell) endEdit(true);
             if (activeCell.row !== r || activeCell.col !== c) selectSingle(r, c);
             if (clip) clipClear(true); // starting to edit drops the copy outline, as in Excel
+            if (ribbonOpen) toggleRibbon(); // the ribbon would cover the cell: one tap on Ribbon Menu brings it back
             editingCell = { row: r, col: c, original: cellEditText(cellId), typed: replaceWith !== undefined };
             clearSpillTd(document.getElementById(`cell-${cellId}`)); // the box shows the text while it is typed in
             updateDropArrow();
@@ -4044,8 +4052,9 @@
             input.focus();
             const len = input.value.length;
             try { if (opts && opts.selectAll) input.setSelectionRange(0, len); else input.setSelectionRange(len, len); } catch (err) {}
-            if (opts && opts.scroll) keepEditCellInView(cellId);
             updateKeyRow();
+            updateCellDock(cellId); // (hides the actions bar while typing)
+            keepEditCellInView(cellId);
             positionFillHandle();
             // Nothing is calculated while typing: the entry is accepted (and the sheet calculated, once) by endEdit
         }
@@ -4087,6 +4096,7 @@
             scheduleSpill();
             updateKeyRow();
             positionFillHandle();
+            if (!editingCell) updateCellDock(getCellId(activeCell.row, activeCell.col)); // the actions bar comes back
         }
 
         function onCellBlur(r, c) {
@@ -4197,10 +4207,26 @@
                 mode.textContent = el && el.getAttribute('inputmode') === 'decimal' ? 'ABC' : '123';
             }
         }
-        // The cell being typed in scrolls into view above the keyboard and the key row
+        // The cell being typed in is moved into the part of the grid you can really see: below the column letters (and frozen rows),
+        // above the key row and the keyboard. When it was hidden it goes near the middle of that part.
         function keepEditCellInView(cellId) {
-            const td = document.getElementById(`cell-${cellId}`);
-            if (td && td.scrollIntoView) td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            const td = document.getElementById(`cell-${cellId}`), grid = document.getElementById('grid-container');
+            if (!td || !grid) return;
+            const sh = sheets[currentSheetIdx], gr = grid.getBoundingClientRect(), r = td.getBoundingClientRect();
+            const kb = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kb')) || 0;
+            const keyRow = document.getElementById('key-row');
+            const keyTop = keyRow && !keyRow.classList.contains('hidden') ? keyRow.getBoundingClientRect().top : innerHeight - kb;
+            let frozenH = 0, frozenW = 0;
+            for (let i = 0; i < (sh.freezeRows || 0); i++) frozenH += rowH(i, sh);
+            for (let i = 0; i < (sh.freezeCols || 0); i++) frozenW += colW(i, sh);
+            const winTop = gr.top + 26 + frozenH + 2, winBottom = Math.min(gr.bottom, keyTop) - 4;
+            const winLeft = gr.left + 50 + frozenW + 2, winRight = gr.right - 2;
+            const co = parseCellCoord(cellId);
+            if (co.r >= (sh.freezeRows || 0) && !(r.top >= winTop && r.bottom <= winBottom)) grid.scrollTop += (r.top + r.bottom) / 2 - (winTop + winBottom) / 2;
+            if (co.c >= (sh.freezeCols || 0)) {
+                if (r.left < winLeft) grid.scrollLeft -= winLeft - r.left + 6;
+                else if (r.right > winRight) grid.scrollLeft += r.right - winRight + 6;
+            }
         }
 
         function handleCellKey(e, r, c) {
@@ -8212,7 +8238,17 @@
             for (const list of myLists) { // one of the user's own lists
                 if (list.items && list.items.length > 1) { const rule = cycleRule(list.items.map(i => String(i).trim())); if (rule) return rule; }
             }
-            const parts = vals.map(v => /^(.*?)(\d+)$/.exec(v.trim()));
+            let parts = vals.map(v => /^(.*?)(\d+)$/.exec(v.trim()));
+            // A word with no number counts as 1 (test, test2, test3 goes on with test4), when the numbers then go up or down by the same step:
+            // by 1, or by any step when there are three or more cells (test, test5 is not a pattern)
+            if (parts.some(p => !p) && parts.some(Boolean)) {
+                const word = parts.find(Boolean)[1];
+                const withBare = vals.map((v, i) => parts[i] || (v.trim() === word ? [v, word, '1'] : null));
+                if (withBare.every(Boolean) && withBare.every(p => p[1] === word)) {
+                    const ns = withBare.map(p => Number(p[2])), st = ns[1] - ns[0];
+                    if (ns.every((x, i) => i === 0 || x - ns[i - 1] === st) && st !== 0 && (Math.abs(st) === 1 || ns.length >= 3)) parts = withBare;
+                }
+            }
             if (parts.every(Boolean) && parts.every(p => p[1] === parts[0][1])) {
                 const nums = parts.map(p => Number(p[2]));
                 const width = parts[parts.length - 1][2].length, padded = parts[parts.length - 1][2].startsWith('0');
@@ -9866,6 +9902,7 @@
             const d = gripDrag; gripDrag = null;
             gripTip(null);
             if (!d) return;
+            gripSwallow = Date.now(); // a tap on the edge is about resizing: it must not also select the column (and open the ribbon, which would shift the grid)
             if (!d.moved) { gripTap = { col: d.col, idx: d.idx, t: Date.now() }; return; } // (a first tap: a second one soon after auto-fits)
             gripTap = null; gripSwallow = Date.now();
             const sh = sheets[currentSheetIdx];
@@ -11575,7 +11612,11 @@
             list.innerHTML = html;
             const sidebar = document.getElementById('timeline-sidebar');
             const cur = list.querySelector('.tt-item.current');
-            if (cur && sidebar && !sidebar.classList.contains('hidden') && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' }); // keep "you are here" in view
+            if (cur && sidebar && !sidebar.classList.contains('hidden')) { // keep "you are here" in view: only the list scrolls, never the panel
+                const lr = list.getBoundingClientRect(), cr = cur.getBoundingClientRect();
+                if (cr.top < lr.top) list.scrollTop -= lr.top - cr.top + 8;
+                else if (cr.bottom > lr.bottom) list.scrollTop += cr.bottom - lr.bottom + 8;
+            }
         }
         const renderTimeline = histRender;
 
