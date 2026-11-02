@@ -428,6 +428,7 @@
         .ttc-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 0.85rem; color: var(--text-2); }
         .ttc-check input { width: 22px; height: 22px; flex: none; }
         #ttc-other.hidden, #pick-search.hidden { display: none; }
+        #nw-extra.hidden { display: none; }
         /* Time Travel: the header (title, Undo, Redo, close) and the DeLorean slider stay in place; only the list of steps scrolls */
         .sidebar-header.tt-header { padding: 4px 6px 4px 14px; gap: 6px; }
         .tt-head-btns { display: inline-flex; align-items: center; gap: 2px; }
@@ -1956,6 +1957,43 @@
     </div>
 
     <!-- Column width / row height -->
+    <!-- New workbook: blank, or from a template -->
+    <div class="modal-overlay hidden" id="newwb-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <span>New workbook</span>
+                <button onclick="closeNewWorkbookModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="nw-template">Start with</label>
+                    <select id="nw-template" onchange="nwUpdate()">
+                        <option value="blank">A blank workbook</option>
+                        <option value="character">Character sheet (template)</option>
+                        <option value="initiative">Initiative tracker (template)</option>
+                    </select>
+                    <div class="wiz-tip" id="nw-about"></div>
+                </div>
+                <div id="nw-extra" class="hidden">
+                    <div class="form-group">
+                        <label for="nw-genre">Genre</label>
+                        <select id="nw-genre" onchange="nwUpdate()"></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="nw-sub">Sub-genre</label>
+                        <select id="nw-sub"></select>
+                    </div>
+                    <div class="cm-hint">The genre fills the labels and the drop-down lists with fitting words. Nothing is tied to a rule system, and every word can be changed on the Lists sheet.</div>
+                </div>
+                <div class="cm-hint">The current workbook will be replaced. Use Export Workbook first if you want a backup.</div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeNewWorkbookModal()">Cancel</button>
+                <button class="primary" onclick="startNewWorkbook()">Start</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay hidden" id="size-modal">
         <div class="modal">
             <div class="modal-header">
@@ -2824,6 +2862,147 @@
         }
 
         // ----- New / export / import workbook -----
+        // ===== Starter templates for games (item 109) =====
+        // New Workbook can start from a template: a Character sheet or an Initiative tracker, for a genre and an optional sub-genre.
+        // The genre changes the WORDS (stats, skills, roles, origins, gear, conditions, foes); the templates use no rule system. The words live on a
+        // "Lists" sheet that feeds the drop-downs, so every word can be changed afterwards. (Word lists: strings split by "|".)
+        const TPL_GENRES = {"fantasy":{"name":"Fantasy","stats":"Might|Agility|Endurance|Wits|Insight|Presence","skills":"Athletics|Stealth|Lore|Survival|Persuasion|Healing|Arcana|Perception|Crafting|Riding","roles":"Warrior|Rogue|Mage|Cleric|Ranger|Bard|Knight|Druid","origins":"Human|Elf|Dwarf|Halfling|Orc|Gnome|Half-elf|Beastfolk","gear":"Longsword|Shortbow|Dagger|Shield|Leather armor|Chain mail|Spellbook|Healing potion|Rope|Torch|Rations|Lockpicks","cond":"Poisoned|Stunned|Frightened|Prone|Blessed|Burning","foes":"Goblin|Skeleton|Orc raider|Wolf|Bandit|Dragon|Troll|Wraith","subs":{"High":{"roles":"Paladin|Archmage|Elven ranger|High priest|Knight-errant|Bard","gear":"Enchanted blade|Staff of power|Mithril mail|Elixir|Scroll|Crystal focus|Warhorse|Banner","foes":"Dragon|Lich|Demon lord|Giant|Griffon|Sorcerer-king"},"Low":{"roles":"Mercenary|Hedge witch|Poacher|Scout|Squire|Peddler","gear":"Rusty sword|Hatchet|Sling|Padded armor|Herbs|Lantern|Waterskin|Pack mule","foes":"Bandit|Wolf|Brigand|Ghoul|Boar|Cultist"},"Dark":{"roles":"Witch hunter|Necromancer|Grave warden|Outcast knight|Plague doctor|Cultist","gear":"Silver blade|Bone charm|Blood vial|Black cloak|Holy symbol|Chains|Crossbow|Torch","foes":"Wraith|Ghoul|Vampire|Cult leader|Abomination|Revenant"},"Sword & sorcery":{"roles":"Barbarian|Thief|Sorcerer|Mercenary|Pirate queen|Wanderer","gear":"Broadsword|Axe|Light armor|Idol|Gold|Poison|Grappling hook|Wineskin","foes":"Cult sorcerer|Giant serpent|Warlord|Beast-man|Mummy|Demon"},"Urban":{"roles":"Street wizard|Fixer|Guild thief|Watch captain|Alchemist|Courier","gear":"Wand|Coin purse|Lantern|Contacts|Hidden dagger|Potion|Spellbook|Sewer map","foes":"Gang thug|Cult|Rat swarm|Guard|Assassin|Imp"},"Mythic":{"roles":"Demigod|Oracle|Hero of legend|Seer|Titan-blooded|Bard of epics","gear":"Divine spear|Shield of legend|Winged sandals|Laurel|Oracle bones|Chariot|Amphora|Lyre","foes":"Hydra|Minotaur|Titan|Harpy|Chimera|Sphinx"},"Fairy tale":{"roles":"Brave child|Woodcutter|Fairy godparent|Talking fox|Witch|Prince","gear":"Magic bean|Red cloak|Glass slipper|Breadcrumbs|Lantern|Wooden sword|Mirror|Basket","foes":"Wolf|Ogre|Evil witch|Troll under a bridge|Giant|Dragon"}}},"scifi":{"name":"Sci-fi","stats":"Strength|Reflex|Constitution|Intellect|Awareness|Charisma","skills":"Piloting|Engineering|Medicine|Hacking|Gunnery|Science|Stealth|Diplomacy|Survival|Mechanics","roles":"Pilot|Engineer|Medic|Soldier|Scientist|Smuggler|Diplomat|Hacker","origins":"Human colonist|Spacer|Android|Alien|Clone|Augmented|Belter|Terran","gear":"Blaster|Vibro-blade|Armor suit|Medkit|Datapad|Toolkit|Scanner|Grav boots|Ration packs|Comm link|Jetpack|Shield belt","cond":"Stunned|Irradiated|Vacuum exposed|Hacked|Shielded|Overcharged","foes":"Raider|Combat drone|Alien beast|Pirate|Rogue AI|Mercenary|Xeno swarm|Cyborg","subs":{"Space opera":{"roles":"Starship captain|Rogue pilot|Mystic knight|Diplomat|Smuggler|Fleet admiral","gear":"Laser pistol|Starship|Energy sword|Scanner|Flight jacket|Credits|Droid|Holo map","foes":"Space pirate|Imperial trooper|Warlord|Alien tyrant|Battle droid|Bounty hunter"},"Hard sci-fi":{"roles":"Mission specialist|Flight engineer|Planetary scientist|Doctor|Commander|Technician","gear":"EVA suit|Oxygen tank|Spectrometer|Repair kit|Tether|Radiation badge|Drone|Fabricator","foes":"Hull breach|Solar flare|Failing life support|Asteroid|Rival crew|Alien microbe"},"Cyberpunk":{"roles":"Netrunner|Street samurai|Fixer|Techie|Corporate agent|Medtech","gear":"Cyberdeck|Smart pistol|Neural link|Mono-blade|Armored coat|Stims|Burner phone|Credstick","foes":"Gang|Corp security|Rogue AI|Cyberpsycho|Assassin|Drone"},"Military":{"roles":"Squad leader|Rifleman|Medic|Sniper|Engineer|Pilot","gear":"Assault rifle|Body armor|Grenades|Radio|Combat knife|Med pack|Night vision|Rations","foes":"Enemy squad|Armored vehicle|Sniper|Gunship|Commando|Mech"},"Dystopian":{"roles":"Rebel|Informant|Scavenger|Enforcer|Underground doctor|Smuggler","gear":"Forged papers|Radio|Stolen rations|Stun baton|Hidden blade|Medkit|Gas mask|Map","foes":"Enforcer|Surveillance drone|Informer|Riot squad|Warden|Security AI"},"First contact":{"roles":"Xenolinguist|Captain|Xenobiologist|Envoy|Security chief|Pilot","gear":"Translator|Sample kit|Scanner|Sidearm|Environment suit|Probe|Beacon|Sensor array","foes":"Hostile probe|Alien guardian|Misunderstanding|Swarm|Defensive field|Rival envoy"}}},"modern":{"name":"Modern","stats":"Strength|Agility|Health|Mind|Awareness|Charm","skills":"Athletics|Driving|Stealth|Investigation|Streetwise|Medicine|Computers|Persuasion|Firearms|Survival","roles":"Investigator|Fixer|Driver|Medic|Hacker|Reporter|Cop|Specialist","origins":"Local|Veteran|Immigrant|Ex-con|Student|Professional|Drifter|Heir","gear":"Smartphone|Flashlight|First-aid kit|Pistol|Laptop|Lockpicks|Car|Cash|Binoculars|Notebook|Camera|Backpack","cond":"Injured|Exhausted|Wanted|Shaken|Drunk|Sick","foes":"Thug|Gang member|Corrupt cop|Hitman|Stalker|Crime boss|Cultist|Rival","subs":{"Contemporary":{"roles":"Neighbor|Teacher|Nurse|Mechanic|Cook|Student","gear":"Phone|Car keys|Wallet|Laptop|Toolbox|Water bottle|Backpack|Flashlight","foes":"Bully|Burglar|Landlord|Stranger|Rival|Scammer"},"Thriller / espionage":{"roles":"Field agent|Handler|Analyst|Safecracker|Forger|Courier","gear":"Encrypted phone|Silenced pistol|Disguise kit|Lockpicks|Bug|Fake passport|Burner phone|Micro camera","foes":"Rival agent|Assassin|Double agent|Guards|Surveillance|Mole"},"Crime / noir":{"roles":"Private eye|Gangster|Femme fatale|Bartender|Reporter|Cop","gear":"Revolver|Fedora|Notebook|Flask|Cigarettes|Trench coat|Camera|Old car","foes":"Crime boss|Hitman|Crooked cop|Blackmailer|Informant|Corrupt judge"},"Police procedural":{"roles":"Detective|Patrol officer|Forensic tech|Dispatcher|Lieutenant|Profiler","gear":"Badge|Sidearm|Radio|Body cam|Case files|Handcuffs|Evidence bags|Squad car","foes":"Suspect|Fugitive|Gang|Witness tamperer|Serial offender|Informant"},"Urban fantasy":{"roles":"Hidden witch|Monster hunter|Fae diplomat|Occult detective|Werewolf|Spirit medium","gear":"Charm bracelet|Silver bullets|Grimoire|Salt|Phone|Hex bag|Iron nails|Tarot","foes":"Vampire|Rogue mage|Ghoul|Fae lord|Demon|Cult"}}},"supers":{"name":"Supers","stats":"Might|Speed|Toughness|Brains|Instinct|Willpower","skills":"Acrobatics|Investigation|Flight|Combat|Gadgetry|Stealth|Persuasion|Science|Leadership|Medicine","roles":"Brick|Speedster|Gadgeteer|Mentalist|Elementalist|Sidekick|Vigilante|Mastermind","origins":"Mutant|Alien|Lab accident|Magic|Tech suit|Trained|Cosmic|Cursed","gear":"Costume|Utility belt|Comm link|Grapple|Shield|Mask|Tech gauntlets|First-aid kit|Secret base key|Vehicle|Smoke pellets|Cape","cond":"Stunned|Drained|Exposed identity|Weakened|Shielded|Enraged","foes":"Henchman|Mad scientist|Rival hero|Robot|Alien invader|Mastermind|Monster|Crime lord","subs":{"Classic four-color":{"roles":"Paragon|Boy wonder|Caped champion|Hero of the city|Speed hero|Super scientist","gear":"Cape|Rocket boots|Signal flare|Ray gun|Shield|Cosmic ring|Hero car|Hideout","foes":"Evil genius|Giant robot|Space tyrant|Gangster|Mirror foe|Mad wizard"},"Gritty":{"roles":"Vigilante|Ex-soldier|Street fighter|Detective|Hacker|Medic","gear":"Body armor|Knife|Burner phone|Night vision|Bandages|Crowbar|Grapple|Stolen cash","foes":"Gang|Corrupt cops|Hitman|Crime lord|Rival vigilante|Drug ring"},"Teen heroes":{"roles":"Rookie hero|Student|Sidekick|Hacker kid|Brawler|Mentor's apprentice","gear":"Backpack|Homemade suit|Phone|Skateboard|Hoodie|Notebook|Bike|Lunch money","foes":"Bully|Teacher with secrets|Rival school|Gang|Rogue experiment|Villain's heir"},"Anti-heroes":{"roles":"Mercenary|Reformed villain|Outlaw|Bounty hunter|Brooding hero|Assassin","gear":"Blades|Pistols|Armor|Trench coat|Flask|Stolen tech|Contract|Bike","foes":"Rival gang|Former boss|Hero hunter|Bounty hunters|Corporation|Cult"},"Cosmic":{"roles":"Star champion|Herald|Cosmic wanderer|Guardian|Energy being|Planet protector","gear":"Cosmic armor|Star chart|Power gem|Energy blade|Comm crystal|Ship|Halo|Cloak","foes":"Planet devourer|Cosmic tyrant|Alien armada|Void horror|Dark guardian|Reality bender"}}},"horror":{"name":"Horror","stats":"Body|Reflex|Nerve|Wits|Senses|Sanity","skills":"Investigation|Occult|Stealth|Medicine|Research|Athletics|Survival|Mechanics|Persuasion|Firearms","roles":"Investigator|Survivor|Medium|Skeptic|Hunter|Priest|Scholar|Drifter","origins":"Local|Outsider|Student|Journalist|Veteran|Ex-cultist|Patient|Heir","gear":"Flashlight|Lantern|Crowbar|Holy symbol|Salt|Revolver|Journal|First-aid kit|Matches|Camera|Silver knife|Radio","cond":"Frightened|Bleeding|Haunted|Exhausted|Cursed|Possessed","foes":"Ghost|Cultist|Ghoul|Creeper|Stalker|Vampire|Shapeshifter|Unknown","subs":{"Gothic":{"roles":"Governess|Vampire hunter|Priest|Haunted heir|Doctor|Antiquarian","gear":"Candle|Silver cross|Stake|Old diary|Lace gloves|Pistol|Smelling salts|Locket","foes":"Vampire|Ghost bride|Gargoyle|Ghoul|Mad lord|Werewolf"},"Cosmic":{"roles":"Scholar|Antiquarian|Detective|Sailor|Artist|Asylum doctor","gear":"Forbidden tome|Lantern|Revolver|Ritual dagger|Journal|Warding sign|Camera|Pocket watch","foes":"Cult|Deep dweller|Void thing|Mad prophet|Star spawn|Shapeless horror"},"Slasher":{"roles":"Final girl|Jock|Prankster|Bookworm|Camp counselor|Sheriff","gear":"Flashlight|Baseball bat|Car keys|Radio|First aid|Axe|Bike|Phone","foes":"The killer|Masked stalker|Possessed friend|Local legend|Cult|Ghost"},"Supernatural":{"roles":"Medium|Exorcist|Paranormal investigator|Skeptic|Priest|Sensitive","gear":"EMF meter|Rosary|Salt|Holy water|Candles|Recorder|Camera|Ritual book","foes":"Poltergeist|Demon|Ghost|Cursed object|Witch|Spirit"},"Survival / zombie":{"roles":"Survivor|Scavenger|Medic|Mechanic|Soldier|Scout","gear":"Machete|Pistol|Canned food|Water|Backpack|Bandages|Flashlight|Radio","foes":"Walker|Horde|Runner|Raider|Infected|Brute"},"Psychological":{"roles":"Patient|Therapist|Detective|Artist|Insomniac|Neighbor","gear":"Journal|Pills|Photo|Keys|Recorder|Phone|Mirror|Coat","foes":"Memory|Doppelganger|Voice|Stalker|Delusion|Gaslighter"}}},"postapoc":{"name":"Post-apocalypse","stats":"Strength|Agility|Endurance|Wits|Perception|Grit","skills":"Scavenging|Survival|Mechanics|Combat|Stealth|Medicine|Trading|Driving|Tracking|Crafting","roles":"Scavenger|Wanderer|Mechanic|Raider|Medic|Trader|Scout|Warden","origins":"Bunker born|Wastelander|Caravaner|Tribal|Soldier|Survivor|Mutant|Drifter","gear":"Pipe wrench|Rifle|Gas mask|Water filter|Canned food|Scrap armor|Bandages|Fuel can|Radio|Rope|Lockpicks|Backpack","cond":"Irradiated|Starving|Dehydrated|Infected|Wounded|Exhausted","foes":"Raider|Mutant|Feral dogs|Rogue robot|Cultist|Warlord|Giant bug|Zombie","subs":{"Wasteland":{"roles":"Caravan guard|Scrap smith|Dust rider|Water seeker|Nomad|Ganger","gear":"Dune buggy|Canteen|Scrap shield|Goggles|Chain|Spear|Crossbow|Rags","foes":"Raider|Sand beast|Bandit king|Mutant|Warband|Scorpion"},"Zombie":{"roles":"Survivor|Barricade builder|Scavenger|Medic|Hunter|Runner","gear":"Bat|Axe|Barricade kit|Canned food|Radio|Pistol|Antibiotics|Bag","foes":"Walker|Horde|Runner|Bloater|Raider|Infected"},"Nuclear":{"roles":"Geiger tracker|Ex-soldier|Mutant hunter|Tech scavenger|Bunker doctor|Warlord's courier","gear":"Geiger counter|Rad-away|Hazmat suit|Bunker key|Rifle|Med injector|Ration crate|Power cell","foes":"Mutant|Ghoul|Rogue bot|Raider|Radstorm|Mutated beast"},"Climate / eco":{"roles":"Water engineer|Farmer|Seed keeper|Boat captain|Medic|Scout","gear":"Water purifier|Seed vault|Solar panel|Raft|Tool kit|Filter mask|Rations|Radio","foes":"Storm|Flood|Drought|Raider|Blighted creatures|Famine"}}},"swash":{"name":"Swashbuckling","stats":"Brawn|Finesse|Grit|Wit|Charm|Daring","skills":"Fencing|Acrobatics|Sailing|Gambling|Persuasion|Riding|Stealth|Intrigue|Brawling|Navigation","roles":"Duelist|Rogue|Captain|Privateer|Musketeer|Courtier|Scoundrel|Navigator","origins":"Noble|Commoner|Sailor|Foreigner|Orphan|Soldier|Traveler|Smuggler's child","gear":"Rapier|Pistol|Cutlass|Cloak|Boots|Plumed hat|Rope|Spyglass|Map|Lockpicks|Purse|Signet ring","cond":"Wounded|Drunk|Wanted|Dishonored|Heartbroken|Seasick","foes":"Pirate|Guard|Rival duelist|Corrupt governor|Sea monster|Assassin|Navy captain|Smuggler","subs":{"Age of sail / pirates":{"roles":"Pirate captain|Quartermaster|Privateer|Cabin boy|Navigator|Ship's doctor","gear":"Cutlass|Flintlock|Spyglass|Treasure map|Grog|Rope|Ship|Jolly flag","foes":"Navy captain|Rival pirate|Kraken|Mutineer|Storm|Ghost ship"},"Musketeers / court intrigue":{"roles":"Musketeer|Spymaster|Courtier|Lady-in-waiting|Duelist|Royal guard","gear":"Rapier|Musket|Plumed hat|Sealed letter|Perfume|Ring|Horse|Cloak","foes":"Cardinal's guard|Rival duelist|Spy|Poisoner|Corrupt minister|Assassin"},"Outlaws / highwaymen":{"roles":"Highwayman|Poacher|Outlaw leader|Fence|Lookout|Disguised noble","gear":"Pistol|Mask|Horse|Cudgel|Bow|Loot sack|Cloak|Lantern","foes":"Sheriff|Redcoats|Bounty hunter|Informer|Rival gang|Gallows"},"Romantic adventure":{"roles":"Dashing hero|Heiress|Rogue lover|Rival suitor|Chaperone|Fencing governess","gear":"Rapier|Love letter|Masquerade mask|Pocket watch|Rose|Cloak|Horse|Fan","foes":"Jealous rival|Villainous baron|Kidnappers|Scheming duke|Assassin|Duelist"}}},"historical":{"name":"Historical","stats":"Strength|Dexterity|Endurance|Intellect|Perception|Presence","skills":"Agriculture|Trade|Fighting|Riding|Medicine|Crafts|Lore|Persuasion|Stealth|Navigation","roles":"Soldier|Merchant|Scholar|Craftsman|Priest|Noble|Farmer|Spy","origins":"Peasant|Townsfolk|Noble|Foreigner|Soldier|Priest|Merchant|Traveler","gear":"Sword|Spear|Bow|Shield|Cloak|Satchel|Lantern|Rope|Coins|Rations|Tools|Map","cond":"Wounded|Fevered|Starving|Exiled|Blessed|Indebted","foes":"Bandit|Rival soldier|Corrupt official|Wolf|Plague|Spy|Brigand|Assassin","subs":{"Ancient":{"roles":"Legionary|Priest|Scribe|Gladiator|Senator|Merchant","gear":"Gladius|Scroll|Sandals|Toga|Amphora|Papyrus|Chariot|Torch","foes":"Barbarian|Rival senator|Pirate|Arena beast|Plague|Spy"},"Medieval":{"roles":"Knight|Monk|Peasant|Blacksmith|Squire|Merchant","gear":"Longsword|Mail shirt|Rosary|Plough|Quill|Mule|Torch|Pilgrim staff","foes":"Bandit|Plague|Rival lord|Wolf|Heretic hunter|Raider"},"Renaissance":{"roles":"Artist|Banker|Duelist|Inventor|Cardinal|Explorer","gear":"Rapier|Sketchbook|Printing press|Compass|Ledger|Brush|Telescope|Cloak","foes":"Rival patron|Inquisitor|Poisoner|Bandit|Plague|Spy"},"Wild West":{"roles":"Gunslinger|Sheriff|Prospector|Outlaw|Rancher|Doc","gear":"Revolver|Rifle|Lasso|Horse|Saddlebag|Whiskey|Pickaxe|Badge","foes":"Outlaw gang|Bounty hunter|Rustler|Rival rancher|Snake|Railroad boss"},"Victorian":{"roles":"Detective|Governess|Inventor|Doctor|Journalist|Gentleman thief","gear":"Pocket watch|Umbrella|Revolver|Calling card|Notebook|Top hat|Cane|Lantern","foes":"Pickpocket|Fog killer|Crooked lord|Blackmailer|Rival inventor|Smuggler"},"Regency":{"roles":"Gentleman|Lady|Officer|Heiress|Rake|Companion","gear":"Fan|Calling card|Pistol|Carriage|Letter|Gloves|Pocket watch|Pianoforte","foes":"Scandal|Rival suitor|Rake|Gossip|Fortune hunter|Creditor"},"World war":{"roles":"Infantryman|Nurse|Pilot|Resistance fighter|Officer|Radio operator","gear":"Rifle|Helmet|Rations|Map|Radio|Bandages|Grenade|Letters","foes":"Enemy patrol|Sniper|Tank|Artillery|Spy|Bomber"}}},"steampunk":{"name":"Steampunk","stats":"Brawn|Dexterity|Vigor|Ingenuity|Perception|Poise","skills":"Engineering|Tinkering|Piloting|Etiquette|Alchemy|Marksmanship|Stealth|Medicine|Persuasion|Navigation","roles":"Inventor|Airship pilot|Aristocrat|Mechanic|Alchemist|Adventurer|Spy|Automaton","origins":"Gentry|Guild member|Factory worker|Aeronaut|Colonist|Automaton|Scholar|Street urchin","gear":"Goggles|Steam pistol|Clockwork gadget|Grappling gun|Pocket watch|Toolkit|Brass compass|Top hat|Lantern|Leather coat|Pressure suit|Ether flask","cond":"Overheated|Rusted|Wounded|Poisoned|Wanted|Steam-burned","foes":"Clockwork soldier|Pirate|Rogue automaton|Airship raider|Mad inventor|Guild enforcer|Spy|Smuggler","subs":{"Gaslamp / Victorian":{"roles":"Detective|Inventor|Lady scientist|Gentleman thief|Mechanic|Constable","gear":"Gas lamp|Brass monocle|Cane sword|Pocket watch|Notebook|Steam pistol|Top hat|Locket","foes":"Fog thief|Mad scientist|Corrupt lord|Smuggler|Automaton|Cult"},"Clockwork fantasy":{"roles":"Clockwork knight|Gear mage|Tinker witch|Automaton bard|Cog smith|Dwarf engineer","gear":"Clockwork sword|Gear charm|Brass shield|Spring-loaded bow|Cog gauntlet|Oil flask|Clock key|Spell gears","foes":"Clockwork dragon|Rust horror|Gear golem|Mechanical hound|Time thief|Rogue construct"},"Airship / sky pirates":{"roles":"Sky captain|Navigator|Gunner|Boatswain|Cabin rigger|Cloud scout","gear":"Airship|Cutlass|Spyglass|Parachute|Grappling hook|Compass|Rigging knife|Cannon","foes":"Sky pirate|Airship fleet|Storm|Krakenbird|Navy cruiser|Mutineer"},"Dieselpunk":{"roles":"Pilot ace|Gangster|Mechanic|Private eye|Reporter|Soldier","gear":"Revolver|Leather jacket|Biplane|Radio set|Wrench|Goggles|Tommy gun|Flask","foes":"Mob boss|Armored train|Rival ace|Spy ring|War machine|Saboteur"},"Weird west":{"roles":"Steam gunslinger|Clockwork sheriff|Medicine inventor|Outlaw engineer|Railroad boss|Prospector","gear":"Steam revolver|Rifle|Mechanical horse|Dynamite|Goggles|Tonic|Lasso|Badge","foes":"Outlaw gang|Iron golem|Rail baron|Bounty hunter|Rogue automaton|Canyon beast"}}},"universal":{"name":"Universal","stats":"Physical|Mental|Social|Technical|Resolve|Luck","skills":"Athletics|Awareness|Knowledge|Stealth|Influence|Craft|Medicine|Combat|Survival|Operate","roles":"Leader|Expert|Fighter|Scout|Healer|Face|Specialist|Wildcard","origins":"Local|Outsider|Veteran|Prodigy|Wanderer|Noble|Commoner|Exile","gear":"Weapon|Armor|Tool kit|Medical kit|Light source|Rope|Rations|Map|Money|Disguise|Vehicle|Communicator","cond":"Hurt|Tired|Afraid|Distracted|Boosted|Marked","foes":"Rival|Guard|Beast|Hazard|Villain|Crowd|Machine|Spy","subs":{"Realistic":{"roles":"Professional|Amateur|Veteran|Local fixer|Specialist|Newcomer","gear":"Phone|Notebook|Tool kit|First aid|Flashlight|Rope|Cash|Car","foes":"Rival|Thief|Official|Accident|Weather|Stranger"},"Cinematic":{"roles":"Hero|Sidekick|Mastermind|Daredevil|Mentor|Rival","gear":"Signature weapon|Gadget|Disguise|Vehicle|Lucky charm|Grappling line|Comm|Map","foes":"Mastermind|Henchmen|Rival hero|Deathtrap|Chase|Cliffhanger"},"Light-hearted":{"roles":"Cheerful hero|Clumsy genius|Charming rogue|Brave pet|Grumpy mentor|Dreamer","gear":"Silly hat|Snacks|Map|Magic umbrella|Whistle|Backpack|Rope|Kite","foes":"Grumpy rival|Mix-up|Mischief maker|Storm|Silly villain|Puzzle"}}},"mechanical":{"name":"Mechanical","stats":"Power|Agility|Armor|Processing|Sensors|Control","skills":"Piloting|Gunnery|Repair|Hacking|Stealth|Tactics|Maneuver|Engineering|Scouting|Command","roles":"Pilot|Mechanic|Gunner|Commander|Scout unit|Heavy unit|Engineer|AI core","origins":"Prototype|Military build|Salvaged|Civilian model|Experimental|Clone-built|Legacy unit|Custom","gear":"Cannon|Missile pod|Shield generator|Repair drone|Armor plating|Jump jets|Targeting array|Power cell|Cutting blade|Sensor suite|Grapple|Fuel tank","cond":"Overheated|Damaged|Jammed|Offline|Shielded|Boosted","foes":"Hostile mech|Drone swarm|Turret|Tank|Rogue AI|Gunship|Walker|Minefield","subs":{"Giant robots / mecha":{"roles":"Mecha pilot|Squad leader|Support pilot|Prototype tester|Ace|Cadet","gear":"Beam rifle|Armor plating|Booster pack|Shoulder cannon|Plasma sword|Shield|Targeting visor|Hangar","foes":"Enemy mecha|Boss unit|Kaiju|Drone swarm|Ace rival|Orbital gun"},"Power armor":{"roles":"Armor trooper|Heavy gunner|Field medic|Armored scout|Engineer|Commander","gear":"Power armor|Jump pack|Gauntlet cannon|Armor plates|Helmet display|Reactor|Repair kit|Rail rifle","foes":"Hostile suit|Heavy trooper|Sniper|Mine|Tank|Alien"},"Robots and AI":{"roles":"Service bot|Combat droid|Companion AI|Scout drone|Repair bot|Free AI","gear":"Core module|Servo arm|Sensor eye|Weapon mount|Battery|Firmware|Antenna|Chassis","foes":"Rogue AI|Hacker|Scrapper|Virus|Security drone|Shutdown order"},"Vehicles and walkers":{"roles":"Driver|Gunner|Mechanic|Navigator|Convoy leader|Scout rider","gear":"Walker|Armored truck|Turret|Winch|Spare parts|Fuel|Smoke launcher|Radio","foes":"Raiders|Tank|Mine|Gunship|Ambush|Bridge out"},"Clockwork constructs":{"roles":"Clockwork servant|Automaton knight|Tinker-sage|Wind-up scout|Gear guardian|Cog engineer","gear":"Mainspring|Brass plating|Gear fist|Oil can|Wind key|Escapement|Clock face|Cogs","foes":"Rust|Rogue construct|Clockwork beast|Overwound titan|Time thief|Saboteur"}}},"neutral":{"name":"Neutral","stats":"Stat 1|Stat 2|Stat 3|Stat 4|Stat 5|Stat 6","skills":"Skill 1|Skill 2|Skill 3|Skill 4|Skill 5|Skill 6|Skill 7|Skill 8|Skill 9|Skill 10","roles":"","origins":"","gear":"","cond":"","foes":"","subs":{}}};
+        const TPL_ITEMS = {
+            character: { name: 'Character sheet', about: 'Name, role, origin, six stats with a d20 check, ten skills, health boxes, conditions, gear with weights, notes.' },
+            initiative: { name: 'Initiative tracker', about: 'A round counter, who is up next, a turn order sorted by initiative, hit points, status and "acted" boxes for twelve combatants.' }
+        };
+        const TS = { // the look: light fills always come with their own dark text, so they read on the dark theme too
+            title: { fontWeight: 'bold', fontSize: 16, color: '#1e3a8a', bgColor: '#dbeafe', textAlign: 'center' },
+            head: { fontWeight: 'bold', color: '#1e3a8a', bgColor: '#dbeafe' },
+            label: { fontWeight: 'bold' },
+            box: { borders: 'tbrl' },
+            num: { borders: 'tbrl', textAlign: 'center' },
+            tick: { borders: 'tbrl', checkbox: true },
+            note: { fontStyle: 'italic', color: '#64748b' }
+        };
+        function tplWords(gid, sub, key) {
+            const g = TPL_GENRES[gid], sg = sub && g.subs[sub];
+            const raw = sg && sg[key] !== undefined ? sg[key] : g[key];
+            return raw ? raw.split('|') : [];
+        }
+        const tplLabel = (gid, sub) => TPL_GENRES[gid].name + (sub ? ' · ' + sub : '');
+        function tplNew(name) {
+            const sh = makeBlankSheet(name);
+            return {
+                sh,
+                put(r, c, v, st) {
+                    const cell = { style: { ...(st || {}) }, value: '', formula: '' };
+                    if (typeof v === 'string' && v.startsWith('=')) cell.formula = v; else if (v !== undefined && v !== null) cell.value = v;
+                    sh.data[columnToLetter(c) + (r + 1)] = cell;
+                },
+                merge(r, c, rows, cols) { sh.merges.push({ r, c, rows, cols }); },
+                listFrom(range, source) { sh.validationRules.push({ range, type: 'list', mode: 'warn', options: [], listRange: source }); },
+                listOf(range, options) { sh.validationRules.push({ range, type: 'list', mode: 'warn', options }); },
+                rule(range, formula, fill, color) { sh.conditionalRules.push({ range, entireRow: false, type: 'formula', formula, fill, color }); },
+                width(c, w) { sh.colWidths[c] = w; }
+            };
+        }
+        // The Lists sheet: the genre's words in columns (Roles, Origins, Gear, Conditions, Foes, Sides), free to edit
+        function tplListsSheet(gid, sub) {
+            const t = tplNew('Lists');
+            const cols = [['Roles', tplWords(gid, sub, 'roles')], ['Origins', tplWords(gid, sub, 'origins')], ['Gear', tplWords(gid, sub, 'gear')], ['Conditions', tplWords(gid, sub, 'cond')], ['Foes', tplWords(gid, sub, 'foes')], ['Sides', ['PC', 'Ally', 'Foe', 'Other']]];
+            cols.forEach(([head, items], c) => { t.width(c, 120); t.put(0, c, head, TS.head); items.slice(0, 12).forEach((w, i) => t.put(i + 1, c, w)); });
+            t.put(14, 0, 'These words feed the drop-down lists on the other sheet. Change, add or delete them freely (up to 12 per column).', TS.note);
+            return t.sh;
+        }
+        function tplCharacter(gid, sub) {
+            const stats = tplWords(gid, sub, 'stats'), skills = tplWords(gid, sub, 'skills'), t = tplNew('Character');
+            [120, 70, 100, 90, 70, 70].forEach((w, c) => t.width(c, w));
+            t.put(0, 0, `Character sheet · ${tplLabel(gid, sub)}`, TS.title); t.merge(0, 0, 1, 6);
+            t.put(2, 0, 'Name', TS.label); t.put(2, 1, '', TS.box); t.merge(2, 1, 1, 2); t.put(2, 3, 'Level', TS.label); t.put(2, 4, 1, TS.num);
+            t.put(3, 0, 'Role', TS.label); t.put(3, 1, '', TS.box); t.merge(3, 1, 1, 2); t.listFrom('B4', 'Lists!A2:A13');
+            t.put(3, 3, 'Origin', TS.label); t.put(3, 4, '', TS.box); t.merge(3, 4, 1, 2); t.listFrom('E4', 'Lists!B2:B13');
+            t.put(4, 0, 'Concept', TS.label); t.put(4, 1, '', TS.box); t.merge(4, 1, 1, 5);
+            t.put(6, 0, 'Stats', TS.head); t.put(6, 1, 'Score', TS.head); t.put(6, 2, 'Check (+d20)', TS.head);
+            stats.forEach((n, i) => { t.put(7 + i, 0, n, TS.label); t.put(7 + i, 1, 10, TS.num); t.put(7 + i, 2, `=B${8 + i}+ROLL("1d20")`, { textAlign: 'center' }); });
+            t.put(14, 0, 'Skills', TS.head); t.put(14, 1, 'Rank', TS.head); t.put(14, 2, 'Stat', TS.head); t.put(14, 3, 'Notes', TS.head); t.merge(14, 3, 1, 3);
+            skills.forEach((n, i) => { t.put(15 + i, 0, n, TS.label); t.put(15 + i, 1, 0, TS.num); t.put(15 + i, 2, '', TS.box); t.put(15 + i, 3, '', TS.box); t.merge(15 + i, 3, 1, 3); });
+            if (stats.length) t.listOf('C16:C25', stats);
+            t.put(26, 0, 'Health', TS.head); t.put(26, 1, 'Max', TS.head); t.put(26, 2, 'Left', TS.head); t.put(26, 3, 'Tick a box for each point of damage', TS.note); t.merge(26, 3, 1, 3);
+            t.put(27, 0, 'Hit points / stress', TS.label); t.put(27, 1, 10, TS.num); t.put(27, 2, '=B28-COUNTIF(B29:F30,TRUE)', TS.num);
+            t.put(28, 0, 'Damage boxes', TS.label);
+            for (let r = 28; r <= 29; r++) for (let c = 1; c <= 5; c++) t.put(r, c, false, TS.tick);
+            t.rule('C28', 'C28<=0', '#fee2e2', '#991b1b');
+            const conds = tplWords(gid, sub, 'cond');
+            t.put(31, 0, 'Conditions', TS.head); t.put(31, 1, 'On', TS.head);
+            conds.forEach((n, i) => { t.put(32 + i, 0, n, TS.label); t.put(32 + i, 1, false, TS.tick); });
+            if (conds.length) t.rule('A33:B38', '$B33=TRUE', '#fef3c7', '#92400e');
+            t.put(38, 0, 'Active conditions', TS.label); t.put(38, 1, '=COUNTIF(B33:B38,TRUE)', TS.num);
+            t.put(40, 0, 'Gear', TS.head); t.put(40, 1, 'Qty', TS.head); t.put(40, 2, 'Weight', TS.head); t.put(40, 3, 'Total', TS.head); t.put(40, 4, 'Notes', TS.head); t.merge(40, 4, 1, 2);
+            for (let i = 0; i < 12; i++) {
+                const r = 41 + i;
+                t.put(r, 0, '', TS.box); t.put(r, 1, '', TS.num); t.put(r, 2, '', TS.num); t.put(r, 3, `=IF(B${r + 1}="","",B${r + 1}*C${r + 1})`, { textAlign: 'center' }); t.put(r, 4, '', TS.box); t.merge(r, 4, 1, 2);
+            }
+            t.listFrom('A42:A53', 'Lists!C2:C13');
+            t.put(53, 0, 'Total weight', TS.label); t.put(53, 3, '=SUM(D42:D53)', TS.num);
+            t.put(55, 0, 'Notes', TS.head); t.merge(55, 0, 1, 6);
+            t.put(56, 0, '', TS.box); t.merge(56, 0, 6, 6);
+            return t.sh;
+        }
+        function tplInitiative(gid, sub) {
+            const t = tplNew('Initiative');
+            [110, 70, 60, 70, 100, 55, 60, 100, 140, 20, 110, 60, 60].forEach((w, c) => t.width(c, w));
+            t.put(0, 0, `Initiative tracker · ${tplLabel(gid, sub)}`, TS.title); t.merge(0, 0, 1, 9);
+            t.put(1, 0, 'Round', TS.label); t.put(1, 1, 1, TS.num); t.put(1, 2, 'A d20', TS.label); t.put(1, 3, '=ROLL("1d20")', TS.num);
+            t.put(1, 4, 'Tap Re-roll (Formulas tab) for a new d20. Tick Acted when a turn is done; add 1 to Round when everyone has acted.', TS.note); t.merge(1, 4, 1, 5);
+            t.put(2, 0, 'Up next', TS.label);
+            t.put(2, 1, '=IFERROR(INDEX(FILTER(K5:K16,(K5:K16<>"")*(M5:M16=FALSE)),1),"Everyone has acted: new round")', { fontWeight: 'bold', color: '#166534', bgColor: '#dcfce7' }); t.merge(2, 1, 1, 4);
+            ['Name', 'Initiative', 'Acted', 'Side', 'Kind', 'HP', 'Max HP', 'Status', 'Notes'].forEach((h, c) => t.put(3, c, h, TS.head));
+            ['Turn order', 'Init', 'Acted'].forEach((h, i) => t.put(3, 10 + i, h, TS.head));
+            for (let i = 0; i < 12; i++) {
+                const r = 4 + i;
+                t.put(r, 0, '', TS.box); t.put(r, 1, '', TS.num); t.put(r, 2, false, TS.tick); t.put(r, 3, '', TS.box); t.put(r, 4, '', TS.box);
+                t.put(r, 5, '', TS.num); t.put(r, 6, '', TS.num); t.put(r, 7, '', TS.box); t.put(r, 8, '', TS.box);
+            }
+            t.put(4, 10, '=IFERROR(SORT(FILTER(A5:C16,B5:B16<>""),2,-1),"")');
+            t.listFrom('D5:D16', 'Lists!F2:F5'); t.listFrom('E5:E16', 'Lists!E2:E13'); t.listFrom('H5:H16', 'Lists!D2:D13');
+            t.rule('A5:I16', '$C5=TRUE', '#e5e7eb', '#6b7280');
+            t.rule('A5:I16', 'AND($F5<>"",$F5<=0)', '#fee2e2', '#991b1b');
+            return t.sh;
+        }
+        function buildTemplateWorkbook(tid, gid, sub) {
+            const main = tid === 'initiative' ? tplInitiative(gid, sub) : tplCharacter(gid, sub);
+            return { sheets: [main, tplListsSheet(gid, sub)], current: 0, names: [] };
+        }
+
+        // ----- The New workbook chooser: blank, or a template with a genre and a sub-genre -----
+        const nwEl = id => document.getElementById(id);
+        function openNewWorkbookModal() {
+            if (editingCell) endEdit(true);
+            const g = nwEl('nw-genre');
+            if (!g.options.length) Object.keys(TPL_GENRES).forEach(k => g.add(new Option(TPL_GENRES[k].name, k)));
+            nwUpdate();
+            nwEl('newwb-modal').classList.remove('hidden');
+        }
+        function closeNewWorkbookModal() { nwEl('newwb-modal').classList.add('hidden'); }
+        function nwUpdate() {
+            const tid = nwEl('nw-template').value, blank = tid === 'blank';
+            nwEl('nw-extra').classList.toggle('hidden', blank);
+            nwEl('nw-about').textContent = blank ? 'An empty workbook with one sheet.' : TPL_ITEMS[tid].about;
+            const subs = Object.keys(TPL_GENRES[nwEl('nw-genre').value].subs), sel = nwEl('nw-sub'), keep = sel.value;
+            sel.innerHTML = '';
+            sel.add(new Option(subs.length ? 'Any' : 'None for this genre', ''));
+            subs.forEach(n => sel.add(new Option(n, n)));
+            if (subs.includes(keep)) sel.value = keep;
+            sel.disabled = !subs.length;
+        }
+        function startNewWorkbook() {
+            const tid = nwEl('nw-template').value;
+            if (tid === 'blank') { closeNewWorkbookModal(); newWorkbook(); return; }
+            if (!confirm(`Start a new ${TPL_ITEMS[tid].name.toLowerCase()}?\n\nThe current workbook will be replaced. Use Export Workbook first if you want a backup.`)) return;
+            const gid = nwEl('nw-genre').value, sub = nwEl('nw-sub').value;
+            closeNewWorkbookModal();
+            applyWorkbook(buildTemplateWorkbook(tid, gid, sub));
+            markDirty();
+            if (saveState.enabled) saveWorkbookNow();
+            showToast(`${TPL_ITEMS[tid].name} started: ${tplLabel(gid, sub)}. The words are on the Lists sheet`);
+        }
+
         function newWorkbook() {
             if (!confirm(`Start a new, empty workbook?\n\nThe current workbook will be replaced. Use Export Workbook first if you want a backup.\n\nEvery sheet is ${ROWS} rows by ${COLS} columns (A to ${columnToLetter(COLS - 1)}).`)) return;
             applyWorkbook({ sheets: [makeBlankSheet('Sheet 1')], current: 0, names: [] });
@@ -3731,7 +3910,7 @@
                     </div>
                     <div class="ribbon-group">
                         <div class="rg-items">
-                        <button onclick="newWorkbook()">New Workbook</button>
+                        <button onclick="openNewWorkbookModal()" title="Start an empty workbook, or a template for games">New Workbook</button>
                         <button onclick="clearSheet()">Clear Sheet</button>
                         </div>
                         <span class="rg-name">Workbook</span>
@@ -7407,7 +7586,7 @@
         GUIDE_TEXT.sheets = `
             <p><b>Sheet tabs</b> sit at the bottom. Tap one to switch to it, tap the current tab to rename or delete that sheet, and tap <b>+ Add Sheet</b> for a new one. A little clock shows while a big sheet is being drawn. Each sheet remembers where you were (the selection and the scroll spot) while the app is open.</p>
             <p><b>Saving.</b> AutoSave keeps your workbook on this phone by itself: the line at the very top says Saving… and then Saved with the time. When you open the app again your workbook comes back (Time Travel starts fresh). You can turn AutoSave off in Settings; then tap the line at the top to save.</p>
-            <p><b>Files (Data tab).</b> <b>Export Workbook</b> makes a file of all your sheets and names, and <b>Import Workbook</b> loads one. <b>Export CSV</b> and <b>Import CSV</b> do one sheet. <b>New Workbook</b> starts empty after asking. <b>Clear Sheet</b> empties the sheet you are on. Every sheet is 200 rows by 52 columns (A to AZ).</p>`;
+            <p><b>Files (Data tab).</b> <b>Export Workbook</b> makes a file of all your sheets and names, and <b>Import Workbook</b> loads one. <b>Export CSV</b> and <b>Import CSV</b> do one sheet. <b>New Workbook</b> starts empty, or from a game template (a Character sheet or an Initiative tracker for a genre such as Fantasy, Sci-fi or Horror), after asking. <b>Clear Sheet</b> empties the sheet you are on. Every sheet is 200 rows by 52 columns (A to AZ).</p>`;
         GUIDE_TEXT.cells = `
             <p><b>Formatting (Home tab).</b> Bold, italic and underline; the font (the Noto Sans Symbols fonts are there for symbols); text and fill colors; align left, center or right; <b>Merge</b> and Unmerge; <b>Wrap</b> (make the row taller with <b>Size…</b> to see more lines); <b>Checkbox</b>; a <b>Borders</b> menu; and <b>Size…</b> for column width and row height.</p>
             <p><b>Number formats.</b> The menu has General, Currency, Percentage, Decimal, two date styles, Date &amp; Time and Text; <b>+.0</b> and <b>−.0</b> add or remove decimals. A format changes only how a number is shown, never its value. Typing 12% makes 0.12 shown as a percentage.</p>
