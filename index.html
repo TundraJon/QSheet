@@ -1215,11 +1215,16 @@
         .row-grip { left: 0; right: 0; bottom: 0; height: 16px; cursor: row-resize; }
         .resize-tip { position: fixed; z-index: 500; padding: 4px 10px; border-radius: 12px; background: var(--inverse-bg); color: var(--inverse-text); font-size: 0.8rem; font-weight: 600; pointer-events: none; }
         .resize-tip.hidden { display: none; }
-        /* The fill handle sits on the corner of the selection; its touch area is 44 px, the square you see is 12 px */
-        .fill-handle { position: absolute; z-index: 6; width: 44px; height: 44px; margin: -10px 0 0 -10px; padding: 2px; box-sizing: border-box; touch-action: none; cursor: crosshair; display: flex; align-items: flex-start; justify-content: flex-start; } /* the touch area reaches out below and to the right of the corner, so it does not cover a list cell's arrow */
-        .fill-handle.hidden { display: none; }
-        .fill-handle i { display: block; width: 12px; height: 12px; background: var(--selection-border); border: 2px solid var(--surface); border-radius: 2px; box-sizing: content-box; }
-        .fill-handle.dragging { pointer-events: none; }
+        /* The selection handles: round (resize the selection) or, in fill mode, square (fill); the touch area is 44 px and reaches outward from the corner */
+        .sel-handle { position: absolute; z-index: 6; width: 44px; height: 44px; touch-action: none; display: flex; }
+        .sel-handle.hidden { display: none; }
+        .sel-handle.tl { margin: -34px 0 0 -34px; align-items: flex-end; justify-content: flex-end; }
+        .sel-handle.br { margin: -10px 0 0 -10px; align-items: flex-start; justify-content: flex-start; }
+        .sel-handle i { display: block; width: 16px; height: 16px; background: var(--selection-border); border: 2px solid var(--surface); border-radius: 50%; box-sizing: content-box; }
+        .sel-handle.fill i { border-radius: 3px; width: 14px; height: 14px; }
+        .sel-handle.dragging { pointer-events: none; }
+        .fill-frame { position: absolute; z-index: 5; pointer-events: none; border: 4px solid var(--selection-border); box-sizing: border-box; }
+        .fill-frame.hidden { display: none; }
         .fill-preview { position: absolute; z-index: 5; pointer-events: none; border: 2px dashed var(--selection-border); box-sizing: border-box; }
         .fill-preview.hidden { display: none; }
         #painter-btn.on { background: var(--accent-soft); border-color: var(--accent-color); color: var(--accent-text); }
@@ -4149,7 +4154,7 @@
         const dockPaste = () => `<span class="dk-split"><button class="dk-main${clip ? ' lit' : ''}" onclick="pasteCells(false)" aria-label="Paste" title="Paste">${dockIcon('content_paste', 'Paste')}</button><button class="dk-arrow dk-menu-btn${clip ? ' lit' : ''}" onclick="dockMenu('paste', this)" aria-haspopup="true" aria-label="Paste options" title="Paste options"><span class="material-symbols-outlined" aria-hidden="true">arrow_drop_down</span><span class="ico-label">&#9662;</span></button></span>`;
         const DOCK_MENUS = {
             paste: [['Paste', 'pasteCells(false)'], ['Paste values', 'pasteCells(true)']],
-            fill: [['Fill down', "fillCells('down')"], ['Fill right', "fillCells('right')"], ['Series', 'seriesFill()']],
+            fill: [['Drag to fill', 'enterFillMode()'], ['Fill down', "fillCells('down')"], ['Fill right', "fillCells('right')"], ['Series', 'seriesFill()']],
             fx: [['Sum', "insertQuickFn('SUM')"], ['Average', "insertQuickFn('AVERAGE')"], ['fx Wizard', 'openWizard()']]
         };
         let dockMenuKind = null;
@@ -4202,10 +4207,14 @@
         // Cell inputs are read-only until a cell is being edited, so a tap never pops the keyboard by accident.
         function initGridInteractions() {
             const grid = document.getElementById('grid-container');
-            const fh = document.createElement('div');
-            fh.id = 'fill-handle'; fh.className = 'fill-handle hidden'; fh.setAttribute('aria-label', 'Fill handle: drag to fill'); fh.innerHTML = '<i></i>';
-            grid.appendChild(fh);
-            fh.addEventListener('pointerdown', fillHandleDown);
+            ['tl', 'br'].forEach(k => {
+                const h = document.createElement('div');
+                h.id = 'sel-handle-' + k; h.className = 'sel-handle ' + k + ' hidden';
+                h.setAttribute('aria-label', k === 'tl' ? 'Selection handle, top left: drag to resize the selection' : 'Selection handle, bottom right: drag to resize the selection');
+                h.innerHTML = '<i></i>';
+                grid.appendChild(h);
+                h.addEventListener('pointerdown', selHandleDown);
+            });
             grid.addEventListener('pointerdown', gripDown, true);
             // (a resize that ends off the edge sends its click to the header itself, so any header click right after a resize is dropped)
             grid.addEventListener('click', e => { if (Date.now() - gripSwallow < 500 && e.target.closest && e.target.closest('th')) { e.stopPropagation(); e.preventDefault(); } }, true);
@@ -4378,6 +4387,7 @@
                 }
             }
             updateDropArrow();
+            if (fillMode && JSON.stringify(selBounds()) !== fillModeKey) fillMode = false; // a different selection ends fill mode
             positionFillHandle();
         }
 
@@ -5670,9 +5680,9 @@
 
         function compareValues(a, b, op) {
             let x = a, y = b;
-            if (typeof x === 'number' && isBlank(y)) y = 0;
-            else if (typeof y === 'number' && isBlank(x)) x = 0;
-            else if (isBlank(x) && isBlank(y)) { x = ''; y = ''; }
+            // blank is its own thing: never equal to a number, and no ordering against a number (math still treats blank as 0)
+            if ((typeof x === 'number' && isBlank(y)) || (typeof y === 'number' && isBlank(x))) return op === '<>';
+            if (isBlank(x) && isBlank(y)) { x = ''; y = ''; }
             else if (isBlank(x)) x = '';
             else if (isBlank(y)) y = '';
             let cmp;
@@ -7783,7 +7793,7 @@
             <p><b>While you edit a formula</b> a hint line under the formula bar shows the function you are in, with the current argument in bold. When the caret is on a cell reference, those cells are outlined on the grid.</p>
             <p><b>fx Wizard</b> (the actions bar, or the Formulas tab) walks you through any function: search or pick a category, fill in the boxes, watch the live result, then Insert. Tap the star on a function to keep it as a favorite. If you open it while the caret is inside a formula, it opens on that function with its arguments filled in, and Update Formula changes only that part.</p>
             <p><b>Other sheets.</b> Write <code>=Lists!B1</code> or <code>='My Sheet'!A1:B3</code> (quotes when the name has spaces). Renaming a sheet updates the formulas that use it; deleting one turns them into #REF!.</p>
-            <p><b>Spills.</b> Functions like FILTER, SORT and UNIQUE give several cells. The result spreads into the cells below or beside, and shows #SPILL! if something is in the way.</p>
+            <p><b>Spills.</b> Functions like FILTER, SORT and UNIQUE give several cells. The result spreads into the cells below or beside, and shows #SPILL! if something is in the way. <b>Blank is not 0:</b> an empty cell never equals 0 (=A1=0 is FALSE, =A1="" is TRUE) and is not bigger or smaller than a number, but math counts it as 0.</p>
             <p><b>Good to know.</b> RAND and RANDBETWEEN change on every edit; RND, RNDBETWEEN and ROLL keep their numbers until you tap Re-roll. Other cells update when you accept an entry (Enter or tap away), not while you type. <b>Error in a cell?</b> Select it: the bar at the bottom says why, and anything in blue is a formula you can copy.</p>`;
         GUIDE_TEXT.timetravel = `
             <p><b>⏳ Time Travel</b> (top bar) is the history of your changes: every edit, paste, sort, format and more is a step. <b>Undo</b> and <b>Redo</b> (Home tab, and in the Time Travel sheet) go one step at a time.</p>
@@ -10106,20 +10116,90 @@
 
         // ===== Fill handle: drag the corner of the selection to fill, like Excel =====
         // One cell selected: it is copied across (formulas shift). Two or more: the pattern goes on (1, 2 gives 3, 4; Mon, Tue; Item 1, Item 2; My Lists).
-        let fillDrag = null, fillTimer = 0;
-        function fillHandleEl() { return document.getElementById('fill-handle'); }
+        // ===== Selection handles (item 117), as on Excel for the phone =====
+        // Select mode: round handles on the top-left and bottom-right corners; dragging one moves that corner (the other stays).
+        // Fill mode (from the toolbar's Fill menu, "Drag to fill"): square handles and a thicker outline; dragging one fills beyond the selection.
+        let fillMode = false, fillModeKey = '', selDrag = null;
+        function enterFillMode() {
+            if (editingCell) endEdit(true);
+            fillMode = true;
+            fillModeKey = JSON.stringify(selBounds());
+            positionFillHandle();
+            showToast('Drag a square handle to fill. Tap anywhere else to stop');
+        }
+        function exitFillMode() {
+            if (!fillMode) return;
+            fillMode = false;
+            positionFillHandle();
+        }
+        function showFillFrame(on, r1, r2) {
+            const grid = document.getElementById('grid-container');
+            let f = document.getElementById('fill-frame');
+            if (!on) { if (f) f.classList.add('hidden'); return; }
+            if (!f) { f = document.createElement('div'); f.id = 'fill-frame'; f.className = 'fill-frame'; grid.appendChild(f); }
+            const gr = grid.getBoundingClientRect();
+            f.style.left = (r1.left - gr.left + grid.scrollLeft) + 'px';
+            f.style.top = (r1.top - gr.top + grid.scrollTop) + 'px';
+            f.style.width = (r2.right - r1.left) + 'px';
+            f.style.height = (r2.bottom - r1.top) + 'px';
+            f.classList.remove('hidden');
+        }
+        // (the name is kept: it is called wherever the selection or the view changes)
         function positionFillHandle() {
-            const h = fillHandleEl();
-            if (!h) return;
+            const tl = document.getElementById('sel-handle-tl'), br = document.getElementById('sel-handle-br');
+            if (!tl || !br) return;
             const b = selBounds();
             const whole = (b.minR === 0 && b.maxR === ROWS - 1) || (b.minC === 0 && b.maxC === COLS - 1);
-            const td = document.getElementById(`cell-${getCellId(b.maxR, b.maxC)}`);
-            if (editingCell || whole || !td || td.style.display === 'none' || painter) { h.classList.add('hidden'); return; }
-            const grid = document.getElementById('grid-container'), gr = grid.getBoundingClientRect(), tr = td.getBoundingClientRect();
-            h.style.left = (tr.right - gr.left + grid.scrollLeft) + 'px';
-            h.style.top = (tr.bottom - gr.top + grid.scrollTop) + 'px';
-            h.classList.remove('hidden');
+            const t1 = document.getElementById(`cell-${getCellId(b.minR, b.minC)}`), t2 = document.getElementById(`cell-${getCellId(b.maxR, b.maxC)}`);
+            if (editingCell || whole || !t1 || !t2 || t1.style.display === 'none' || t2.style.display === 'none' || painter) { tl.classList.add('hidden'); br.classList.add('hidden'); showFillFrame(false); return; }
+            const grid = document.getElementById('grid-container'), gr = grid.getBoundingClientRect(), r1 = t1.getBoundingClientRect(), r2 = t2.getBoundingClientRect();
+            tl.style.left = (r1.left - gr.left + grid.scrollLeft) + 'px'; tl.style.top = (r1.top - gr.top + grid.scrollTop) + 'px';
+            br.style.left = (r2.right - gr.left + grid.scrollLeft) + 'px'; br.style.top = (r2.bottom - gr.top + grid.scrollTop) + 'px';
+            [tl, br].forEach(h => { h.classList.remove('hidden'); h.classList.toggle('fill', fillMode); });
+            showFillFrame(fillMode, r1, r2);
         }
+        // Dragging a round handle: that corner follows the finger, the opposite corner stays
+        function selHandleDown(e) {
+            e.preventDefault(); e.stopPropagation();
+            if (editingCell) endEdit(true);
+            if (fillMode) { fillDragStart(e); return; }
+            const b = selBounds(), tl = e.currentTarget.id === 'sel-handle-tl';
+            selDrag = { anchor: tl ? { r: b.maxR, c: b.maxC } : { r: b.minR, c: b.minC }, x: e.clientX, y: e.clientY, last: '' };
+            document.querySelectorAll('.sel-handle').forEach(h => h.classList.add('dragging'));
+            document.addEventListener('pointermove', selHandleMove);
+            document.addEventListener('pointerup', selHandleUp);
+            document.addEventListener('pointercancel', selHandleUp);
+            fillTimer = setInterval(() => { // the grid scrolls when the finger is near its edge
+                if (!selDrag) return;
+                const grid = document.getElementById('grid-container'), gr = grid.getBoundingClientRect();
+                const dx = selDrag.x > gr.right - 40 ? 14 : (selDrag.x < gr.left + 90 ? -14 : 0), dy = selDrag.y > gr.bottom - 70 ? 14 : (selDrag.y < gr.top + 66 ? -14 : 0);
+                if (dx || dy) { grid.scrollBy(dx, dy); selHandleMove({ clientX: selDrag.x, clientY: selDrag.y }); }
+            }, 40);
+        }
+        function selHandleMove(e) {
+            if (!selDrag) return;
+            selDrag.x = e.clientX; selDrag.y = e.clientY;
+            const hit = cellFromPoint(e.clientX, e.clientY);
+            if (!hit) return;
+            const key = hit.r + ',' + hit.c;
+            if (key === selDrag.last) return;
+            selDrag.last = key;
+            selectionRange = { startRow: selDrag.anchor.r, startCol: selDrag.anchor.c, endRow: hit.r, endCol: hit.c };
+            highlightSelection();
+        }
+        function selHandleUp() {
+            document.removeEventListener('pointermove', selHandleMove);
+            document.removeEventListener('pointerup', selHandleUp);
+            document.removeEventListener('pointercancel', selHandleUp);
+            clearInterval(fillTimer);
+            document.querySelectorAll('.sel-handle').forEach(h => h.classList.remove('dragging'));
+            const d = selDrag; selDrag = null;
+            if (d && d.last) { setActiveCell(d.anchor.r, d.anchor.c); updateStats(); } // the cell you started from stays the active one
+        }
+        // Tapping the grid (not a handle) ends fill mode, and so does Escape
+        document.addEventListener('pointerdown', e => { if (fillMode && e.target.closest && e.target.closest('#grid-container') && !e.target.closest('.sel-handle')) exitFillMode(); }, true);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && fillMode) exitFillMode(); });
+        let fillDrag = null, fillTimer = 0;
         // Where the finger is, as a fill: the direction, and how many cells beyond the selection
         function fillTargetAt(x, y) {
             const hit = cellFromPoint(x, y);
@@ -10151,13 +10231,10 @@
             pv.style.height = (t2.bottom - t1.top) + 'px';
             pv.classList.remove('hidden');
         }
-        function fillHandleDown(e) {
-            const h = fillHandleEl();
-            if (!h || !h.contains(e.target) && e.target !== h) return;
-            e.preventDefault(); e.stopPropagation();
+        function fillDragStart(e) {
             if (editingCell) endEdit(true);
             fillDrag = { b: selBounds(), x: e.clientX, y: e.clientY, t: null };
-            h.classList.add('dragging');
+            document.querySelectorAll('.sel-handle').forEach(h => h.classList.add('dragging'));
             document.addEventListener('pointermove', fillHandleMove);
             document.addEventListener('pointerup', fillHandleUp);
             document.addEventListener('pointercancel', fillHandleUp);
@@ -10180,9 +10257,9 @@
             document.removeEventListener('pointercancel', fillHandleUp);
             clearInterval(fillTimer);
             const d = fillDrag; fillDrag = null;
-            const h = fillHandleEl(); if (h) h.classList.remove('dragging');
+            document.querySelectorAll('.sel-handle').forEach(h => h.classList.remove('dragging'));
             showFillPreview(null, null);
-            if (d && d.t) fillByHandle(d.b, d.t.dir, d.t.count);
+            if (d && d.t) { fillByHandle(d.b, d.t.dir, d.t.count); exitFillMode(); }
         }
         function fillByHandle(b, dir, count) {
             const sheet = sheets[currentSheetIdx];
