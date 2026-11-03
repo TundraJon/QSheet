@@ -1971,6 +1971,27 @@
     </div>
 
     <!-- Column width / row height -->
+    <!-- Export: the file name -->
+    <div class="modal-overlay hidden" id="export-modal" onclick="if (event.target === this) closeExportModal()">
+        <div class="modal">
+            <div class="modal-header">
+                <span>Name your file</span>
+                <button onclick="closeExportModal()" aria-label="Close"><span class="material-symbols-outlined" aria-hidden="true">close</span><span class="ico-label">Close</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="export-name">File name</label>
+                    <input type="text" id="export-name" maxlength="80" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveExport(); }">
+                    <div class="cm-hint" id="export-hint"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeExportModal()">Cancel</button>
+                <button class="primary" onclick="saveExport()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- New workbook: blank, or from a template -->
     <div class="modal-overlay hidden" id="newwb-modal">
         <div class="modal">
@@ -2708,7 +2729,7 @@
         function currentSettings() {
             const on = id => { const el = document.getElementById(id); return el ? !!el.checked : true; };
             const th = document.getElementById('setting-theme');
-            return { version: 1, autosave: on('setting-autosave'), showBar: on('setting-show-bar'), keyRow: on('setting-keyrow'), numPad: on('setting-numpad'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto', textColor: lastColors.color, fillColor: lastColors.bgColor };
+            return { version: 1, autosave: on('setting-autosave'), showBar: on('setting-show-bar'), keyRow: on('setting-keyrow'), exportName: lastExportBase, numPad: on('setting-numpad'), quickFx: on('setting-quick-fx'), valPicker: on('setting-val-picker'), rememberTab: on('setting-remember-tab'), theme: th ? th.value : 'auto', textColor: lastColors.color, fillColor: lastColors.bgColor };
         }
         // ----- Theme: Match my phone / Light / Dark. The colors themselves live in the color roles at the top of the style sheet. -----
         const phoneDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -2731,6 +2752,7 @@
             set('setting-autosave', st.autosave);
             set('setting-show-bar', st.showBar);
             set('setting-keyrow', st.keyRow);
+            if (typeof st.exportName === 'string') lastExportBase = st.exportName.slice(0, 80);
             set('setting-numpad', st.numPad);
             set('setting-quick-fx', st.quickFx);
             set('setting-val-picker', st.valPicker);
@@ -3025,17 +3047,47 @@
             showToast('New workbook started');
         }
 
-        function exportWorkbook() {
-            const blob = new Blob([JSON.stringify(encodeWorkbook())], { type: 'application/json' });
+        // ----- Exporting asks for a file name, so one file does not overwrite another -----
+        // exportWorkbook() / exportCSV() with no argument open the "Name your file" box; with a file name they save at once.
+        let exportKind = null, lastExportBase = ''; // lastExportBase: the name last typed for a workbook (without its date), offered again next time
+        const exportDate = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+        // A name a file can have: no / \ : * ? " < > | or control characters, no spaces or dots at the ends, at most 80 characters
+        const cleanFileName = (t, fallback) => { const n = String(t).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').replace(/^[\s.]+/, '').slice(0, 80).replace(/[\s.]+$/, ''); return n || fallback; };
+        const exportDefaultName = kind => cleanFileName(kind === 'csv' ? sheets[currentSheetIdx].name : (lastExportBase || 'qsheet-workbook'), 'qsheet') + '-' + exportDate();
+        function openExportModal(kind) {
+            if (editingCell) endEdit(true);
+            exportKind = kind;
+            document.getElementById('export-hint').textContent = kind === 'csv' ? 'Saved as a .csv file (one sheet) in your phone\'s Downloads folder.' : 'Saved as a .json file (all sheets) in your phone\'s Downloads folder.';
+            const input = document.getElementById('export-name');
+            input.value = exportDefaultName(kind);
+            document.getElementById('export-modal').classList.remove('hidden');
+            input.focus();
+            input.select();
+        }
+        function closeExportModal() { document.getElementById('export-modal').classList.add('hidden'); exportKind = null; }
+        function saveExport() {
+            const kind = exportKind;
+            if (!kind) return;
+            const ext = kind === 'csv' ? '.csv' : '.json';
+            const name = cleanFileName(document.getElementById('export-name').value.replace(/\.(json|csv)\s*$/i, ''), exportDefaultName(kind));
+            if (kind === 'workbook') { lastExportBase = name.replace(/-\d{4}-\d{2}-\d{2}$/, '').trim() || name; saveSettings(); }
+            closeExportModal();
+            if (kind === 'csv') exportCSV(name + ext); else exportWorkbook(name + ext);
+        }
+        function downloadFile(blob, fileName) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'qsheet-workbook.json';
+            a.download = fileName;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(url), 1000);
-            showToast('Workbook exported');
+        }
+        function exportWorkbook(fileName) {
+            if (!fileName) { openExportModal('workbook'); return; }
+            downloadFile(new Blob([JSON.stringify(encodeWorkbook())], { type: 'application/json' }), fileName);
+            showToast(`Workbook exported as ${fileName}`);
         }
 
         function importWorkbook(e) {
@@ -11526,7 +11578,7 @@
             }
         }
 
-        function exportCSV() {
+        function exportCSV(fileName) {
             let maxR = -1, maxC = -1;
             for (let id in data) {
                 if (!data[id].spillOf && cellRaw(id) !== '') {
@@ -11539,6 +11591,7 @@
                 showToast('Nothing to export');
                 return;
             }
+            if (!fileName) { openExportModal('csv'); return; }
             let csv = "";
             for (let r = 0; r <= maxR; r++) {
                 let row = [];
@@ -11548,16 +11601,8 @@
                 }
                 csv += row.join(",") + "\n";
             }
-            let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            let url = URL.createObjectURL(blob);
-            let a = document.createElement('a');
-            a.href = url;
-            a.download = 'spreadsheet_studio.csv';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-            showToast('CSV exported');
+            downloadFile(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), fileName);
+            showToast(`CSV exported as ${fileName}`);
         }
 
         function parseCSV(text) {
