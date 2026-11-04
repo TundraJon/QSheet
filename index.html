@@ -1662,6 +1662,8 @@
     </div>
 
     <!-- Pick a date for a date cell -->
+    <!-- The phone's own calendar opens from this hidden date box; its OK puts the date straight into the cell (the sheet below is only the fallback) -->
+    <input type="date" id="date-native" tabindex="-1" aria-hidden="true" style="position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0;">
     <div class="modal-overlay sheet hidden" id="date-sheet" onclick="if (event.target === this) closeDatePicker()">
         <div class="modal">
             <div class="modal-header">
@@ -5231,6 +5233,12 @@
             input.max = rule && (rule.cond === 'between' || rule.cond === 'atmost') ? valInputDate(rule.max) : '';
             const cell = data[cellId];
             input.value = cell && typeof cell.value === 'number' && cell.style && DATE_FORMATS.includes(cell.style.numFormat) ? valInputDate(Math.floor(cell.value)) : '';
+            // The phone's own calendar opens at once (the same tap allows it); its OK writes the date. The sheet is only for a browser that cannot do that.
+            const nat = valEl('date-native');
+            if (nat && typeof nat.showPicker === 'function') {
+                nat.min = input.min; nat.max = input.max; nat.value = input.value;
+                try { nat.showPicker(); return; } catch (e) { /* fall back to the sheet */ }
+            }
             valEl('date-title').textContent = `Pick a date for ${cellId}`;
             valEl('date-hint').textContent = rule && valLimitText(rule) ? `Allowed: a date${valLimitText(rule)}` : '';
             valEl('date-sheet').classList.remove('hidden');
@@ -5238,15 +5246,19 @@
         function closeDatePicker() { valEl('date-sheet').classList.add('hidden'); dateCell = null; }
         function datePickerToday() { const n = new Date(); valEl('date-pick').value = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; }
         function datePickerClear() { const id = dateCell; closeDatePicker(); if (id) setValidationValue(id, ''); }
-        function datePickerSet() {
-            const t = valEl('date-pick').value;
+        function datePickerSet() { datePickerWrite(valEl('date-pick').value, true); }
+        // Puts a chosen date (yyyy-mm-dd) into the cell the picker was opened for, in the cell's own date style
+        function datePickerWrite(t, fromSheet) {
             const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
-            if (!m) { showToast('Pick a date first'); return; }
+            if (!m) { if (fromSheet) showToast('Pick a date first'); return; }
             const id = dateCell, cell = data[id];
+            if (!id) return;
             const ymd = cell && cell.style && cell.style.numFormat === 'date_ymd';
             closeDatePicker();
             setValidationValue(id, ymd ? `${m[1]}/${m[2]}/${m[3]}` : `${m[2]}/${m[3]}/${m[1]}`);
         }
+        // OK in the phone's calendar: the date goes straight into the cell (Cancel fires nothing)
+        valEl('date-native').addEventListener('change', e => { const v = e.target.value; e.target.value = ''; if (dateCell) datePickerWrite(v, false); });
 
         // Stores a value / formula and recalculates (runs on every keystroke while typing in a cell)
         function setCellContent(cellId, value) {
@@ -7676,7 +7688,7 @@
             <p><b>Enter and Tab.</b> Enter accepts what you typed and opens the cell below for typing; Tab opens the cell to the right. The keyboard stays open and the next cell's content is selected, so typing replaces it. A checkbox cell is only selected, never ticked.</p>
             <p><b>The key row</b> sits right above the keyboard while you type (Settings can switch it off). <b>← → ↑ ↓</b> accept your entry and open the neighbouring cell (rows and columns you have hidden are skipped), <b>123 / ABC</b> switches between the number pad and the letter keyboard, <b>📅</b> opens the date picker, and <b>fx</b> opens the Wizard. In the formula bar the row shows only fx.</p>
             <p><b>The number pad</b> opens by itself for a cell that holds a number, has a number, currency, percent or decimal format, or sits under a column of numbers. Typing <b>=</b> at the start switches to letters, because a formula needs them. Turn it off with <b>Number keyboard for number cells</b> in Settings.</p>
-            <p><b>Dates.</b> <b>📅</b> on the key row picks a date for any cell: it accepts what you typed first, then the picker opens. A cell with a date rule also has a <b>Pick date</b> button in the actions bar.</p>
+            <p><b>Dates.</b> <b>📅</b> on the key row picks a date for any cell: it accepts what you typed first, then your phone's calendar opens. Tap OK and the date goes straight into the cell. A cell with a date rule also has a <b>Pick date</b> button in the actions bar, and the calendar greys out the days the rule does not allow. To clear a date, use Clear on the actions bar.</p>
             <p><b>Long text</b> spills over the empty cells beside it (never numbers or wrapped cells) and is cut at the next cell that has something in it. <b>Wrap</b> or <b>Size…</b> makes the row taller to show it all.</p>
             <p><b>While you type,</b> the Ribbon Menu and the actions bar step aside and the sheet scrolls the cell you are in above the key row and the keyboard, so you can always see it.</p>`;
         GUIDE_TEXT.sheets = `
