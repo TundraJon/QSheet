@@ -4400,22 +4400,19 @@
             row.addEventListener('mousedown', e => e.preventDefault());
             row.addEventListener('pointerdown', e => {
                 if (e.pointerType === 'mouse') e.preventDefault();
-                const b = e.target.closest && e.target.closest('button[data-k]');
-                if (b && KR_DIRS[b.dataset.k]) krArrowHold(b.dataset.k);
             });
-            ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => row.addEventListener(t, krArrowStop));
             row.addEventListener('click', e => {
                 const b = e.target.closest('button');
                 if (!b) return;
                 if (b.id === 'kr-mode') toggleKeyboardType();
                 else if (b.dataset.k === 'fx') openWizard();
                 else if (b.dataset.k === 'date') krDate();
-                else if (KR_DIRS[b.dataset.k]) { if (krHeld) krHeld = false; else krMove(b.dataset.k); }
+                else if (KR_DIRS[b.dataset.k]) krMove(b.dataset.k);
             });
         }
-        // The arrows accept the entry and open the neighbouring cell for typing, like Enter and Tab; held down they keep going
+        // The arrows accept the entry and open the neighbouring cell for typing, like Enter and Tab (one cell per tap)
         const KR_DIRS = { left: [0, -1], right: [0, 1], up: [-1, 0], down: [1, 0] };
-        let krTimer = 0, krRepeat = 0, krHeld = false, krSwallow = 0;
+        let krSwallow = 0;
         function krMove(k) {
             if (!editingCell) return false;
             const [dr, dc] = KR_DIRS[k];
@@ -4423,12 +4420,6 @@
             if (!editingCell) krSwallow = Date.now(); // (the key row has gone: the rest of this touch must not land on the bar behind it)
             return !!editingCell;
         }
-        // A tap moves once (on the click); held down, the arrow keeps going after a short wait
-        function krArrowHold(k) {
-            krArrowStop(); krHeld = false;
-            krTimer = setTimeout(() => { krHeld = true; krRepeat = setInterval(() => { if (!krMove(k)) krArrowStop(); }, 160); }, 450);
-        }
-        function krArrowStop() { clearTimeout(krTimer); clearInterval(krRepeat); krTimer = krRepeat = 0; }
         document.addEventListener('click', e => { if (Date.now() - krSwallow < 600 && !(e.target.closest && e.target.closest('#key-row'))) { e.stopPropagation(); e.preventDefault(); } }, true);
         // 📅: accepts what is typed, then opens the date picker for the cell (any cell, not only date-rule cells)
         function krDate() {
