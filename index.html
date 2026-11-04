@@ -1225,6 +1225,17 @@
         .sel-handle.dragging { pointer-events: none; }
         .fill-frame { position: absolute; z-index: 5; pointer-events: none; border: 4px solid var(--selection-border); box-sizing: border-box; }
         .fill-frame.hidden { display: none; }
+        /* The marker where rows or columns are hidden: an accent line on the edge of the header before them; tap it to show them */
+        .unhide-mark { position: absolute; z-index: 4; cursor: pointer; touch-action: manipulation; }
+        .unhide-mark.col { top: 0; bottom: 0; right: 0; width: 18px; background: linear-gradient(to left, var(--accent-color) 0 4px, transparent 4px); }
+        .unhide-mark.col.lead { right: auto; left: 0; background: linear-gradient(to right, var(--accent-color) 0 4px, transparent 4px); }
+        .unhide-mark.row { left: 0; right: 0; bottom: 0; height: 16px; background: linear-gradient(to top, var(--accent-color) 0 4px, transparent 4px); }
+        .unhide-mark.row.lead { bottom: auto; top: 0; background: linear-gradient(to bottom, var(--accent-color) 0 4px, transparent 4px); }
+        .unhide-mark::after { content: ''; position: absolute; border: 4px solid transparent; }
+        .unhide-mark.col::after { right: 4px; top: 50%; margin-top: -4px; border-left-color: var(--accent-color); border-right-width: 0; }
+        .unhide-mark.col.lead::after { right: auto; left: 4px; border-left-width: 0; border-left-color: transparent; border-right-width: 4px; border-right-color: var(--accent-color); }
+        .unhide-mark.row::after { bottom: 4px; left: 50%; margin-left: -4px; border-top-color: var(--accent-color); border-bottom-width: 0; }
+        .unhide-mark.row.lead::after { bottom: auto; top: 4px; border-top-width: 0; border-top-color: transparent; border-bottom-width: 4px; border-bottom-color: var(--accent-color); }
         .fill-preview { position: absolute; z-index: 5; pointer-events: none; border: 2px dashed var(--selection-border); box-sizing: border-box; }
         .fill-preview.hidden { display: none; }
         #painter-btn.on { background: var(--accent-soft); border-color: var(--accent-color); color: var(--accent-text); }
@@ -2171,7 +2182,7 @@
 
         let workbookNames = []; // named ranges: [{ name, ref }], ref like 'Lists'!$B$2:$B$20 (shared by every sheet)
         let sheets = [
-            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {}, charts: [] }
+            { name: "Sheet 1", data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {}, hiddenRows: [], hiddenCols: [], charts: [] }
         ];
         let currentSheetIdx = 0;
         let data = sheets[0].data;
@@ -2438,7 +2449,7 @@
         const escapeHtml = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
         function makeBlankSheet(name) {
-            return { name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {}, charts: [] };
+            return { name, data: {}, conditionalRules: [], validationRules: [], tableObjects: [], merges: [], freezeRows: 0, freezeCols: 0, colWidths: {}, rowHeights: {}, hiddenRows: [], hiddenCols: [], charts: [] };
         }
 
         // ----- Storage (IndexedDB, with localStorage only if IndexedDB cannot be opened at all) -----
@@ -2532,7 +2543,7 @@
                     cells[id] = o;
                 }
             }
-            return { name: s.name, cells, styles, cf: s.conditionalRules, dv: s.validationRules, tb: s.tableObjects, mg: s.merges || [], fr: s.freezeRows, fc: s.freezeCols, cw: s.colWidths || {}, rh: s.rowHeights || {}, ct: s.charts || [] };
+            return { name: s.name, cells, styles, cf: s.conditionalRules, dv: s.validationRules, tb: s.tableObjects, mg: s.merges || [], fr: s.freezeRows, fc: s.freezeCols, cw: s.colWidths || {}, rh: s.rowHeights || {}, hr: s.hiddenRows || [], hc: s.hiddenCols || [], ct: s.charts || [] };
         }
 
         function encodeWorkbook() {
@@ -2650,6 +2661,13 @@
             return out;
         }
 
+        // The hidden rows or columns of a sheet: whole numbers in range, no repeats, in order; at least one row and one column stay showing
+        function cleanIndexList(a, count) {
+            if (!Array.isArray(a)) return [];
+            const out = [...new Set(a.map(Number).filter(i => Number.isInteger(i) && i >= 0 && i < count))].sort((x, y) => x - y);
+            return out.length >= count ? [] : out;
+        }
+
         function decodeSheet(es) {
             if (!es || typeof es !== 'object') throw new Error('Bad sheet');
             const data = {};
@@ -2689,6 +2707,8 @@
                 freezeCols: cleanInt(es.fc, 0, 10, 0),
                 colWidths: cleanSizes(es.cw, COLS, MIN_COL_W, MAX_COL_W, DEFAULT_COL_W),
                 rowHeights: cleanSizes(es.rh, ROWS, MIN_ROW_H, MAX_ROW_H, DEFAULT_ROW_H),
+                hiddenRows: cleanIndexList(es.hr, ROWS),
+                hiddenCols: cleanIndexList(es.hc, COLS),
                 charts: (Array.isArray(es.ct) ? es.ct : []).slice(0, 30).map(cleanChart).filter(Boolean)
             };
         }
@@ -3639,6 +3659,89 @@
                 const h = sh.rowHeights[r] || sh._need[r];
                 if (h) th.parentElement.style.setProperty('--row-h', h + 'px'); else th.parentElement.style.removeProperty('--row-h');
             }
+            applyHidden(sh);
+        }
+
+        // ===== Hide / Unhide rows and columns =====
+        // A sheet keeps its hidden rows and columns as sorted lists of numbers (sheet.hiddenRows / sheet.hiddenCols). Nothing in the cells changes.
+        // The grid hides them with one style sheet, and a small marker on the header before each hidden stretch brings them back with a tap.
+        const hiddenRowSet = sh => new Set((sh || sheets[currentSheetIdx]).hiddenRows || []);
+        const hiddenColSet = sh => new Set((sh || sheets[currentSheetIdx]).hiddenCols || []);
+        const rowHiddenByHand = r => ((sheets[currentSheetIdx] || {}).hiddenRows || []).includes(r);
+        const colHiddenByHand = c => ((sheets[currentSheetIdx] || {}).hiddenCols || []).includes(c);
+        // The formula engine looks at the sheet it is working on, not always the one on screen
+        const rowSkippedByV = r => filteredRows.has(r) || ((sheets[engineSheetIdx()] || {}).hiddenRows || []).includes(r);
+        function applyHidden(sh) {
+            let st = document.getElementById('hide-style');
+            if (!st) { st = document.createElement('style'); st.id = 'hide-style'; document.head.appendChild(st); }
+            const rows = sh.hiddenRows || [], cols = sh.hiddenCols || [];
+            st.textContent = rows.map(r => `#spreadsheet-body > tr:nth-child(${r + 1})`).concat(cols.map(c => `#spreadsheet-body td:nth-child(${c + 2}), #spreadsheet-head th:nth-child(${c + 2})`)).map(x => x + '{display:none}').join('\n');
+            document.querySelectorAll('.unhide-mark').forEach(m => m.remove());
+            const mark = (list, kind) => {
+                const set = new Set(list);
+                const max = kind === 'row' ? ROWS : COLS;
+                for (let i = 0; i < max; i++) {
+                    if (!set.has(i) || (i > 0 && set.has(i - 1))) continue; // the start of a hidden stretch
+                    let end = i; while (end + 1 < max && set.has(end + 1)) end++;
+                    const lead = i === 0;
+                    const host = document.getElementById(`${kind === 'row' ? 'row' : 'col'}-th-${lead ? end + 1 : i - 1}`);
+                    if (!host) continue;
+                    const m = document.createElement('i');
+                    m.className = `unhide-mark ${kind} ${lead ? 'lead' : ''}`;
+                    m.title = `Tap to show the hidden ${kind === 'row' ? 'row' : 'column'}${end > i ? 's' : ''}`;
+                    m.setAttribute('role', 'button');
+                    m.setAttribute('aria-label', `Show hidden ${kind === 'row' ? 'rows' : 'columns'} ${kind === 'row' ? (i + 1) + (end > i ? ' to ' + (end + 1) : '') : columnToLetter(i) + (end > i ? ' to ' + columnToLetter(end) : '')}`);
+                    m.addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); unhideRange(kind, i, end); });
+                    host.appendChild(m);
+                }
+            };
+            mark(rows, 'row'); mark(cols, 'col');
+        }
+        const hideSpan = (kind, a, b) => kind === 'row' ? (a === b ? `row ${a + 1}` : `rows ${a + 1} to ${b + 1}`) : (a === b ? `column ${columnToLetter(a)}` : `columns ${columnToLetter(a)} to ${columnToLetter(b)}`);
+        // Moves the selection off whatever was hidden, to the nearest cell that still shows
+        function afterHidden(kind, lo, hi) {
+            const sh = sheets[currentSheetIdx], set = kind === 'row' ? hiddenRowSet(sh) : hiddenColSet(sh), max = kind === 'row' ? ROWS : COLS;
+            let t = hi + 1; while (t < max && set.has(t)) t++;
+            if (t >= max) { t = lo - 1; while (t >= 0 && set.has(t)) t--; }
+            if (t < 0) t = 0;
+            if (kind === 'row') selectSingle(t, Math.min(activeCell.col, COLS - 1)); else selectSingle(Math.min(activeCell.row, ROWS - 1), t);
+            let g = 0; // (the cell you were on may be hidden in the other direction too)
+            while (colHiddenByHand(activeCell.col) && g++ < COLS) selectSingle(activeCell.row, (activeCell.col + 1) % COLS);
+            g = 0; while (rowHiddenByHand(activeCell.row) && g++ < ROWS) selectSingle((activeCell.row + 1) % ROWS, activeCell.col);
+        }
+        function hideSelected(kind) {
+            if (editingCell) endEdit(true);
+            const b = selBounds(), sh = sheets[currentSheetIdx];
+            const key = kind === 'row' ? 'hiddenRows' : 'hiddenCols', max = kind === 'row' ? ROWS : COLS;
+            const lo = kind === 'row' ? b.minR : b.minC, hi = kind === 'row' ? b.maxR : b.maxC;
+            const set = new Set(sh[key] || []);
+            let added = 0;
+            for (let i = lo; i <= hi; i++) if (!set.has(i)) { set.add(i); added++; }
+            if (!added) { showToast(`Already hidden`); return; }
+            if (set.size >= max) { showToast(`At least one ${kind} has to stay showing`); return; }
+            sh[key] = [...set].sort((x, y) => x - y);
+            applySizes(); layoutFreeze();
+            afterHidden(kind, lo, hi);
+            recalculateAll(); updateStats(); highlightSelection();
+            showToast(`Hid ${hideSpan(kind, lo, hi)}. Tap the marker on the ${kind === 'row' ? 'row number' : 'column letter'} to show again`);
+            recordHistory(`Hid ${hideSpan(kind, lo, hi)}`);
+        }
+        function unhideRange(kind, lo, hi) {
+            if (editingCell) endEdit(true);
+            const sh = sheets[currentSheetIdx], key = kind === 'row' ? 'hiddenRows' : 'hiddenCols';
+            const before = sh[key] || [];
+            const next = before.filter(i => i < lo || i > hi);
+            if (next.length === before.length) { showToast(`Nothing hidden in the selection`); return false; }
+            sh[key] = next;
+            applySizes(); layoutFreeze();
+            recalculateAll(); updateStats(); highlightSelection();
+            showToast(`Showing ${hideSpan(kind, lo, hi)} again`);
+            recordHistory(`Showed ${hideSpan(kind, lo, hi)}`);
+            return true;
+        }
+        function unhideSelected(kind) {
+            const b = selBounds();
+            unhideRange(kind, kind === 'row' ? b.minR : b.minC, kind === 'row' ? b.maxR : b.maxC);
         }
 
         function buildGridDOM() {
@@ -3716,11 +3819,14 @@
             const tops = [], lefts = [];
             for (let r = 0; r < rows; r++) tops.push(byId(`row-th-${r}`).parentElement.offsetTop);
             for (let c = 0; c < cols; c++) lefts.push(byId(`col-th-${c}`).offsetLeft);
+            let lastR = rows - 1, lastC = cols - 1; // (the last frozen row / column that is showing)
+            while (lastR >= 0 && rowHiddenByHand(lastR)) lastR--;
+            while (lastC >= 0 && colHiddenByHand(lastC)) lastC--;
             const headerH = byId('col-th-0').offsetHeight;
             const rowHeaderW = byId('row-th-0').offsetWidth;
             let frozenBottom = headerH, frozenRight = rowHeaderW;
-            if (rows) { const tr = byId(`row-th-${rows - 1}`).parentElement; frozenBottom = tr.offsetTop + tr.offsetHeight; }
-            if (cols) { const th = byId(`col-th-${cols - 1}`); frozenRight = th.offsetLeft + th.offsetWidth; }
+            if (rows && lastR >= 0) { const tr = byId(`row-th-${lastR}`).parentElement; frozenBottom = tr.offsetTop + tr.offsetHeight; }
+            if (cols && lastC >= 0) { const th = byId(`col-th-${lastC}`); frozenRight = th.offsetLeft + th.offsetWidth; }
 
             const stick = (el, top, left, z) => {
                 el.style.position = 'sticky';
@@ -3731,27 +3837,29 @@
             };
 
             for (let r = 0; r < rows; r++) {
+                if (rowHiddenByHand(r)) continue;
                 const rowTh = byId(`row-th-${r}`);
                 stick(rowTh, tops[r], null, 13);
-                if (r === rows - 1) rowTh.classList.add('freeze-edge-row');
+                if (r === lastR) rowTh.classList.add('freeze-edge-row');
                 for (let c = 0; c < COLS; c++) {
                     const td = byId(`cell-${getCellId(r, c)}`);
                     const colFrozen = c < cols;
                     stick(td, tops[r], colFrozen ? lefts[c] : null, colFrozen ? 9 : 8);
                     td.classList.add('frozen-cell');
-                    if (r === rows - 1) td.classList.add('freeze-edge-row');
-                    if (c === cols - 1) td.classList.add('freeze-edge-col');
+                    if (r === lastR) td.classList.add('freeze-edge-row');
+                    if (c === lastC) td.classList.add('freeze-edge-col');
                 }
             }
             for (let c = 0; c < cols; c++) {
+                if (colHiddenByHand(c)) continue;
                 const th = byId(`col-th-${c}`);
                 stick(th, 0, lefts[c], 14);
-                if (c === cols - 1) th.classList.add('freeze-edge-col');
+                if (c === lastC) th.classList.add('freeze-edge-col');
                 for (let r = rows; r < ROWS; r++) {
                     const td = byId(`cell-${getCellId(r, c)}`);
                     stick(td, null, lefts[c], 8);
                     td.classList.add('frozen-cell');
-                    if (c === cols - 1) td.classList.add('freeze-edge-col');
+                    if (c === lastC) td.classList.add('freeze-edge-col');
                 }
             }
 
@@ -3968,6 +4076,10 @@
                         <div class="rg-items">
                         <button onclick="openSizeModal()" title="Column width and row height of the selected cells"><span class="material-symbols-outlined mi-lead" aria-hidden="true">straighten</span>Size...</button>
                         <button id="checkbox-btn" onclick="toggleCheckboxStyle()" title="Turn the selected cells into tick boxes (or back)"><span class="material-symbols-outlined mi-lead" aria-hidden="true">check_box</span>Checkbox</button>
+                        <button onclick="hideSelected('row')" title="Hide the selected rows"><span class="material-symbols-outlined mi-lead" aria-hidden="true">visibility_off</span>Hide rows</button>
+                        <button onclick="hideSelected('col')" title="Hide the selected columns"><span class="material-symbols-outlined mi-lead" aria-hidden="true">visibility_off</span>Hide columns</button>
+                        <button onclick="unhideSelected('row')" title="Show hidden rows inside the selection"><span class="material-symbols-outlined mi-lead" aria-hidden="true">visibility</span>Unhide rows</button>
+                        <button onclick="unhideSelected('col')" title="Show hidden columns inside the selection"><span class="material-symbols-outlined mi-lead" aria-hidden="true">visibility</span>Unhide columns</button>
                         <button onclick="openSheetModal()">Rename / Delete Sheet</button>
                         </div>
                         <span class="rg-name">Cells</span>
@@ -4394,6 +4506,10 @@
         function moveActive(r, c) {
             r = Math.max(0, Math.min(ROWS - 1, r));
             c = Math.max(0, Math.min(COLS - 1, c));
+            // arrows step over hidden rows and columns (no move when nothing shows past the edge)
+            const dr = Math.sign(r - activeCell.row), dc = Math.sign(c - activeCell.col);
+            if (dr) { while (r >= 0 && r < ROWS && rowHiddenByHand(r)) r += dr; if (r < 0 || r >= ROWS) return; }
+            if (dc) { while (c >= 0 && c < COLS && colHiddenByHand(c)) c += dc; if (c < 0 || c >= COLS) return; }
             selectSingle(r, c);
             const td = document.getElementById(`cell-${getCellId(r, c)}`);
             if (td && td.scrollIntoView) td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -4476,7 +4592,8 @@
         function nextEditCell(r, c, dr, dc) {
             const own = merges.find(x => x.r === r && x.c === c);
             let nr = dr ? (own ? own.r + own.rows : r + 1) : r, nc = dc ? (own ? own.c + own.cols : c + 1) : c;
-            while (nr < ROWS && filteredRows.has(nr)) nr++;
+            while (nr < ROWS && (filteredRows.has(nr) || rowHiddenByHand(nr))) nr++;
+            while (dc && nc < COLS && colHiddenByHand(nc)) nc++;
             if (nr >= ROWS || nc >= COLS) return null;
             const m = merges.find(x => nr >= x.r && nr < x.r + x.rows && nc >= x.c && nc < x.c + x.cols);
             if (m) { nr = m.r; nc = m.c; }
@@ -5953,13 +6070,14 @@
         }
 
         // ----- Shared helpers for the function library -----
-        // SUBTOTAL leaves out the rows a table filter is hiding (SUM and the others still count them, like Excel)
+        // SUBTOTAL and the V functions leave out the rows a table filter or Hide is hiding (SUM and the others still count them, like Excel)
         function skipFilteredRows(a) {
-            if (!isRange(a) || !a.origin || !filteredRows.size) return a;
+            const hand = (sheets[engineSheetIdx()] || {}).hiddenRows;
+            if (!isRange(a) || !a.origin || (!filteredRows.size && !(hand && hand.length))) return a;
             const vals = [];
             let rows = 0;
             for (let r = 0; r < a.rows; r++) {
-                if (filteredRows.has(a.origin.r + r)) continue;
+                if (rowSkippedByV(a.origin.r + r)) continue;
                 rows++;
                 for (let c = 0; c < a.cols; c++) vals.push(a.get(r, c));
             }
@@ -7549,6 +7667,8 @@
             if (!s.merges) s.merges = [];
             if (!s.colWidths) s.colWidths = {};
             if (!s.rowHeights) s.rowHeights = {};
+            if (!s.hiddenRows) s.hiddenRows = [];
+            if (!s.hiddenCols) s.hiddenCols = [];
             if (!s.charts) s.charts = [];
             data = s.data;
             conditionalRules = s.conditionalRules;
@@ -7780,7 +7900,7 @@
             <p><b>Formatting (Home tab).</b> Bold, italic and underline; the font (the Noto Sans Symbols fonts are there for symbols); text and fill colors; align left, center or right; <b>Merge</b> and Unmerge; <b>Wrap</b> (make the row taller with <b>Size…</b> to see more lines); <b>Checkbox</b>; a <b>Borders</b> menu; and <b>Size…</b> for column width and row height.</p>
             <p><b>Number formats.</b> The menu has General, Currency, Percentage, Decimal, two date styles, Date &amp; Time and Text; <b>+.0</b> and <b>−.0</b> add or remove decimals. A format changes only how a number is shown, never its value. Typing 12% makes 0.12 shown as a percentage.</p>
             <p><b>Copy, cut, paste.</b> Copy or Cut outlines the cells with dashes. <b>Paste</b> pastes them (formulas move with the cells); <b>Paste values</b> (the Paste icon with 123) pastes only the numbers and text. <b>Fill ↓</b> and <b>Fill →</b> copy the top or left cell across a selection, and <b>Series</b> carries on a pattern such as 1, 2, 3 or Mon, Tue or Item 1, Item 2 or one of your lists. No Escape key? The Clear button (actions bar, or Clear copy on the Home tab) removes the outline.</p>
-            <p><b>Freeze Panes</b> (View tab) keeps rows and columns in place while you scroll; <b>Unfreeze</b> undoes it. <b>Theme</b> (Settings) can match your phone, or be Light or Dark.</p>`;
+            <p><b>Freeze Panes</b> (View tab) keeps rows and columns in place while you scroll; <b>Unfreeze</b> undoes it. <b>Hide rows</b> and <b>Hide columns</b> (Home tab, Cells) tuck the selected ones away, and the marker on the number or letter before them shows them again. SUM and the others still count hidden rows; SUMV and the other V functions skip them. <b>Theme</b> (Settings) can match your phone, or be Light or Dark.</p>`;
         GUIDE_TEXT.data = `
             <p><b>Tables.</b> Select your data and tap <b>Table</b> (Insert tab). Tap a column letter inside the table to sort and filter it. The table grows by itself as you add rows, and formulas can use its names, like <code>Sales[Amount]</code>. Rows a filter hides are skipped by the V functions (SUMV, AVERAGEV and the others).</p>
             <p><b>Drop-down lists and rules.</b> <b>Validation</b> (Data tab) limits what a cell accepts: a list (typed, one of your My Lists from Settings, or a range on a sheet), a date, a whole number or a number, with optional limits. A cell with a list shows a <b>▼</b> at its right edge when it is selected; tap it to pick. <b>Cond. Formatting</b> (Home tab) colors cells by rules (greater than, top 10, color scales, your own formula) and keeps up as the numbers change.</p>
@@ -7801,7 +7921,7 @@
             <p><b>Reading the list.</b> The step you are on says <b>\u{1F4CD} Present</b>. Earlier steps say <b>\u{1F995}</b> and how long before the Present they happened; steps you have undone say <b>\u{1F680}</b> and how long after. When you travel, every label is measured again from your new Present.</p>
             <p><b>Good to know.</b> If you go back and make a new change, the steps ahead are dropped. The last 25 steps are kept, and the history starts fresh each time you open the app.</p>`;
         const GUIDE_QSHEET_EX = { // the functions that only QSheet has: [example, what it does]
-            SUMV: ['=SUMV(C2:C20)', 'Like SUM, but only the visible rows (the rows a table filter is showing). The V is for Visible.'],
+            SUMV: ['=SUMV(C2:C20)', 'Like SUM, but only the visible rows (the rows that are not hidden by a table filter or by Hide). The V is for Visible.'],
             AVERAGEV: ['=AVERAGEV(C2:C20)', 'Like AVERAGE, but only the visible rows. The V is for Visible.'],
             COUNTV: ['=COUNTV(C2:C20)', 'Like COUNT, but only the visible rows. The V is for Visible.'],
             COUNTAV: ['=COUNTAV(A2:A20)', 'Like COUNTA (cells that are not empty), but only the visible rows. The V is for Visible.'],
@@ -8960,13 +9080,13 @@
             { name: 'ISEVEN', cat: 'Information', desc: 'TRUE if the number is even (whole part only).', kw: 'odd even parity check', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
             { name: 'ISODD', cat: 'Information', desc: 'TRUE if the number is odd (whole part only).', kw: 'odd even parity check', args: [wa('number', 'The number', 'A2', { t: 'num' })] },
             // Visible-only (rows hidden by a table filter are left out)
-            wizAgg('SUMV', 'Adds up the visible numbers: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(109, range).', 'total add filtered hidden visible'),
-            wizAgg('AVERAGEV', 'Average of the visible numbers: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(101, range).', 'mean filtered hidden visible'),
-            wizAgg('COUNTV', 'Counts the visible numbers: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(102, range).', 'how many numbers filtered hidden visible'),
-            wizAgg('COUNTAV', 'Counts the visible cells that are not empty: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(103, range).', 'how many filled filtered hidden visible'),
-            wizAgg('MAXV', 'The largest visible number: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(104, range).', 'highest filtered hidden visible'),
-            wizAgg('MINV', 'The smallest visible number: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(105, range).', 'lowest filtered hidden visible'),
-            wizAgg('PRODUCTV', 'Multiplies the visible numbers together: rows hidden by a table filter are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(106, range).', 'multiply filtered hidden visible'),
+            wizAgg('SUMV', 'Adds up the visible numbers: rows hidden by a table filter or by Hide are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(109, range).', 'total add filtered hidden visible'),
+            wizAgg('AVERAGEV', 'Average of the visible numbers: rows hidden by a table filter or by Hide are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(101, range).', 'mean filtered hidden visible'),
+            wizAgg('COUNTV', 'Counts the visible numbers: rows hidden by a table filter or by Hide are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(102, range).', 'how many numbers filtered hidden visible'),
+            wizAgg('COUNTAV', 'Counts the visible cells that are not empty: rows hidden by a table filter or by Hide are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(103, range).', 'how many filled filtered hidden visible'),
+            wizAgg('MAXV', 'The largest visible number: rows hidden by a table filter or by Hide are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(104, range).', 'highest filtered hidden visible'),
+            wizAgg('MINV', 'The smallest visible number: rows hidden by a table filter or by Hide are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(105, range).', 'lowest filtered hidden visible'),
+            wizAgg('PRODUCTV', 'Multiplies the visible numbers together: rows hidden by a table filter or by Hide are left out. The V is for Visible (what is in view). QSheet only; in Excel use SUBTOTAL(106, range).', 'multiply filtered hidden visible'),
             { name: 'ABS', cat: 'Math & Aggregation', desc: 'Removes the minus sign: the distance from zero.', kw: 'absolute positive', args: [wa('number', 'The number', '-5', { t: 'num' })] },
             { name: 'ROUND', cat: 'Math & Aggregation', desc: 'Rounds a number to a set number of decimal places (halves round up).', kw: 'decimals nearest', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '2', { t: 'num' })] },
             { name: 'ROUNDUP', cat: 'Math & Aggregation', desc: 'Rounds a number up, away from zero.', kw: 'ceiling', args: [wa('number', 'The number to round', 'A2', { t: 'num' }), wa('num_digits', 'Decimal places to keep. 0 = whole number, -2 = nearest hundred', '0', { t: 'num' })] },
@@ -10151,7 +10271,7 @@
             const b = selBounds();
             const whole = (b.minR === 0 && b.maxR === ROWS - 1) || (b.minC === 0 && b.maxC === COLS - 1);
             const t1 = document.getElementById(`cell-${getCellId(b.minR, b.minC)}`), t2 = document.getElementById(`cell-${getCellId(b.maxR, b.maxC)}`);
-            if (editingCell || whole || !t1 || !t2 || t1.style.display === 'none' || t2.style.display === 'none' || painter) { tl.classList.add('hidden'); br.classList.add('hidden'); showFillFrame(false); return; }
+            if (editingCell || whole || !t1 || !t2 || t1.style.display === 'none' || t2.style.display === 'none' || rowHiddenByHand(b.minR) || rowHiddenByHand(b.maxR) || colHiddenByHand(b.minC) || colHiddenByHand(b.maxC) || painter) { tl.classList.add('hidden'); br.classList.add('hidden'); showFillFrame(false); return; }
             const grid = document.getElementById('grid-container'), gr = grid.getBoundingClientRect(), r1 = t1.getBoundingClientRect(), r2 = t2.getBoundingClientRect();
             tl.style.left = (r1.left - gr.left + grid.scrollLeft) + 'px'; tl.style.top = (r1.top - gr.top + grid.scrollTop) + 'px';
             br.style.left = (r2.right - gr.left + grid.scrollLeft) + 'px'; br.style.top = (r2.bottom - gr.top + grid.scrollTop) + 'px';
@@ -11826,7 +11946,7 @@
         // whole workbook, so recording is quick and 25 steps cost little memory. Going back or forward applies those changes.
         // `historyStack` holds the steps; `histPos` is how many of them are applied (the rest are "ahead" and can be redone).
         const HIST_MAX = 25;
-        const HIST_META = ['name', 'conditionalRules', 'validationRules', 'tableObjects', 'merges', 'freezeRows', 'freezeCols', 'colWidths', 'rowHeights', 'charts'];
+        const HIST_META = ['name', 'conditionalRules', 'validationRules', 'tableObjects', 'merges', 'freezeRows', 'freezeCols', 'colWidths', 'rowHeights', 'hiddenRows', 'hiddenCols', 'charts'];
         let histPos = 0;
         let histStartName = 'Opened workbook';
         let histStartTime = Date.now(); // when this history began (the "Present" for steps ahead when you have travelled back to the start)
