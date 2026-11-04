@@ -26,7 +26,7 @@
     <!-- Icon fonts for interface buttons (not offered as cell fonts). display=block keeps the icon hidden until the font has loaded, so a button never shows the plain word.
          Material Symbols is cut down to the icons the buttons use (a few KB instead of 320 KB): when a button gets a new icon, add its name to icon_names (keep them in alphabetical order).
          Use <span class="material-symbols-outlined">settings</span>. Material Icons is loaded but not used yet. -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,delete,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,format_color_text,format_paint,function,functions,label,left_panel_close,left_panel_open,menu_book,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_less,unfold_more,wrap_text&display=block" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=123,ac_unit,add,add_chart,arrow_back,arrow_downward,arrow_drop_down,arrow_drop_down_circle,arrow_forward,arrow_upward,autorenew,bar_chart,calendar_month,casino,cell_merge,check_box,close,content_copy,content_cut,content_paste,delete,find_replace,format_align_center,format_align_left,format_align_right,format_color_fill,format_color_text,format_paint,function,functions,label,left_panel_close,left_panel_open,menu_book,redo,settings,sort,straighten,table_chart,text_fields,undo,unfold_less,unfold_more,wrap_text&display=block" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Icons&display=block" rel="stylesheet">
     <script>
         // If the icon font cannot load (for example offline the very first time), buttons show their words instead of icons
@@ -923,6 +923,8 @@
         .key-row .kr-key { flex: none; min-width: 40px; min-height: 40px; padding: 0 10px; font-size: 1.05rem; font-family: 'Roboto Mono', ui-monospace, monospace; font-weight: 600; }
         .key-row .kr-mode { min-width: 52px; font-family: inherit; font-size: 0.85rem; background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-color); }
         .key-row .kr-fx { font-family: inherit; font-style: italic; }
+        .key-row .kr-ico { min-width: 44px; padding: 0 6px; touch-action: manipulation; }
+        .key-row .kr-ico .material-symbols-outlined { font-size: 24px; }
 
         /* Status Bar */
         .status-bar {
@@ -2108,7 +2110,7 @@
                     <input type="checkbox" id="setting-val-picker" checked style="width: 20px; height: 20px;" onchange="saveSettings()">
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
-                    <label for="setting-keyrow">Show the formula key row above the keyboard</label>
+                    <label for="setting-keyrow">Show the key row above the keyboard (arrows, date, fx)</label>
                     <input type="checkbox" id="setting-keyrow" checked style="width: 20px; height: 20px;" onchange="saveSettings(); updateKeyRow()">
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
@@ -4267,12 +4269,14 @@
         }
 
         // ===== Cell Editing =====
+        let editStarting = false;
         function startEdit(r, c, replaceWith, opts) {
             const cellId = getCellId(r, c);
             const input = document.getElementById(`input-${cellId}`);
             if (!input) return;
             if (editingCell) endEdit(true);
-            if (activeCell.row !== r || activeCell.col !== c) selectSingle(r, c);
+            editStarting = true; // (the handles are about to be hidden: they are not measured on the way)
+            try { if (activeCell.row !== r || activeCell.col !== c) selectSingle(r, c); } finally { editStarting = false; }
             if (clip) clipClear(true); // starting to edit drops the copy outline, as in Excel
             if (ribbonOpen) toggleRibbon(); // the ribbon would cover the cell: one tap on Ribbon Menu brings it back
             editingCell = { row: r, col: c, original: cellEditText(cellId), typed: replaceWith !== undefined };
@@ -4328,6 +4332,7 @@
             updateDropArrow();
             scheduleSpill();
             updateKeyRow();
+            if (keepFocus) return; // (the next cell is opened right away: it places the handles and the bar itself, and measuring the grid twice would make moving slow)
             positionFillHandle();
             if (!editingCell) updateCellDock(getCellId(activeCell.row, activeCell.col)); // the actions bar comes back
         }
@@ -4341,10 +4346,12 @@
         // The next real cell: leaves a merge, lands on the start of a merge, skips rows a filter hides; null at the edge of the sheet
         function nextEditCell(r, c, dr, dc) {
             const own = merges.find(x => x.r === r && x.c === c);
-            let nr = dr ? (own ? own.r + own.rows : r + 1) : r, nc = dc ? (own ? own.c + own.cols : c + 1) : c;
-            while (nr < ROWS && (filteredRows.has(nr) || rowHiddenByHand(nr))) nr++;
-            while (dc && nc < COLS && colHiddenByHand(nc)) nc++;
-            if (nr >= ROWS || nc >= COLS) return null;
+            let nr = r, nc = c;
+            if (dr) nr = dr > 0 ? (own ? own.r + own.rows : r + 1) : (own ? own.r - 1 : r - 1);
+            if (dc) nc = dc > 0 ? (own ? own.c + own.cols : c + 1) : (own ? own.c - 1 : c - 1);
+            while (nr >= 0 && nr < ROWS && (filteredRows.has(nr) || rowHiddenByHand(nr))) nr += dr || 1;
+            while (dc && nc >= 0 && nc < COLS && colHiddenByHand(nc)) nc += dc;
+            if (nr < 0 || nc < 0 || nr >= ROWS || nc >= COLS) return null;
             const m = merges.find(x => nr >= x.r && nr < x.r + x.rows && nc >= x.c && nc < x.c + x.cols);
             if (m) { nr = m.r; nc = m.c; }
             return { r: nr, c: nc };
@@ -4381,36 +4388,59 @@
             }
             return 'text';
         }
-        const KEY_ROW_KEYS = ['=', '+', '-', '*', '/', '(', ')', ',', ':', '$', '"', '&', '%', '<', '>'];
         function buildKeyRow() {
             const row = document.getElementById('key-row');
             if (!row || row.dataset.built) return;
             row.dataset.built = '1';
-            row.innerHTML = `<button type="button" id="kr-mode" class="kr-key kr-mode" aria-label="Switch keyboard"></button><button type="button" class="kr-key kr-fx" data-k="fx" aria-label="fx Wizard">fx</button>` + KEY_ROW_KEYS.map(k => `<button type="button" class="kr-key" data-k="${escapeHtml(k)}" aria-label="${escapeHtml(k)}">${escapeHtml(k)}</button>`).join('');
+            const ico = (k, name, label, glyph) => `<button type="button" class="kr-key kr-ico" data-k="${k}" aria-label="${label}" title="${label}"><span class="material-symbols-outlined" aria-hidden="true">${name}</span><span class="ico-label">${glyph}</span></button>`;
+            row.innerHTML = ico('left', 'arrow_back', 'Move left', '&larr;') + ico('right', 'arrow_forward', 'Move right', '&rarr;') + ico('up', 'arrow_upward', 'Move up', '&uarr;') + ico('down', 'arrow_downward', 'Move down', '&darr;')
+                + `<button type="button" id="kr-mode" class="kr-key kr-mode" aria-label="Switch keyboard"></button>` + ico('date', 'calendar_month', 'Pick a date', '&#128197;')
+                + `<button type="button" class="kr-key kr-fx" data-k="fx" aria-label="fx Wizard">fx</button>`;
             // a tap on a key must not take the focus (or the keyboard) away from the box being typed in
             row.addEventListener('mousedown', e => e.preventDefault());
-            row.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') e.preventDefault(); });
+            row.addEventListener('pointerdown', e => {
+                if (e.pointerType === 'mouse') e.preventDefault();
+                const b = e.target.closest && e.target.closest('button[data-k]');
+                if (b && KR_DIRS[b.dataset.k]) krArrowHold(b.dataset.k);
+            });
+            ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => row.addEventListener(t, krArrowStop));
             row.addEventListener('click', e => {
                 const b = e.target.closest('button');
                 if (!b) return;
                 if (b.id === 'kr-mode') toggleKeyboardType();
                 else if (b.dataset.k === 'fx') openWizard();
-                else insertKey(b.dataset.k);
+                else if (b.dataset.k === 'date') krDate();
+                else if (KR_DIRS[b.dataset.k]) { if (krHeld) krHeld = false; else krMove(b.dataset.k); }
             });
+        }
+        // The arrows accept the entry and open the neighbouring cell for typing, like Enter and Tab; held down they keep going
+        const KR_DIRS = { left: [0, -1], right: [0, 1], up: [-1, 0], down: [1, 0] };
+        let krTimer = 0, krRepeat = 0, krHeld = false, krSwallow = 0;
+        function krMove(k) {
+            if (!editingCell) return false;
+            const [dr, dc] = KR_DIRS[k];
+            enterAndMove(editingCell.row, editingCell.col, dr, dc);
+            if (!editingCell) krSwallow = Date.now(); // (the key row has gone: the rest of this touch must not land on the bar behind it)
+            return !!editingCell;
+        }
+        // A tap moves once (on the click); held down, the arrow keeps going after a short wait
+        function krArrowHold(k) {
+            krArrowStop(); krHeld = false;
+            krTimer = setTimeout(() => { krHeld = true; krRepeat = setInterval(() => { if (!krMove(k)) krArrowStop(); }, 160); }, 450);
+        }
+        function krArrowStop() { clearTimeout(krTimer); clearInterval(krRepeat); krTimer = krRepeat = 0; }
+        document.addEventListener('click', e => { if (Date.now() - krSwallow < 600 && !(e.target.closest && e.target.closest('#key-row'))) { e.stopPropagation(); e.preventDefault(); } }, true);
+        // 📅: accepts what is typed, then opens the date picker for the cell (any cell, not only date-rule cells)
+        function krDate() {
+            if (!editingCell) return;
+            const id = getCellId(editingCell.row, editingCell.col);
+            endEdit(true);
+            openDatePicker(id, true);
         }
         function keyTarget() {
             if (editingCell) return document.getElementById(`input-${getCellId(editingCell.row, editingCell.col)}`);
             const fi = document.getElementById('formula-input');
             return document.activeElement === fi ? fi : null;
-        }
-        // The key's character goes in at the caret (over a selection), as if typed
-        function insertKey(ch) {
-            const el = keyTarget();
-            if (!el) return;
-            if (ch === '=' && editingCell && el.getAttribute('inputmode') === 'decimal') setKeyboardType('text'); // a formula needs the letters
-            const s0 = el.selectionStart === null ? el.value.length : el.selectionStart, e0 = el.selectionEnd === null ? s0 : el.selectionEnd;
-            el.setRangeText(ch, s0, e0, 'end');
-            el.dispatchEvent(new Event('input', { bubbles: true }));
         }
         function setKeyboardType(mode) {
             const el = keyTarget();
@@ -4421,6 +4451,11 @@
             try { el.blur(); el.focus(); if (s0 !== null) el.setSelectionRange(s0, e0); } finally { kbdSwitching = false; }
             updateKeyRow();
         }
+        // Typing = on the number pad starts a formula, which needs letters: the keyboard switches by itself
+        document.addEventListener('input', e => {
+            const el = e.target;
+            if (editingCell && el && el.id === `input-${getCellId(editingCell.row, editingCell.col)}` && el.getAttribute('inputmode') === 'decimal' && String(el.value).startsWith('=')) setKeyboardType('text');
+        });
         function toggleKeyboardType() {
             const el = keyTarget();
             if (el) setKeyboardType(el.getAttribute('inputmode') === 'decimal' ? 'text' : 'decimal');
@@ -4437,6 +4472,7 @@
             const mode = document.getElementById('kr-mode');
             if (mode) {
                 mode.style.display = editingCell ? '' : 'none'; // (the formula bar has no number pad)
+                row.querySelectorAll('.kr-ico').forEach(b => { b.style.display = editingCell ? '' : 'none'; }); // (nor cells to move to or a date to pick)
                 const el = editingCell ? keyTarget() : null;
                 mode.textContent = el && el.getAttribute('inputmode') === 'decimal' ? 'ABC' : '123';
             }
@@ -5195,17 +5231,17 @@
         function closePicker() { valEl('pick-sheet').classList.add('hidden'); pickCell = null; }
 
         let dateCell = null;
-        function openDatePicker(cellId) {
+        function openDatePicker(cellId, any) { // (any: from the key row, for a cell with no date rule)
             const rule = valRulesFor(cellId).find(r => r.type === 'date');
-            if (!rule) return;
+            if (!rule && !any) return;
             dateCell = cellId;
             const input = valEl('date-pick');
-            input.min = rule.cond === 'between' || rule.cond === 'atleast' ? valInputDate(rule.min) : '';
-            input.max = rule.cond === 'between' || rule.cond === 'atmost' ? valInputDate(rule.max) : '';
+            input.min = rule && (rule.cond === 'between' || rule.cond === 'atleast') ? valInputDate(rule.min) : '';
+            input.max = rule && (rule.cond === 'between' || rule.cond === 'atmost') ? valInputDate(rule.max) : '';
             const cell = data[cellId];
             input.value = cell && typeof cell.value === 'number' && cell.style && DATE_FORMATS.includes(cell.style.numFormat) ? valInputDate(Math.floor(cell.value)) : '';
             valEl('date-title').textContent = `Pick a date for ${cellId}`;
-            valEl('date-hint').textContent = valLimitText(rule) ? `Allowed: a date${valLimitText(rule)}` : '';
+            valEl('date-hint').textContent = rule && valLimitText(rule) ? `Allowed: a date${valLimitText(rule)}` : '';
             valEl('date-sheet').classList.remove('hidden');
         }
         function closeDatePicker() { valEl('date-sheet').classList.add('hidden'); dateCell = null; }
@@ -10021,7 +10057,7 @@
             const b = selBounds();
             const whole = (b.minR === 0 && b.maxR === ROWS - 1) || (b.minC === 0 && b.maxC === COLS - 1);
             const t1 = document.getElementById(`cell-${getCellId(b.minR, b.minC)}`), t2 = document.getElementById(`cell-${getCellId(b.maxR, b.maxC)}`);
-            if (editingCell || whole || !t1 || !t2 || t1.style.display === 'none' || t2.style.display === 'none' || rowHiddenByHand(b.minR) || rowHiddenByHand(b.maxR) || colHiddenByHand(b.minC) || colHiddenByHand(b.maxC) || painter) { tl.classList.add('hidden'); br.classList.add('hidden'); showFillFrame(false); return; }
+            if (editingCell || editStarting || whole || !t1 || !t2 || t1.style.display === 'none' || t2.style.display === 'none' || rowHiddenByHand(b.minR) || rowHiddenByHand(b.maxR) || colHiddenByHand(b.minC) || colHiddenByHand(b.maxC) || painter) { tl.classList.add('hidden'); br.classList.add('hidden'); showFillFrame(false); return; }
             const grid = document.getElementById('grid-container'), gr = grid.getBoundingClientRect(), r1 = t1.getBoundingClientRect(), r2 = t2.getBoundingClientRect();
             tl.style.left = (r1.left - gr.left + grid.scrollLeft) + 'px'; tl.style.top = (r1.top - gr.top + grid.scrollTop) + 'px';
             br.style.left = (r2.right - gr.left + grid.scrollLeft) + 'px'; br.style.top = (r2.bottom - gr.top + grid.scrollTop) + 'px';
