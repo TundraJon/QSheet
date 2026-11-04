@@ -356,6 +356,7 @@
         }
         /* With the cell actions bar switched off in Settings there is nothing to scroll clear of */
         body.bar-off .grid-container { padding-bottom: 12px; scroll-padding-bottom: 12px; }
+        body.bar-off.range-bar .grid-container { padding-bottom: 64px; scroll-padding-bottom: 64px; }
 
         table.spreadsheet {
             border-collapse: collapse;
@@ -2137,7 +2138,7 @@
                     <button type="button" onclick="openListsFromSettings()">Manage…</button>
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
-                    <label for="setting-show-bar">Show the cell actions bar <small style="font-weight: 400; color: var(--text-3);">(the pill above the bottom of the grid)</small></label>
+                    <label for="setting-show-bar">Show the cell actions bar for single cells <small style="font-weight: 400; color: var(--text-3);">(the pill above the bottom of the grid; several cells always show their own toolbar)</small></label>
                     <input type="checkbox" id="setting-show-bar" checked style="width: 20px; height: 20px;" onchange="onBarToggle()">
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
@@ -2793,12 +2794,12 @@
             saveState.enabled = document.getElementById('setting-autosave').checked;
             applyBarSetting();
         }
-        // The cell actions bar can be switched off: the two switches under it are greyed out then, and the grid needs less room at the bottom
+        // The cell actions bar for single cells can be switched off: the value picker switch under it is greyed out then, and the grid needs less room at the bottom
         const barOn = () => { const el = document.getElementById('setting-show-bar'); return !el || el.checked; };
         function applyBarSetting() {
             const on = barOn();
             document.body.classList.toggle('bar-off', !on);
-            ['setting-quick-fx', 'setting-val-picker'].forEach(id => {
+            ['setting-val-picker'].forEach(id => { // (Quick fx stays usable: the toolbar for several cells has an fx button that follows it)
                 const el = document.getElementById(id);
                 if (!el) return;
                 el.disabled = !on;
@@ -4207,11 +4208,13 @@
             const cb = document.getElementById('clipclear-btn');
             if (cb) cb.disabled = !clip;
             closeDockMenu();
-            if (!barOn() || editingCell) { dock.classList.add('hidden'); return; } // (the bar is for selected cells; while typing it would cover the cell)
-
-            let html = '';
             const sel = selBounds();
             const multi = !editingCell && (sel.maxR > sel.minR || sel.maxC > sel.minC);
+            // the Settings switch is for the single-cell bar: two or more cells always get their toolbar (while typing it would cover the cell)
+            document.body.classList.toggle('range-bar', multi);
+            if (editingCell || (!barOn() && !multi)) { dock.classList.add('hidden'); return; }
+
+            let html = '';
             let clearBtn = '';
             // The Clear button does the most likely thing: with a Copy / Cut outline showing it only removes the outline, otherwise it empties the selected cells
             if (clip) clearBtn = `<button onclick="clipClear()" aria-label="Clear the ${clip.cut ? 'cut' : 'copy'} outline" title="Remove the ${clip.cut ? 'cut' : 'copy'} outline"><span class="material-symbols-outlined mi-lead" aria-hidden="true">close</span><span class="ico-alt">&#10005; </span>Clear</button>`;
@@ -7890,7 +7893,7 @@
             <p><b>Pick several cells.</b> Press and hold a cell for a moment, then drag. Tap a column letter or a row number to select the whole column or row. A plain drag just scrolls. Tap a checkbox cell once to select it, again to tick it.</p>
             <p><b>The formula bar</b> (under the title) shows what the selected cell holds. You can type there and press Enter. You can also type a shorthand such as <i>average sales in b2 to b50</i>.</p>
             <p><b>Ribbon Menu</b> (top bar) opens five tabs, laid out as in Excel: <b>Home</b> (undo, clipboard, font, alignment, number, editing, rules, sheet tools), <b>Insert</b> (tables and charts), <b>Formulas</b> (the Wizard, AutoSum, names, Re-roll), <b>Data</b> (sort, lists and rules, find, Dice, files) and <b>View</b> (freeze panes).</p>
-            <p><b>The actions bar</b> floats above the bottom of the grid. It offers SUM, AVERAGE and fx Wizard for the selected cell; <b>⚡ Analyze</b> for two or more cells; Pick buttons on drop-down cells; and <b>Clear</b>, which empties the selected cells (the message has Undo; the Delete key does the same). After a Copy or Cut, Clear (with an ✕) only removes the outline. Don't want the bar? Turn off <b>Show the cell actions bar</b> in Settings.</p>
+            <p><b>The actions bar</b> floats above the bottom of the grid. It offers SUM, AVERAGE and fx Wizard for the selected cell; <b>⚡ Analyze</b> for two or more cells; Pick buttons on drop-down cells; and <b>Clear</b>, which empties the selected cells (the message has Undo; the Delete key does the same). After a Copy or Cut, Clear (with an ✕) only removes the outline. Don't want the bar for single cells? Turn off <b>Show the cell actions bar for single cells</b> in Settings; two or more selected cells still show their toolbar.</p>
             <p><b>The strip at the very bottom.</b> With one cell selected it shows what that cell carries, as buttons you can tap to edit: a drop-down list, format rules, a table, a name, a merge, a spill, charts. A plain cell shows its type, like Number · Currency. With two or more cells it shows Cells, Sum, Avg, Min and Max.</p>`;
         GUIDE_TEXT.sheets = `
             <p><b>Sheet tabs</b> sit at the bottom. Tap one to switch to it, tap the current tab to rename or delete that sheet, and tap <b>+ Add Sheet</b> for a new one. A little clock shows while a big sheet is being drawn. Each sheet remembers where you were (the selection and the scroll spot) while the app is open.</p>
