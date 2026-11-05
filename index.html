@@ -2100,7 +2100,7 @@
                     <button type="button" onclick="openListsFromSettings()">Manage…</button>
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
-                    <label for="setting-show-bar">Show the cell actions bar for single cells <small style="font-weight: 400; color: var(--text-3);">(the pill above the bottom of the grid; several cells always show their own toolbar)</small></label>
+                    <label for="setting-show-bar">Show the cell actions bar for single cells <small style="font-weight: 400; color: var(--text-3);">(the pill above the bottom of the grid; several cells, or cells you have copied, still show a toolbar)</small></label>
                     <input type="checkbox" id="setting-show-bar" checked style="width: 20px; height: 20px;" onchange="onBarToggle()">
                 </div>
                 <div class="form-group" style="flex-direction: row; align-items: center; justify-content: space-between;">
@@ -3962,8 +3962,10 @@
             const sel = selBounds();
             const multi = !editingCell && (sel.maxR > sel.minR || sel.maxC > sel.minC);
             // the Settings switch is for the single-cell bar: two or more cells always get their toolbar (while typing it would cover the cell)
-            document.body.classList.toggle('range-bar', multi);
-            if (editingCell || (!barOn() && !multi)) { dock.classList.add('hidden'); return; }
+            // with the bar off for single cells, one cell still gets a small Paste bar while something is copied or cut (item 124)
+            const small = !barOn() && !multi && !editingCell && !!clip;
+            document.body.classList.toggle('range-bar', multi || small);
+            if (editingCell || (!barOn() && !multi && !small)) { dock.classList.add('hidden'); return; }
 
             let html = '';
             let clearBtn = '';
@@ -3976,6 +3978,11 @@
                 html += `<button class="dk-menu-btn" onclick="dockMenu('fill', this)" aria-haspopup="true" aria-label="Fill options">Fill<span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_drop_down</span><span class="ico-alt"> &#9662;</span></button>`;
                 if (showFx) html += `<button class="dk-menu-btn" onclick="dockMenu('fx', this)" aria-haspopup="true" aria-label="Functions"><span class="material-symbols-outlined mi-lead" aria-hidden="true">function</span><span class="ico-alt">fx </span><span class="material-symbols-outlined mi-trail" aria-hidden="true">arrow_drop_down</span><span class="ico-alt">&#9662;</span></button>`;
                 dockButtons.innerHTML = html;
+                dock.classList.remove('hidden');
+                return;
+            }
+            if (small) { // Paste (lit), its menu and the button that removes the outline; the rest is switched off
+                dockButtons.innerHTML = dockPaste() + clearBtn;
                 dock.classList.remove('hidden');
                 return;
             }
@@ -7682,7 +7689,7 @@
             <p><b>Pick several cells.</b> Press and hold a cell for a moment, then drag. Or drag the round handle at a corner of the selection (bottom-right or top-left) to make it bigger or smaller; the opposite corner stays put. Tap a column letter or a row number to select the whole column or row (this also opens the Ribbon Menu). A plain drag just scrolls. Tap a checkbox cell once to select it, again to tick it.</p>
             <p><b>The formula bar</b> (under the title) shows what the selected cell holds. You can type there and press Enter. You can also type a shorthand such as <i>average sales in b2 to b50</i>.</p>
             <p><b>Ribbon Menu</b> (top bar) opens five tabs, laid out as in Excel: <b>Home</b> (undo, clipboard with Paint Format, font, alignment, number, editing, styles, cells), <b>Insert</b> (tables and charts), <b>Formulas</b> (the Wizard, AutoSum, names, Re-roll), <b>Data</b> (sort, lists and rules, analyze, find, Dice, files) and <b>View</b> (freeze panes).</p>
-            <p><b>The actions bar</b> floats above the grid. One cell: SUM, AVERAGE, fx Wizard, Pick (lists and dates) and Clear; Paste comes first after a Copy or Cut. Two or more cells: Cut, Copy, Paste and its menu, Clear, Fill (Drag to fill, Fill down, Fill right, Series) and fx. Clear empties the cells (the message has Undo; the Delete key does the same); after a Copy or Cut it only removes the outline. ⚡ Analyze is on the Data tab. Settings can turn the bar off for single cells (a range still shows its toolbar).</p>
+            <p><b>The actions bar</b> floats above the grid. One cell: SUM, AVERAGE, fx Wizard, Pick (lists and dates) and Clear; Paste comes first after a Copy or Cut. Two or more cells: Cut, Copy, Paste and its menu, Clear, Fill (Drag to fill, Fill down, Fill right, Series) and fx. Clear empties the cells (the message has Undo; the Delete key does the same); after a Copy or Cut it only removes the outline. ⚡ Analyze is on the Data tab. Settings can turn the bar off for single cells (a range still shows its toolbar, and so does a copied cell, with a small Paste bar).</p>
             <p><b>The strip at the very bottom.</b> With one cell selected it shows what that cell carries, as buttons you can tap to edit: a drop-down list, format rules, a table, a name, a merge, a spill, charts. A plain cell shows its type, like Number · Currency. With two or more cells it shows Cells, Sum, Avg, Min and Max.</p>`;
         GUIDE_TEXT.typing = `
             <p><b>Enter and Tab.</b> Enter accepts what you typed and opens the cell below for typing; Tab opens the cell to the right. The keyboard stays open and the next cell's content is selected, so typing replaces it. A checkbox cell is only selected, never ticked.</p>
@@ -7730,7 +7737,7 @@
             <p><b>Good to know.</b> If you go back and make a new change, the steps ahead are dropped. The last 25 steps are kept, and the history starts fresh each time you open the app.</p>`;
         GUIDE_TEXT.settings = `
             <p><b>Settings</b> (the gear, top bar) opens with the <b>Guide</b> button. <b>AutoSave</b> keeps your workbook on this phone by itself. <b>My Lists</b> (Manage…) are reusable drop-down lists you can use in any rule. <b>Theme</b> matches your phone, or is Light or Dark.</p>
-            <p><b>Show the cell actions bar for single cells</b> turns the bar off for one cell; several cells always show their toolbar. <b>Enable Quick fx Access on Cell Tap</b> controls the SUM, AVERAGE and fx Wizard buttons (and fx in the toolbar for several cells). <b>Enable Data Validation Pickers on Cell Tap</b> controls the Pick and Pick date buttons for cells with a list or date rule.</p>
+            <p><b>Show the cell actions bar for single cells</b> turns the bar off for one cell; several cells always show their toolbar, and a small Paste bar shows while something is copied. <b>Enable Quick fx Access on Cell Tap</b> controls the SUM, AVERAGE and fx Wizard buttons (and fx in the toolbar for several cells). <b>Enable Data Validation Pickers on Cell Tap</b> controls the Pick and Pick date buttons for cells with a list or date rule.</p>
             <p><b>Show the key row above the keyboard</b> turns the arrows, 123 / ABC, date and fx row on or off. <b>Number keyboard for number cells</b> lets the number pad open by itself. <b>Remember Last Used Ribbon Tab</b> reopens the Ribbon Menu on the tab you used last instead of Home. <b>Save Preferences</b> closes Settings; each switch is kept as soon as you flip it.</p>`;
         const GUIDE_QSHEET_EX = { // the functions that only QSheet has: [example, what it does]
             SUMV: ['=SUMV(C2:C20)', 'Like SUM, but only the visible rows (the rows that are not hidden by a table filter or by Hide). The V is for Visible.'],
